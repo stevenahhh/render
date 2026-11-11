@@ -1,0 +1,436 @@
+use render::font::Fonts;
+use render::page::Page;
+use render::paint::{paint, scrollbar, Target};
+use std::num::NonZeroU32;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
+use std::time::{Duration, Instant};
+use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
+use winit::window::{CursorIcon, Window, WindowId};
+
+const USAGE: &str = "usage: render <file.html> [options]
+
+  (no option)            open the page in a window
+  --screenshot <out.bmp> render one frame to a BMP file and exit
+  --bench <iterations>   time parse, style, layout and paint, then exit
+  --width <px>           viewport width for --screenshot/--bench  (default 1024)
+  --height <px>          viewport height for --screenshot/--bench (default 768)
+  --scale <factor>       device pixels per CSS pixel              (default 1)
+  --scroll <px>          vertical scroll offset for --screenshot  (default 0)
+  --stats                print per-frame timings in window mode
+  --inspect <selector>   with --screenshot, print the computed box of matching elements
+  --boxes <file>         print the box and computed style of each selector in the file
+
+window keys: arrows, space, PageUp/PageDown, Home/End scroll; Backspace goes back;
+             F5 or Cmd/Ctrl+R reloads; Esc quits";
+
+struct Args {
+    path: PathBuf,
+    screenshot: Option<PathBuf>,
+    bench: Option<u32>,
+    width: f32,
+    height: f32,
+    scale: f32,
+    scroll: f32,
+    stats: bool,
+    inspect: Option<String>,
+    boxes: Option<PathBuf>,
+}
+
+fn parse_args() -> Result<Args, String> {
+    let mut a = Args { path: PathBuf::new(), screenshot: None, bench: None, width: 1024.0, height: 768.0, scale: 1.0, scroll: 0.0, stats: false, inspect: None, boxes: None };
+    let mut it = std::env::args().skip(1);
+    let mut path = None;
+    while let Some(arg) = it.next() {
+        let mut value = |name: &str| it.next().ok_or(format!("{name} needs a value"));
+        let num = |name: &str, v: String| v.parse::<f32>().map_err(|_| format!("{name}: '{v}' is not a number"));
+        match arg.as_str() {
+            "--screenshot" => a.screenshot = Some(value("--screenshot")?.into()),
+            "--bench" => {
+                let v = value("--bench")?;
+                a.bench = Some(v.parse().map_err(|_| format!("--bench: '{v}' is not a count"))?);
+            }
+            "--width" => a.width = num("--width", value("--width")?)?,
+            "--height" => a.height = num("--height", value("--height")?)?,
+            "--scale" => a.scale = num("--scale", value("--scale")?)?,
+            "--scroll" => a.scroll = num("--scroll", value("--scroll")?)?,
+            "--stats" => a.stats = true,
+            "--inspect" => a.inspect = Some(value("--inspect")?),
+            "--boxes" => a.boxes = Some(value("--boxes")?.into()),
+            "-h" | "--help" => return Err(String::new()),
+            s if s.starts_with("--") => return Err(format!("unknown option {s}")),
+            s => path = Some(PathBuf::from(s)),
+        }
+    }
+    a.path = path.ok_or("missing HTML file")?;
+    if !(a.width >= 1.0 && a.height >= 1.0 && a.scale > 0.0) {
+        return Err("--width, --height and --scale must be positive".into());
+    }
+    Ok(a)
+}
+
+fn write_bmp(path: &Path, buf: &[u32], w: usize, h: usize) -> std::io::Result<()> {
+    let row = (w * 3 + 3) & !3;
+    let mut out = Vec::with_capacity(54 + row * h);
+    out.extend_from_slice(b"BM");
+    for v in [(54 + row * h) as u32, 0, 54, 40, w as u32, h as u32] {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out.extend_from_slice(&[1, 0, 24, 0]);
+    for v in [0u32, (row * h) as u32, 2835, 2835, 0, 0] {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    for y in (0..h).rev() {
+        for px in &buf[y * w..(y + 1) * w] {
+            out.extend_from_slice(&px.to_le_bytes()[..3]);
+        }
+        out.resize(out.len() + row - w * 3, 0);
+    }
+    std::fs::write(path, out)
+}
+
+fn device_size(a: &Args) -> (usize, usize) {
+    ((a.width * a.scale).round() as usize, (a.height * a.scale).round() as usize)
+}
+
+fn screenshot(a: &Args, out: &Path) -> std::io::Result<()> {
+    let mut fonts = Fonts::new();
+    let mut page = Page::load(&a.path)?;
+    page.settle(&mut fonts, a.width, a.height, Duration::from_millis(400));
+    if let Some(sel) = &a.inspect {
+        for line in page.inspect(sel) {
+            eprintln!("{line}");
+        }
+    }
+    let (w, h) = device_size(a);
+    let mut buf = vec![0u32; w * h];
+    let mut target = Target { buf: &mut buf, w: w as i32, h: h as i32 };
+    let scroll = a.scroll.clamp(0.0, (page.layout.height - a.height).max(0.0));
+    paint(&page.layout, &mut fonts, &mut page.images, &mut target, scroll, a.scale);
+    scrollbar(&mut target, scroll, page.layout.height, a.scale);
+    write_bmp(out, &buf, w, h)
+}
+
+/// Machine-readable geometry and computed style for tools/check.ts, one
+/// line per selector: `index x y w h | style`, with `-` in place of a
+/// missing box and `?` when nothing matches the selector.
+fn boxes(a: &Args, selectors: &Path) -> std::io::Result<()> {
+    let list = std::fs::read_to_string(selectors)?;
+    let mut fonts = Fonts::new();
+    let mut page = Page::load(&a.path)?;
+    page.record_boxes = true;
+    page.settle(&mut fonts, a.width, a.height, Duration::from_millis(400));
+    let mut out = String::new();
+    for (i, sel) in list.lines().enumerate() {
+        match page.describe(sel) {
+            Some((Some([x, y, w, h]), css)) => out += &format!("{i} {x:.1} {y:.1} {w:.1} {h:.1} | {css}\n"),
+            Some((None, css)) => out += &format!("{i} - | {css}\n"),
+            None => out += &format!("{i} ?\n"),
+        }
+    }
+    out += &format!("height {:.1}\n", page.layout.height);
+    print!("{out}");
+    Ok(())
+}
+
+fn bench(a: &Args, iters: u32) -> std::io::Result<()> {
+    use render::{dom::parse_html, layout::layout, style::compute_styles};
+    let html = String::from_utf8_lossy(&std::fs::read(&a.path)?).into_owned();
+    let base = a.path.parent();
+    let mut fonts = Fonts::new();
+    let (w, h) = device_size(a);
+    let mut buf = vec![0u32; w * h];
+
+    let cold = Instant::now();
+    let mut page = Page::from_html(&html, base);
+    page.update(&mut fonts, a.width, a.height);
+    paint(&page.layout, &mut fonts, &mut page.images, &mut Target { buf: &mut buf, w: w as i32, h: h as i32 }, 0.0, a.scale);
+    let cold = cold.elapsed();
+
+    let time = |f: &mut dyn FnMut()| {
+        let (mut best, mut total) = (Duration::MAX, Duration::ZERO);
+        for _ in 0..iters.max(1) {
+            let t = Instant::now();
+            f();
+            let d = t.elapsed();
+            best = best.min(d);
+            total += d;
+        }
+        (best, total / iters.max(1))
+    };
+    let rows = [
+        ("parse html", time(&mut || drop(std::hint::black_box(parse_html(&html))))),
+        ("parse html+css", time(&mut || drop(std::hint::black_box(Page::from_html(&html, base))))),
+        ("style", time(&mut || drop(std::hint::black_box(compute_styles(&page.dom, &page.sheet, a.width, a.height, u32::MAX))))),
+        ("layout", time(&mut || {
+            let old = std::mem::take(&mut page.layout);
+            page.layout = layout(&page.dom, &page.styles, &mut fonts, &mut page.images, a.width, a.height, old);
+        })),
+        ("paint", time(&mut || {
+            let mut target = Target { buf: &mut buf, w: w as i32, h: h as i32 };
+            paint(&page.layout, &mut fonts, &mut page.images, &mut target, a.scroll, a.scale);
+        })),
+    ];
+    let ms = |d: Duration| d.as_secs_f64() * 1e3;
+    println!("{}: {} bytes, {} nodes, {} rules, {} display items", a.path.display(), html.len(), page.dom.nodes.len(), page.sheet.rules.len(), page.layout.items.len());
+    println!("viewport {}x{} css px at {}x = {w}x{h} device px, document height {:.0} px", a.width, a.height, a.scale, page.layout.height);
+    println!("cold load to first frame (fonts and glyph cache empty): {:.3} ms", ms(cold));
+    println!("{:<16}{:>12}{:>12}", "stage", "best ms", "mean ms");
+    for (name, (best, mean)) in rows {
+        println!("{name:<16}{:>12.3}{:>12.3}", ms(best), ms(mean));
+    }
+    Ok(())
+}
+
+struct App {
+    path: PathBuf,
+    page: Page,
+    fonts: Fonts,
+    window: Option<Rc<Window>>,
+    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    scroll: f32,
+    mouse: (f32, f32),
+    mods: ModifiersState,
+    history: Vec<(PathBuf, f32)>,
+    pointer: bool,
+    stats: bool,
+}
+
+impl App {
+    fn view(&self) -> (f32, f32, f32) {
+        let Some(w) = &self.window else { return (1.0, 1.0, 1.0) };
+        let (size, scale) = (w.inner_size(), w.scale_factor() as f32);
+        (size.width as f32 / scale, size.height as f32 / scale, scale)
+    }
+
+    fn request_redraw(&self) {
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
+    fn scroll_to(&mut self, y: f32) {
+        let max = (self.page.layout.height - self.view().1).max(0.0);
+        let y = y.clamp(0.0, max);
+        if y != self.scroll {
+            self.scroll = y;
+            self.page.set_scroll(y);
+            self.request_redraw();
+        }
+    }
+
+    fn open(&mut self, path: PathBuf, scroll: f32, remember: bool) {
+        match Page::load(&path) {
+            Ok(page) => {
+                if remember {
+                    self.history.push((self.path.clone(), self.scroll));
+                }
+                self.page = page;
+                self.path = path;
+                self.scroll = scroll;
+                if let Some(w) = &self.window {
+                    w.set_title(&title(&self.page, &self.path));
+                }
+                self.request_redraw();
+            }
+            Err(e) => eprintln!("cannot open {}: {e}", path.display()),
+        }
+    }
+
+    fn follow(&mut self, href: &str) {
+        if let Some(id) = href.strip_prefix('#') {
+            if let Some(y) = self.page.anchor_y(id) {
+                self.scroll_to(y);
+            }
+            return;
+        }
+        if href.contains("://") || href.starts_with("mailto:") {
+            eprintln!("only local files can be opened: {href}");
+            return;
+        }
+        let file = href.split(['#', '?']).next().unwrap_or(href);
+        let path = self.path.parent().unwrap_or(Path::new(".")).join(file);
+        self.open(path, 0.0, true);
+    }
+
+    fn redraw(&mut self) {
+        let (Some(window), Some(surface)) = (self.window.as_ref(), self.surface.as_mut()) else { return };
+        let size = window.inner_size();
+        let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
+        let scale = window.scale_factor() as f32;
+        let (vw, vh) = (size.width as f32 / scale, size.height as f32 / scale);
+        let t0 = Instant::now();
+        self.page.update(&mut self.fonts, vw, vh);
+        self.scroll = self.scroll.clamp(0.0, (self.page.layout.height - vh).max(0.0));
+        let update = t0.elapsed();
+        surface.resize(w, h).expect("resize window surface");
+        let mut buf = surface.buffer_mut().expect("acquire frame buffer");
+        let t1 = Instant::now();
+        let mut target = Target { buf: &mut buf, w: size.width as i32, h: size.height as i32 };
+        paint(&self.page.layout, &mut self.fonts, &mut self.page.images, &mut target, self.scroll, scale);
+        scrollbar(&mut target, self.scroll, self.page.layout.height, scale);
+        let t2 = Instant::now();
+        buf.present().expect("present frame");
+        if self.stats {
+            eprintln!(
+                "frame {}x{} scroll {:.0}: style+layout {:.3} ms, paint {:.3} ms, present {:.3} ms",
+                size.width,
+                size.height,
+                self.scroll,
+                update.as_secs_f64() * 1e3,
+                (t2 - t1).as_secs_f64() * 1e3,
+                t2.elapsed().as_secs_f64() * 1e3
+            );
+        }
+    }
+
+    fn hover(&mut self) {
+        let node = self.page.hit(self.mouse.0, self.mouse.1 + self.scroll);
+        let pointer = self.page.pointer(node);
+        if pointer != self.pointer {
+            self.pointer = pointer;
+            if let Some(w) = &self.window {
+                w.set_cursor(if pointer { CursorIcon::Pointer } else { CursorIcon::Default });
+            }
+        }
+        if self.page.set_hover(&mut self.fonts, node) {
+            self.request_redraw();
+        }
+    }
+}
+
+fn title(page: &Page, path: &Path) -> String {
+    if page.title.is_empty() {
+        path.display().to_string()
+    } else {
+        page.title.clone()
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title(title(&self.page, &self.path)).with_inner_size(LogicalSize::new(1024.0, 768.0));
+        let window = Rc::new(event_loop.create_window(attrs).expect("create window"));
+        let context = softbuffer::Context::new(window.clone()).expect("create display context");
+        self.surface = Some(softbuffer::Surface::new(&context, window.clone()).expect("create window surface"));
+        self.window = Some(window);
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let next = self.page.tick();
+        if self.page.take_dirty() {
+            self.request_redraw();
+        }
+        event_loop.set_control_flow(match next {
+            Some(ms) => ControlFlow::WaitUntil(Instant::now() + Duration::from_secs_f64(ms.max(4.0) / 1e3)),
+            None => ControlFlow::Wait,
+        });
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::RedrawRequested => self.redraw(),
+            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => self.request_redraw(),
+            WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
+            WindowEvent::MouseWheel { delta, .. } => {
+                let dy = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y * 48.0,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / self.view().2,
+                };
+                self.scroll_to(self.scroll - dy);
+                self.hover();
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let scale = self.view().2;
+                self.mouse = (position.x as f32 / scale, position.y as f32 / scale);
+                self.hover();
+            }
+            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
+                let node = self.page.hit(self.mouse.0, self.mouse.1 + self.scroll);
+                let href = self.page.link(node).map(str::to_string);
+                let cancelled = self.page.click(node);
+                if self.page.take_dirty() {
+                    self.request_redraw();
+                }
+                if let (Some(href), false) = (href, cancelled) {
+                    self.follow(&href);
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
+                let page_step = self.view().1 * 0.9;
+                let command = self.mods.super_key() || self.mods.control_key();
+                match event.logical_key.as_ref() {
+                    Key::Named(NamedKey::ArrowDown) => self.scroll_to(self.scroll + 48.0),
+                    Key::Named(NamedKey::ArrowUp) => self.scroll_to(self.scroll - 48.0),
+                    Key::Named(NamedKey::PageDown | NamedKey::Space) => self.scroll_to(self.scroll + page_step),
+                    Key::Named(NamedKey::PageUp) => self.scroll_to(self.scroll - page_step),
+                    Key::Named(NamedKey::Home) => self.scroll_to(0.0),
+                    Key::Named(NamedKey::End) => self.scroll_to(f32::MAX),
+                    Key::Named(NamedKey::Escape) => event_loop.exit(),
+                    Key::Named(NamedKey::Backspace) => {
+                        if let Some((path, scroll)) = self.history.pop() {
+                            self.open(path, scroll, false);
+                        }
+                    }
+                    Key::Named(NamedKey::F5) => self.open(self.path.clone(), self.scroll, false),
+                    Key::Character("r") if command => self.open(self.path.clone(), self.scroll, false),
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn run() -> Result<(), String> {
+    let args = match parse_args() {
+        Ok(a) => a,
+        Err(e) if e.is_empty() => {
+            println!("{USAGE}");
+            return Ok(());
+        }
+        Err(e) => return Err(format!("{e}\n\n{USAGE}")),
+    };
+    let io = |e: std::io::Error| format!("{}: {e}", args.path.display());
+    if let Some(out) = &args.screenshot {
+        return screenshot(&args, out).map_err(io);
+    }
+    if let Some(file) = &args.boxes {
+        return boxes(&args, file).map_err(io);
+    }
+    if let Some(n) = args.bench {
+        return bench(&args, n).map_err(io);
+    }
+    let page = Page::load(&args.path).map_err(io)?;
+    let mut app = App {
+        path: args.path.clone(),
+        page,
+        fonts: Fonts::new(),
+        window: None,
+        surface: None,
+        scroll: 0.0,
+        mouse: (-1.0, -1.0),
+        mods: ModifiersState::empty(),
+        history: Vec::new(),
+        pointer: false,
+        stats: args.stats,
+    };
+    let event_loop = EventLoop::new().map_err(|e| format!("cannot start the event loop: {e}"))?;
+    event_loop.set_control_flow(ControlFlow::Wait);
+    event_loop.run_app(&mut app).map_err(|e| format!("event loop failed: {e}"))
+}
+
+fn main() {
+    if let Err(e) = run() {
+        eprintln!("render: {e}");
+        std::process::exit(1);
+    }
+}
