@@ -12,6 +12,7 @@ boa_engine = "0.22.0"
 memchr = "2"
 softbuffer = "0.4"
 winit = "0.30"
+mimalloc = { version = "0.1.52", default-features = false }
 
 [profile.release]
 opt-level = 3

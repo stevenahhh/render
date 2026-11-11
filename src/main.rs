@@ -12,6 +12,11 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
 
+/// Script execution allocates heavily; mimalloc is faster than the system
+/// allocator for that pattern (measured on the apple.com page load).
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 const USAGE: &str = "usage: render <file.html> [options]
 
   (no option)            open the page in a window
