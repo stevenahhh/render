@@ -26,6 +26,9 @@ struct Entry {
     w: f32,
     h: f32,
     drawn: Option<Picture>,
+    /// What `drawn` holds: its offset `[x, y]` inside the picture scaled to `[w, h]`.
+    /// A whole picture is `[0, 0, w, h]`.
+    at: [u32; 4],
     failed: bool,
 }
 
@@ -41,7 +44,10 @@ pub struct Images {
     pending: Vec<u32>,
 }
 
-type Decoded = (u32, Option<Picture>);
+type Decoded = (u32, Option<Picture>, [u32; 4]);
+
+/// Device pixels kept around the visible part of a partly shown image.
+const MARGIN: u32 = 512;
 type Wake = Arc<dyn Fn() + Send + Sync>;
 
 /// Most worker threads decoding at once; further images wait for the next frame.
@@ -58,7 +64,7 @@ impl Images {
 
     fn add(&mut self, key: &str, source: Option<(Source, f32, f32)>) -> Option<u32> {
         let id = source.map(|(source, w, h)| {
-            self.list.push(Entry { source, w, h, drawn: None, failed: false });
+            self.list.push(Entry { source, w, h, drawn: None, at: [0; 4], failed: false });
             self.list.len() as u32 - 1
         });
         self.by_key.insert(key.into(), id);
@@ -117,11 +123,12 @@ impl Images {
     pub fn poll(&mut self) -> bool {
         let Some((_, rx, _)) = &self.background else { return false };
         let mut any = false;
-        while let Ok((id, picture)) = rx.try_recv() {
+        while let Ok((id, picture, at)) = rx.try_recv() {
             self.pending.retain(|&p| p != id);
             let e = &mut self.list[id as usize];
             e.failed = picture.is_none();
             e.drawn = picture;
+            e.at = at;
             any = true;
         }
         any
@@ -137,7 +144,7 @@ impl Images {
         let mut jobs: Vec<(u32, PathBuf, u32, u32)> = Vec::new();
         for &(id, w, h) in wants {
             let Some(e) = self.list.get(id as usize) else { continue };
-            let cached = e.drawn.as_ref().is_some_and(|p| p.w == w && p.h == h);
+            let cached = e.drawn.is_some() && e.at == [0, 0, w, h];
             if e.failed || cached || w == 0 || h == 0 || w > 16384 || h > 16384 || jobs.iter().any(|j| j.0 == id) {
                 continue;
             }
@@ -156,45 +163,65 @@ impl Images {
                 s.spawn(|| {
                     while let Some((id, path, w, h)) = jobs.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) {
                         let picture = decode(path, *w, *h);
-                        done.lock().expect("decode results").push((*id, picture));
+                        done.lock().expect("decode results").push((*id, picture, [0, 0, *w, *h]));
                     }
                 });
             }
         });
-        for (id, picture) in done.into_inner().expect("decode results") {
+        for (id, picture, at) in done.into_inner().expect("decode results") {
             let e = &mut self.list[id as usize];
             e.failed = picture.is_none();
             e.drawn = picture;
+            e.at = at;
         }
     }
 
-    /// Pixels scaled to exactly `w` x `h` device pixels.
-    pub fn get(&mut self, id: u32, w: u32, h: u32) -> Option<&Picture> {
+    /// Pixels of the image scaled to `w` x `h` device pixels, with the offset of the
+    /// returned picture inside that scaled image. `visible` is the part `[x0, y0, x1, y1]`
+    /// the caller will draw. With background decoding only that part and a margin are
+    /// kept when the image is mostly off screen, so a huge image costs what is shown.
+    pub fn get(&mut self, id: u32, w: u32, h: u32, visible: [u32; 4]) -> Option<(&Picture, u32, u32)> {
         let e = self.list.get_mut(id as usize)?;
         if e.failed || w == 0 || h == 0 || w > 16384 || h > 16384 {
             return None;
         }
-        if !e.drawn.as_ref().is_some_and(|p| p.w == w && p.h == h) {
+        let sized = e.drawn.is_some() && e.at[2] == w && e.at[3] == h;
+        let covers = sized
+            && e.drawn.as_ref().is_some_and(|p| {
+                e.at[0] <= visible[0] && e.at[1] <= visible[1] && e.at[0] + p.w >= visible[2].min(w) && e.at[1] + p.h >= visible[3].min(h)
+            });
+        if !covers {
             if let (Some((tx, _, wake)), Source::File(path)) = (&self.background, &e.source) {
                 if !self.pending.contains(&id) && self.pending.len() < MAX_DECODERS {
                     self.pending.push(id);
+                    let (x0, y0) = (visible[0].saturating_sub(MARGIN), visible[1].saturating_sub(MARGIN));
+                    let (x1, y1) = ((visible[2] + MARGIN).min(w), (visible[3] + MARGIN).min(h));
+                    let part = x1.saturating_sub(x0) as u64 * y1.saturating_sub(y0) as u64;
+                    let whole = part == 0 || part * 10 >= w as u64 * h as u64 * 6;
+                    let keep = if whole { [0, 0, w, h] } else { [x0, y0, x1, y1] };
                     let (tx, wake, path) = (tx.clone(), wake.clone(), path.clone());
                     std::thread::spawn(move || {
+                        let picture = if whole { decode(&path, w, h) } else { decode_part(&path, w, h, keep) };
                         // The receiver is gone when the page was replaced meanwhile.
-                        if tx.send((id, decode(&path, w, h))).is_ok() {
+                        if tx.send((id, picture, [keep[0], keep[1], w, h])).is_ok() {
                             wake();
                         }
                     });
                 }
-                return None;
+                // Until the new part arrives, an older part at this size is still drawn.
+                if !sized {
+                    return None;
+                }
+            } else {
+                e.drawn = match &e.source {
+                    Source::File(path) => decode(path, w, h),
+                    Source::Svg(tree) => rasterize(tree, w, h),
+                };
+                e.at = [0, 0, w, h];
+                e.failed = e.drawn.is_none();
             }
-            e.drawn = match &e.source {
-                Source::File(path) => decode(path, w, h),
-                Source::Svg(tree) => rasterize(tree, w, h),
-            };
-            e.failed = e.drawn.is_none();
         }
-        e.drawn.as_ref()
+        e.drawn.as_ref().map(|p| (p, e.at[0], e.at[1]))
     }
 }
 
@@ -214,6 +241,30 @@ fn decode(path: &std::path::Path, w: u32, h: u32) -> Option<Picture> {
         image::imageops::resize(&img, w, h, image::imageops::FilterType::Triangle)
     };
     Some(Picture { w, h, px: img.as_raw().chunks_exact(4).map(premultiply).collect() })
+}
+
+/// The part `keep` (`[x0, y0, x1, y1]`) of the image scaled to `w` x `h`: the matching
+/// source rectangle is cut out first, so the scaled copy is only as large as the part.
+fn decode_part(path: &std::path::Path, w: u32, h: u32, keep: [u32; 4]) -> Option<Picture> {
+    let img = image::open(path).ok()?.into_rgba8();
+    let (nw, nh) = img.dimensions();
+    let to_src = |v: u32, full: u32, n: u32, up: bool| {
+        let s = v as u64 * n as u64;
+        (if up { s.div_ceil(full as u64) } else { s / full as u64 }).min(n as u64) as u32
+    };
+    let (sx0, sy0) = (to_src(keep[0], w, nw, false), to_src(keep[1], h, nh, false));
+    let (sx1, sy1) = (to_src(keep[2], w, nw, true).max(sx0 + 1).min(nw), to_src(keep[3], h, nh, true).max(sy0 + 1).min(nh));
+    let part = image::imageops::crop_imm(&img, sx0, sy0, sx1 - sx0, sy1 - sy0).to_image();
+    drop(img);
+    let (pw, ph) = (keep[2] - keep[0], keep[3] - keep[1]);
+    let part = if (part.width(), part.height()) == (pw, ph) {
+        part
+    } else if pw <= part.width() && ph <= part.height() {
+        image::imageops::thumbnail(&part, pw, ph)
+    } else {
+        image::imageops::resize(&part, pw, ph, image::imageops::FilterType::Triangle)
+    };
+    Some(Picture { w: pw, h: ph, px: part.as_raw().chunks_exact(4).map(premultiply).collect() })
 }
 
 fn rasterize(tree: &usvg::Tree, w: u32, h: u32) -> Option<Picture> {

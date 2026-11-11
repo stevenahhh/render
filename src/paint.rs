@@ -352,8 +352,12 @@ pub fn paint(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Target,
             Kind::Image => {
                 let r = dev(it);
                 if !r.is_empty() {
-                    if let Some(pic) = images.get(it.data, (r.x1 - r.x0) as u32, (r.y1 - r.y0) as u32) {
-                        draw_image(t, clip, pic, r);
+                    let v = clip.intersect(r);
+                    let part = |a: i32, origin: i32| (a - origin).max(0) as u32;
+                    let visible = [part(v.x0, r.x0), part(v.y0, r.y0), part(v.x1, r.x0), part(v.y1, r.y0)];
+                    if let Some((pic, x, y)) = images.get(it.data, (r.x1 - r.x0) as u32, (r.y1 - r.y0) as u32, visible) {
+                        let (x0, y0) = (r.x0 + x as i32, r.y0 + y as i32);
+                        draw_image(t, clip, pic, Rect { x0, y0, x1: x0 + pic.w as i32, y1: y0 + pic.h as i32 });
                     }
                 }
             }
