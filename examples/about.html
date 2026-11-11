@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>How render works</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .steps { counter-reset: none; padding-left: 22px; }
+    .steps li { margin: 8px 0; }
+    .note { padding: 12px 16px; border-radius: 8px; background: #fef3c7; border: 1px solid #f59e0b; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">render</span>
+    <nav><a href="demo.html">Demo</a></nav>
+  </header>
+  <main>
+    <h1>How it works</h1>
+    <p>This page uses no user-agent defaults beyond the built-in sheet and the shared <code>style.css</code>.
+       Press <b>Backspace</b> to go back, or follow <a href="demo.html">this link</a>.</p>
+    <ol class="steps">
+      <li><b>Parse.</b> One pass over the bytes builds an arena DOM with interned names.</li>
+      <li><b>Style.</b> Rules are bucketed by id, class and tag, so each element tests few selectors.</li>
+      <li><b>Layout.</b> Block, inline and flex layout append a flat display list.</li>
+      <li><b>Paint.</b> Visible items are rasterized into the window buffer.</li>
+    </ol>
+    <p class="note">Images, scripts and network loading are out of scope.</p>
+  </main>
+</body>
+</html>

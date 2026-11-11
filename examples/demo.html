@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>render demo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">render</span>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#text">Text</a>
+      <a href="#table">Table</a>
+      <a href="about.html">About</a>
+    </nav>
+  </header>
+
+  <section class="hero">
+    <h1>HTML &amp; CSS, rendered in Rust</h1>
+    <p>A small engine that parses, styles, lays out and paints a page on the CPU. 한글 텍스트도 시스템 글꼴로 그립니다.</p>
+    <a class="button" href="about.html">How it works &rarr;</a>
+  </section>
+
+  <main>
+    <h2 id="features">Features</h2>
+    <div class="cards">
+      <div class="card">
+        <h3>Cascade <span class="tag">done</span></h3>
+        <p>Specificity, source order, <code>!important</code>, inheritance and custom properties.</p>
+      </div>
+      <div class="card">
+        <h3>Flexbox <span class="tag info">row + column</span></h3>
+        <p>Grow, shrink, wrap, gaps, auto margins and cross-axis alignment.</p>
+      </div>
+      <div class="card">
+        <h3>Text <span class="tag warn">no shaping</span></h3>
+        <p>Line breaking, font fallback and a cached glyph atlas with subpixel positions.</p>
+      </div>
+    </div>
+
+    <h2 id="text">Text and inline content</h2>
+    <div class="columns">
+      <div>
+        <p>Inline elements nest freely: <b>bold</b>, <i>italic</i>, <b><i>both</i></b>, <u>underlined</u>, <s>struck</s>,
+          <mark>highlighted</mark>, <code>monospace</code> and <a href="about.html">links</a>. Long paragraphs wrap at word
+          boundaries, and whitespace   collapses    the way it does in a browser.</p>
+        <p>한국어 문장은 음절 사이에서도 줄을 바꿀 수 있습니다. 글꼴에 없는 글자는 대체 글꼴에서 찾아서 그립니다. 영문과 한글이 섞인 mixed text도 한 줄에 놓입니다.</p>
+        <blockquote>Simplicity is prerequisite for reliability. &mdash; Edsger W. Dijkstra</blockquote>
+      </div>
+      <div>
+        <ul>
+          <li>Unordered item</li>
+          <li>Nested list
+            <ul><li>Circle marker</li><li>Another one</li></ul>
+          </li>
+        </ul>
+        <ol start="3">
+          <li>Ordered lists honour <code>start</code></li>
+          <li>Markers are right aligned</li>
+        </ol>
+<pre><code>fn main() {
+    let page = Page::load("demo.html")?;
+    paint(&amp;page.layout, &amp;mut target);
+}</code></pre>
+      </div>
+    </div>
+
+    <h2>Boxes</h2>
+    <div class="boxes">
+      <div class="b1">1</div><div class="b2">2</div><div class="b3">3</div><div class="b4">4</div><div class="b5">5</div>
+      <div style="margin-left: auto; width: auto; color: #374151; font-weight: 400; text-align: right">
+        <span class="badge-wrap">Inbox <span class="badge">3</span></span>
+        <button type="button">Button</button> <input value="text input">
+      </div>
+    </div>
+
+    <h2 id="table">Table</h2>
+    <table>
+      <tr><th>Stage</th><th>Input</th><th>Output</th><th>Cost</th></tr>
+      <tr><td>Parse</td><td>HTML bytes</td><td>Arena DOM</td><td class="num">O(n)</td></tr>
+      <tr><td>Style</td><td>DOM + rules</td><td>Computed styles</td><td class="num">O(n &middot; k)</td></tr>
+      <tr><td>Layout</td><td>Styles</td><td>Display list</td><td class="num">O(n)</td></tr>
+      <tr><td>Paint</td><td>Display list</td><td>Pixels</td><td class="num">O(visible)</td></tr>
+    </table>
+
+    <h2>Long content</h2>
+    <p>Scroll with the wheel, the arrow keys, space or Page Down. Only the items that intersect the viewport are painted.</p>
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+    <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+    <p>Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis et quasi architecto beatae vitae dicta sunt explicabo.</p>
+    <p>Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt.</p>
+  </main>
+
+  <footer>Rendered by <b>render</b> &middot; <a href="#features">back to top</a></footer>
+</body>
+</html>

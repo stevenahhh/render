@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>render script demo</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 24px; color: #1f2937; }
+    .row { display: flex; gap: 12px; align-items: center; margin: 12px 0; }
+    button { padding: 6px 14px; cursor: pointer; }
+    #count { font-size: 28px; font-weight: 700; width: 60px; text-align: center; }
+    .on { background: #2563eb; color: #fff; }
+    .box { padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; }
+    ul { padding-left: 22px; }
+    .done { color: #059669; }
+  </style>
+</head>
+<body>
+  <h1 id="title">Waiting for script</h1>
+  <div class="row">
+    <button type="button" id="minus">-</button>
+    <span id="count">0</span>
+    <button type="button" id="plus">+</button>
+    <button type="button" id="toggle" class="box">Toggle highlight</button>
+  </div>
+  <p class="box" id="clock">timer has not fired</p>
+  <ul id="list"></ul>
+  <script>
+    const $ = (s) => document.querySelector(s);
+    document.getElementById('title').textContent = 'Script ran';
+    let n = 0;
+    const show = () => { $('#count').textContent = String(n); };
+    $('#plus').addEventListener('click', () => { n++; show(); });
+    $('#minus').addEventListener('click', () => { n--; show(); });
+    $('#toggle').addEventListener('click', (e) => e.currentTarget.classList.toggle('on'));
+
+    const list = $('#list');
+    for (const name of ['createElement', 'appendChild', 'classList']) {
+      const li = document.createElement('li');
+      li.textContent = name + ' works';
+      li.className = 'done';
+      list.appendChild(li);
+    }
+    list.insertAdjacentHTML('beforeend', '<li>innerHTML <b>works</b></li>');
+
+    let ticks = 0;
+    setInterval(() => {
+      ticks++;
+      $('#clock').textContent = 'timer fired ' + ticks + ' times';
+    }, 500);
+    setTimeout(() => { $('#clock').style.background = '#fef3c7'; }, 0);
+    Promise.resolve().then(() => console.log('promise resolved, items:', list.children.length));
+  </script>
+</body>
+</html>
