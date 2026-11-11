@@ -1,0 +1,20 @@
+[package]
+name = "render"
+version = "0.1.0"
+edition = "2021"
+description = "A small, fast HTML/CSS renderer with a browser-style window"
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+resvg = { version = "0.45", default-features = false }
+ab_glyph = "0.2"
+boa_engine = "0.22.0"
+memchr = "2"
+softbuffer = "0.4"
+winit = "0.30"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
