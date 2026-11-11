@@ -316,6 +316,26 @@ pub fn paint(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Target,
         y1: ((it.y + it.h) * scale).round() as i32 - sy,
     };
     let (top, bottom) = (scroll - 4.0, scroll + t.h as f32 / scale + 4.0);
+    // Decode every image this frame draws up front, in parallel.
+    let mut wants: Vec<(u32, u32, u32)> = Vec::new();
+    let (mut clips, mut clip): (Vec<Rect>, Rect) = (Vec::new(), full);
+    for it in &l.items {
+        match it.kind {
+            Kind::Clip => {
+                clips.push(clip);
+                clip = clip.intersect(dev(it));
+            }
+            Kind::PopClip => clip = clips.pop().unwrap_or(full),
+            Kind::Image if !(it.y + it.h < top || it.y > bottom || clip.is_empty()) => {
+                let r = dev(it);
+                if !r.is_empty() {
+                    wants.push((it.data, (r.x1 - r.x0) as u32, (r.y1 - r.y0) as u32));
+                }
+            }
+            _ => {}
+        }
+    }
+    images.prepare(&wants);
     let mut clips: Vec<Rect> = Vec::new();
     let mut clip = full;
     for it in &l.items {

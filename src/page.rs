@@ -65,6 +65,8 @@ option { display: none }
 option:first-child { display: inline }
 ";
 
+type Script = (String, String, Option<std::path::PathBuf>);
+
 pub struct Page {
     pub dom: Dom,
     pub sheet: Sheet,
@@ -82,6 +84,8 @@ pub struct Page {
     rects: FxMap<u32, [f32; 4]>,
     scroll: f32,
     dirty: bool,
+    /// Scripts still to run, in document order: `(name, code, module path)`.
+    deferred: Vec<Script>,
     /// Keep every element's box in the layout. Set before the first `update`.
     pub record_boxes: bool,
 }
@@ -90,12 +94,19 @@ impl Page {
     /// Parses HTML and every stylesheet it references. `base` is the
     /// directory that relative `<link href>` paths resolve against.
     pub fn from_html(html: &str, base: Option<&Path>) -> Page {
+        Page::parse(html, base, false)
+    }
+
+    /// With `defer`, every script is kept for `run_deferred`, so the time to the
+    /// first frame does not depend on how much script a page carries. The scripts
+    /// still run in document order.
+    fn parse(html: &str, base: Option<&Path>, defer: bool) -> Page {
         let mut dom = parse_html(html);
         let mut sheet = Sheet::default();
         sheet.add(UA_CSS, &mut dom.atoms, 0);
         let mut viewport_units = html.contains("vw") || html.contains("vh");
         let mut title = String::new();
-        let mut scripts: Vec<(String, String, Option<std::path::PathBuf>)> = Vec::new();
+        let mut scripts: Vec<Script> = Vec::new();
         for n in 0..dom.nodes.len() as NodeId {
             match dom.nodes[n as usize].tag {
                 atom::SCRIPT => {
@@ -157,21 +168,45 @@ impl Page {
             rects: FxMap::default(),
             scroll: 0.0,
             dirty: false,
+            deferred: Vec::new(),
             record_boxes: false,
         };
         if !scripts.is_empty() {
             page.js = Some(Js::new(base));
-            page.with_js(|js| {
-                for (name, code, module) in &scripts {
-                    match module {
-                        Some(path) => js.eval_module(code, name, path),
-                        None => drop(js.eval(code, name)),
-                    }
-                }
-                js.load();
-            });
+            if defer {
+                page.deferred = scripts;
+            } else {
+                page.run_scripts(&scripts, true);
+            }
         }
         page
+    }
+
+    /// Runs scripts in order; `last` also fires the load event.
+    fn run_scripts(&mut self, scripts: &[Script], last: bool) {
+        self.with_js(|js| {
+            for (name, code, module) in scripts {
+                match module {
+                    Some(path) => js.eval_module(code, name, path),
+                    None => drop(js.eval(code, name)),
+                }
+            }
+            if last {
+                js.load();
+            }
+        });
+    }
+
+    /// Runs the next script `load_deferred` held back; the last one also fires the
+    /// load event. Returns how many are left, or `None` when there was nothing to run.
+    pub fn run_deferred(&mut self) -> Option<usize> {
+        if self.deferred.is_empty() {
+            return None;
+        }
+        let script = self.deferred.remove(0);
+        let left = self.deferred.len();
+        self.run_scripts(std::slice::from_ref(&script), left == 0);
+        Some(left)
     }
 
     /// Runs `f` with the DOM lent to the script engine. A script that
@@ -224,6 +259,9 @@ impl Page {
 
     /// Runs due script timers; returns milliseconds until the next one.
     pub fn tick(&mut self) -> Option<f64> {
+        if !self.deferred.is_empty() {
+            return None;
+        }
         self.with_js(|js| js.timers()).flatten()
     }
 
@@ -252,6 +290,12 @@ impl Page {
 
     pub fn set_scroll(&mut self, y: f32) {
         self.scroll = y;
+    }
+
+    /// Like `load`, but holds deferred scripts back until `run_deferred`.
+    pub fn load_deferred(path: &Path) -> std::io::Result<Page> {
+        let bytes = std::fs::read(path)?;
+        Ok(Page::parse(&String::from_utf8_lossy(&bytes), path.parent(), true))
     }
 
     pub fn load(path: &Path) -> std::io::Result<Page> {

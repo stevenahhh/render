@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
 
@@ -203,6 +203,16 @@ struct App {
     history: Vec<(PathBuf, f32)>,
     pointer: bool,
     stats: bool,
+    proxy: EventLoopProxy<()>,
+}
+
+/// Decode the page's images off the main thread; a finished one wakes the event loop.
+fn decode_in_background(page: &mut Page, proxy: &EventLoopProxy<()>) {
+    let proxy = proxy.clone();
+    page.images.decode_in_background(std::sync::Arc::new(move || {
+        // The loop is gone only while the process is exiting.
+        let _ = proxy.send_event(());
+    }));
 }
 
 impl App {
@@ -230,7 +240,8 @@ impl App {
 
     fn open(&mut self, path: PathBuf, scroll: f32, remember: bool) {
         match Page::load(&path) {
-            Ok(page) => {
+            Ok(mut page) => {
+                decode_in_background(&mut page, &self.proxy);
                 if remember {
                     self.history.push((self.path.clone(), self.scroll));
                 }
@@ -280,6 +291,12 @@ impl App {
         scrollbar(&mut target, self.scroll, self.page.layout.height, scale);
         let t2 = Instant::now();
         buf.present().expect("present frame");
+        let present = t2.elapsed();
+        if !FIRST_FRAME.swap(true, std::sync::atomic::Ordering::Relaxed) && self.stats {
+            if let Some(start) = PROCESS_START.get() {
+                eprintln!("first frame: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
+            }
+        }
         if self.stats {
             eprintln!(
                 "frame {}x{} scroll {:.0}: style+layout {:.3} ms, paint {:.3} ms, present {:.3} ms",
@@ -288,7 +305,7 @@ impl App {
                 self.scroll,
                 update.as_secs_f64() * 1e3,
                 (t2 - t1).as_secs_f64() * 1e3,
-                t2.elapsed().as_secs_f64() * 1e3
+                present.as_secs_f64() * 1e3
             );
         }
     }
@@ -326,9 +343,36 @@ impl ApplicationHandler for App {
         let context = softbuffer::Context::new(window.clone()).expect("create display context");
         self.surface = Some(softbuffer::Surface::new(&context, window.clone()).expect("create window surface"));
         self.window = Some(window);
+        if self.stats {
+            if let Some(start) = PROCESS_START.get() {
+                eprintln!("window ready: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
+            }
+        }
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
+        if self.page.images.poll() {
+            self.request_redraw();
+        }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Once a frame is on screen, run the held-back scripts one per turn of the
+        // loop, so input and repaints are served in between.
+        if FIRST_FRAME.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Some(left) = self.page.run_deferred() {
+                if self.page.take_dirty() {
+                    self.request_redraw();
+                }
+                if left == 0 && self.stats {
+                    if let Some(start) = PROCESS_START.get() {
+                        eprintln!("deferred scripts done: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
+                    }
+                }
+                event_loop.set_control_flow(ControlFlow::Poll);
+                return;
+            }
+        }
         let next = self.page.tick();
         if self.page.take_dirty() {
             self.request_redraw();
@@ -414,7 +458,15 @@ fn run() -> Result<(), String> {
     if let Some(n) = args.bench {
         return bench(&args, n).map_err(io);
     }
-    let page = Page::load(&args.path).map_err(io)?;
+    let event_loop = EventLoop::new().map_err(|e| format!("cannot start the event loop: {e}"))?;
+    let proxy = event_loop.create_proxy();
+    let mut page = Page::load_deferred(&args.path).map_err(io)?;
+    decode_in_background(&mut page, &proxy);
+    if args.stats {
+        if let Some(start) = PROCESS_START.get() {
+            eprintln!("page loaded: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
+        }
+    }
     let mut app = App {
         path: args.path.clone(),
         page,
@@ -427,13 +479,19 @@ fn run() -> Result<(), String> {
         history: Vec::new(),
         pointer: false,
         stats: args.stats,
+        proxy,
     };
-    let event_loop = EventLoop::new().map_err(|e| format!("cannot start the event loop: {e}"))?;
     event_loop.set_control_flow(ControlFlow::Wait);
     event_loop.run_app(&mut app).map_err(|e| format!("event loop failed: {e}"))
 }
 
+/// Set at the top of `main`; `--stats` reports the first presented frame against it.
+/// `FIRST_FRAME` turns true once a frame has been presented.
+static PROCESS_START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+static FIRST_FRAME: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn main() {
+    let _ = PROCESS_START.set(Instant::now());
     if let Err(e) = run() {
         eprintln!("render: {e}");
         std::process::exit(1);
