@@ -117,8 +117,14 @@ impl Fonts {
         let data = match self.files.iter().find(|f| f.0 == path) {
             Some(f) => f.1,
             None => {
-                // Font data lives for the whole process; leaking gives FontRef a 'static slice.
-                let d: &'static [u8] = Box::leak(std::fs::read(path).ok()?.into_boxed_slice());
+                // Font data lives for the whole process, so the mapping is leaked to give
+                // FontRef a 'static slice. Mapping instead of reading keeps a 50 MB CJK
+                // font out of the heap: only the pages a page's glyphs touch are loaded.
+                let file = std::fs::File::open(path).ok()?;
+                // SAFETY: the mapping is private and read-only. These are system font
+                // files, which are not rewritten in place while programs use them.
+                let map = unsafe { memmap2::Mmap::map(&file) }.ok()?;
+                let d: &'static [u8] = Box::leak(Box::new(map));
                 self.files.push((path, d));
                 d
             }

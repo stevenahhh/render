@@ -13,6 +13,7 @@ memchr = "2"
 softbuffer = "0.4"
 winit = "0.30"
 mimalloc = { version = "0.1.52", default-features = false }
+memmap2 = "0.9"
 
 [profile.release]
 opt-level = 3
