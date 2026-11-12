@@ -482,7 +482,7 @@ mod tests {
     use crate::css::FontFace;
 
     fn face(lo: u16, hi: u16, italic: bool) -> FontFace {
-        FontFace { family: "f".into(), srcs: Vec::new(), weight: (lo, hi), italic }
+        FontFace { family: "f".into(), srcs: Vec::new(), weight: (lo, hi), italic, ranges: Vec::new() }
     }
 
     /// The weight of the face CSS font matching picks from `faces`.

@@ -142,6 +142,8 @@ pub struct FontFace {
     /// The weights the face covers, `(400, 400)` when not given.
     pub weight: (u16, u16),
     pub italic: bool,
+    /// The code points the face is for, from `unicode-range`; empty for all of them.
+    pub ranges: Vec<(u32, u32)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1030,7 +1032,7 @@ pub fn builtin_family(n: &str) -> Option<Family> {
 
 /// Reads the body of an `@font-face` rule; `None` without a family or a usable source.
 fn font_face(body: &str) -> Option<FontFace> {
-    let mut face = FontFace { family: "".into(), srcs: Vec::new(), weight: (400, 400), italic: false };
+    let mut face = FontFace { family: "".into(), srcs: Vec::new(), weight: (400, 400), italic: false, ranges: Vec::new() };
     for decl in SplitTop::new(body, b';') {
         let Some((name, value)) = decl.split_once(':') else { continue };
         let value = value.trim();
@@ -1055,10 +1057,28 @@ fn font_face(body: &str) -> Option<FontFace> {
                     face.srcs.push((url.into(), format));
                 }
             }
+            "unicode-range" => face.ranges = unicode_ranges(value).unwrap_or_default(),
             _ => {}
         }
     }
     (!face.family.is_empty() && !face.srcs.is_empty()).then_some(face)
+}
+
+/// The code point ranges of a `unicode-range` value: `U+26`, `U+0-7F` or `U+4??`,
+/// separated by commas. `None` when one is invalid, which makes the whole value invalid.
+fn unicode_ranges(v: &str) -> Option<Vec<(u32, u32)>> {
+    let hex = |s: &str| (!s.is_empty() && s.len() <= 6).then(|| u32::from_str_radix(s, 16).ok()).flatten();
+    let range = |r: &str| {
+        let r = r.trim().to_ascii_uppercase();
+        let r = r.strip_prefix("U+")?;
+        let (lo, hi) = match r.split_once('-') {
+            Some((a, b)) => (hex(a)?, hex(b)?),
+            None if r.contains('?') => (hex(&r.replace('?', "0"))?, hex(&r.replace('?', "F"))?),
+            None => (hex(r)?, hex(r)?),
+        };
+        (lo <= hi && hi <= 0x10ffff).then_some((lo, hi))
+    };
+    v.split(',').map(range).collect()
 }
 
 fn align(v: &str) -> Option<Align> {
@@ -2065,11 +2085,15 @@ mod tests {
                    src:local('SF Pro'),url('/wss/a.woff2') format('woff2'),url(\"a.ttf\") format(\"truetype\");unicode-range:U+0-FF}\
                    @media(min-width:1px){@font-face{font-family:Fira;font-style:italic;font-weight:bold;src:url(f.woff)}}\
                    @font-face{font-family:NoSource}\
+                   @font-face{font-family:Sub;src:url(s.woff2);unicode-range:U+0400-045F, u+4??,U+20AC}\
+                   @font-face{font-family:Bad;src:url(b.woff2);unicode-range:U+41,U+5A-41}\
                    p{font-weight:600}";
         let mut sheet = Sheet::default();
         sheet.add(css, &mut Interner::new(), 1, "https://example.com/css/site.css");
         let faces: Vec<_> = sheet.fonts.iter().map(|f| (&*f.family, f.weight, f.italic, f.srcs.len())).collect();
-        assert_eq!(faces, [("sf pro text", (100, 900), false, 2), ("fira", (700, 700), true, 1)]);
+        assert_eq!(faces, [("sf pro text", (100, 900), false, 2), ("fira", (700, 700), true, 1), ("sub", (400, 400), false, 1), ("bad", (400, 400), false, 1)]);
+        let ranges: Vec<_> = sheet.fonts.iter().map(|f| &f.ranges[..]).collect();
+        assert_eq!(ranges, [&[(0, 0xff)][..], &[], &[(0x400, 0x45f), (0x400, 0x4ff), (0x20ac, 0x20ac)], &[]]);
         let srcs: Vec<_> = sheet.fonts[0].srcs.iter().map(|(u, f)| (&**u, f.as_deref())).collect();
         assert_eq!(srcs, [("/wss/a.woff2", Some("woff2")), ("https://example.com/css/a.ttf", Some("truetype"))]);
         assert_eq!(&*sheet.fonts[1].srcs[0].0, "https://example.com/css/f.woff");
