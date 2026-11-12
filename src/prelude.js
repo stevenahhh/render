@@ -1404,8 +1404,8 @@
   });
   def(ifaces.HTMLDialogElement.prototype, {
     show() { this.setAttribute('open', ''); },
-    showModal() { this.setAttribute('open', ''); },
-    close(v) { if (v !== undefined) this.returnValue = String(v); this.removeAttribute('open'); fire(this, 'close'); },
+    showModal() { this.setAttribute('open', ''); __modal(this[ID], true); },
+    close(v) { if (v !== undefined) this.returnValue = String(v); this.removeAttribute('open'); __modal(this[ID], false); fire(this, 'close'); },
   });
 
   // A <video> or <audio> that never loads: nothing buffered, paused at the start.

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: :modal</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}
+@supports not selector(:modal){#gate{display:none}}
+dialog:modal{min-width:77px} #inside{display:block;width:10px} dialog:modal #inside{width:20px}</style>
+</head>
+<body>
+<h1 data-m="STATIC modal">STATIC modal</h1>
+<div id="out"></div>
+<p id="gate">gate</p>
+<dialog id="plain">plain</dialog>
+<dialog id="d"><b id="inside">in</b></dialog>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+function $(id){return document.getElementById(id);}
+check('modal', function(){
+  var gate=$('gate').getBoundingClientRect().width>0;
+  $('plain').show();
+  var d=$('d'); d.showModal();
+  var modal=d.matches(':modal')+'/'+$('plain').matches(':modal')+'/'+document.querySelectorAll(':modal').length;
+  var w=Math.round($('inside').getBoundingClientRect().width);
+  d.close();
+  mark('MO supports:'+gate+' matches:'+modal+' inner:'+w+' closed:'+d.matches(':modal'));
+});
+</script>
+</body>
+</html>

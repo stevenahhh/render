@@ -157,6 +157,8 @@ pub struct Dom {
     pub shadows: FxMap<NodeId, NodeId>,
     /// The names of the custom elements scripts defined.
     pub defined: Vec<Atom>,
+    /// The dialogs `showModal()` opened, which `:modal` matches.
+    pub modal: Vec<NodeId>,
     /// The CSS of the style sheets each shadow root adopted.
     pub adopted: FxMap<NodeId, String>,
     /// Declarations finished animations hold on each element they fill forwards.
@@ -176,6 +178,7 @@ impl Dom {
             hosts: FxMap::default(),
             shadows: FxMap::default(),
             defined: Vec::new(),
+            modal: Vec::new(),
             adopted: FxMap::default(),
             animated: FxMap::default(),
         };
@@ -186,7 +189,7 @@ impl Dom {
     /// A document without even a root, standing in for one that is lent out.
     pub fn empty() -> Dom {
         let atoms = Interner { map: FxMap::default(), names: Vec::new(), scratch: String::new() };
-        Dom { nodes: Vec::new(), attrs: Vec::new(), classes: Vec::new(), text: String::new(), atoms, comments: FxMap::default(), templates: FxMap::default(), hosts: FxMap::default(), shadows: FxMap::default(), defined: Vec::new(), adopted: FxMap::default(), animated: FxMap::default() }
+        Dom { nodes: Vec::new(), attrs: Vec::new(), classes: Vec::new(), text: String::new(), atoms, comments: FxMap::default(), templates: FxMap::default(), hosts: FxMap::default(), shadows: FxMap::default(), defined: Vec::new(), modal: Vec::new(), adopted: FxMap::default(), animated: FxMap::default() }
     }
 
     fn new_node(&mut self, tag: Atom) -> NodeId {

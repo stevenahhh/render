@@ -738,6 +738,7 @@ impl<'a> Matcher<'a> {
             Pseudo::Link => node.tag == atom::A && self.dom.attr(n, atom::HREF).is_some(),
             Pseudo::Empty => node.first_child == NONE,
             Pseudo::Defined => !self.dom.atoms.name(node.tag).contains('-') || self.dom.defined.contains(&node.tag),
+            Pseudo::Modal => self.dom.modal.contains(&n),
             Pseudo::Never => false,
         }
     }
@@ -1626,8 +1627,8 @@ fn each_feature(c: &Compound, f: &mut impl FnMut(Feature)) {
             | Pseudo::NthOfType(..) => f(Feature::Position),
             Pseudo::Empty => f(Feature::Empty),
             Pseudo::Link => f(Feature::Attr(atom::HREF)),
-            // A definition restyles everything.
-            Pseudo::Has(_) | Pseudo::Not(_) | Pseudo::Is(_) | Pseudo::Root | Pseudo::Defined | Pseudo::Never => {}
+            // A definition, or a dialog becoming modal, restyles everything.
+            Pseudo::Has(_) | Pseudo::Not(_) | Pseudo::Is(_) | Pseudo::Root | Pseudo::Defined | Pseudo::Modal | Pseudo::Never => {}
         }
     }
 }

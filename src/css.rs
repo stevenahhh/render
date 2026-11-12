@@ -1698,6 +1698,8 @@ pub enum Pseudo {
     Empty,
     /// `:defined`: not a custom element, or one whose name is defined.
     Defined,
+    /// `:modal`: a dialog `showModal()` opened.
+    Modal,
     /// Unsupported pseudo-class or pseudo-element: never matches.
     Never,
 }
@@ -2004,6 +2006,7 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                     "link" | "any-link" => Pseudo::Link,
                     "empty" => Pseudo::Empty,
                     "defined" => Pseudo::Defined,
+                    "modal" => Pseudo::Modal,
                     _ => Pseudo::Never,
                 });
             }

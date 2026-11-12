@@ -449,6 +449,25 @@ fn animated(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> 
     Ok(JsValue::undefined())
 }
 
+/// `__modal(id, on)`: notes a dialog `showModal()` opened, or `close()` closed, which `:modal` reads.
+fn modal(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+    let (n, on) = (id_arg(a, 0), a.get_or_undefined(1).to_boolean());
+    with(|h| {
+        let n = live(&h.page.dom, n)?;
+        let modal = &mut h.page.dom.modal;
+        let was = modal.contains(&n);
+        modal.retain(|&m| m != n);
+        if on {
+            modal.push(n);
+        }
+        if was != on {
+            h.page.restyle_all();
+        }
+        Some(())
+    });
+    Ok(JsValue::undefined())
+}
+
 /// `__define(name)`: notes a custom element definition, which `:defined` reads.
 fn define(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let name = str_arg(a, 0, ctx)?;
@@ -842,6 +861,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__attach_shadow", 1, attach_shadow),
     ("__shadow", 1, shadow),
     ("__define", 1, define),
+    ("__modal", 2, modal),
     ("__cookie", 2, cookie),
     ("__computed", 2, computed),
     ("__animated", 2, animated),
