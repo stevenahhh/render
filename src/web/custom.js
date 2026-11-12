@@ -7,6 +7,7 @@
   const byCtor = new Map();
   const waiting = new Map();
   const STATE = Symbol('custom');
+  const QUEUE = Symbol('reactions');
   // Marks the element of a construction stack whose constructor already ran.
   const ALREADY = {};
   const RESERVED = new Set(['annotation-xml', 'color-profile', 'font-face', 'font-face-src', 'font-face-uri', 'font-face-format', 'font-face-name', 'missing-glyph']);
@@ -15,6 +16,33 @@
 
   const call = (el, f, args) => {
     try { f.apply(el, args); } catch (e) { reportError(e); }
+  };
+
+  // Custom element reactions, as the spec queues them: each element keeps its
+  // own queue, and a tree change runs the queues of the elements it touched once
+  // it is done. A callback that changes the tree runs the queues of the elements
+  // it touched itself, so an element that a callback moves sees its callbacks in
+  // the order they arose (connected, disconnected, connected) and none twice.
+  const enqueue = (el, reaction, frame) => {
+    (el[QUEUE] || (el[QUEUE] = [])).push(reaction);
+    frame.push(el);
+  };
+  const run = (frame) => {
+    for (const el of frame) {
+      const q = el[QUEUE];
+      while (q && q.length) q.shift()();
+    }
+  };
+  const upgradeAll = (ids) => {
+    const frame = [];
+    for (const id of ids) {
+      const d = defs.get(__tag(id));
+      if (d) {
+        const el = wrap(id);
+        enqueue(el, () => upgrade(el, d), frame);
+      }
+    }
+    run(frame);
   };
 
   const upgrade = (el, d) => {
@@ -69,43 +97,50 @@
       }
     },
     connected(root) {
+      const frame = [];
       for (const id of __tagged(root, CUSTOM)) {
         const el = wrap(id), s = el[STATE];
         if (s) {
-          if (s.connected) call(el, s.connected, []);
+          if (s.connected) enqueue(el, () => call(el, s.connected, []), frame);
         } else if (s === undefined) {
           const d = defs.get(el[TAG]);
-          if (d) upgrade(el, d);
+          if (d) enqueue(el, () => upgrade(el, d), frame);
         }
       }
+      run(frame);
     },
+    // Queues the reactions of elements about to leave the document; `disconnected`
+    // runs them once they have left.
     disconnecting(root) {
       for (const id of __tagged(root, CUSTOM)) {
-        const el = nodes.get(id);
-        if (el && el[STATE] && el[STATE].disconnected) leaving.push(el);
+        const el = nodes.get(id), s = el && el[STATE];
+        if (s && s.disconnected) enqueue(el, () => call(el, s.disconnected, []), leaving);
       }
     },
     disconnected() {
       if (!leaving.length) return;
-      const list = leaving;
+      const frame = leaving;
       leaving = [];
-      for (const el of list) call(el, el[STATE].disconnected, []);
+      run(frame);
     },
     attr(el, name, old, value) {
       const d = el[STATE];
-      if (d && d.changed && d.observed.has(name)) call(el, d.changed, [name, old, value, null]);
+      if (d && d.changed && d.observed.has(name)) {
+        const frame = [];
+        enqueue(el, () => call(el, d.changed, [name, old, value, null]), frame);
+        run(frame);
+      }
     },
     cloned(root) {
-      for (const id of __tagged(root, CUSTOM)) {
-        const d = defs.get(__tag(id));
-        if (d) upgrade(wrap(id), d);
-      }
+      upgradeAll(__tagged(root, CUSTOM));
     },
     adopted(node, from, to) {
+      const frame = [];
       for (const id of __tagged(node[$.ID], CUSTOM)) {
-        const el = nodes.get(id);
-        if (el && el[STATE] && el[STATE].adopted) call(el, el[STATE].adopted, [from, to]);
+        const el = nodes.get(id), s = el && el[STATE];
+        if (s && s.adopted) enqueue(el, () => call(el, s.adopted, [from, to]), frame);
       }
+      run(frame);
     },
   };
 
@@ -133,7 +168,7 @@
       defs.set(name, d);
       byCtor.set(ctor, d);
       $.ce = hooks;
-      for (const id of __tagged(0, CUSTOM)) if (__tag(id) === name) upgrade(wrap(id), d);
+      upgradeAll(__tagged(0, CUSTOM).filter((id) => __tag(id) === name));
       const resolve = waiting.get(name);
       if (resolve) {
         waiting.delete(name);
@@ -153,10 +188,7 @@
       });
     }
     upgrade(root) {
-      for (const id of __tagged(root[$.ID], CUSTOM)) {
-        const d = defs.get(__tag(id));
-        if (d) upgrade(wrap(id), d);
-      }
+      upgradeAll(__tagged(root[$.ID], CUSTOM));
     }
   }
   def(g, { customElements: Object.create(CustomElementRegistry.prototype), CustomElementRegistry });

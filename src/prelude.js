@@ -617,6 +617,8 @@
     if (got < 0) throw domError('HierarchyRequestError', "Failed to execute 'insertBefore' on 'Node': The new child element contains the parent.");
     $.version++;
     if ($.mo) $.mo.childList(parent, [wrap(id)], [], wrap(prev), wrap(before), true);
+    // A node moved within the document leaves before it arrives.
+    if (old >= 0 && $.ce) $.ce.disconnected();
     if (got & CUSTOM && $.ce) $.ce.connected(id);
     if (got & SCRIPT) scriptsInserted(id);
     else if (parent[TAG] === 'script') prepareScript(parent);
