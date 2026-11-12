@@ -40,6 +40,7 @@ const USAGE: &str = "usage: render <file.html | http(s) URL> [options]
   --stats                print per-frame timings in window mode
   --inspect <selector>   with --screenshot, print the computed box of matching elements
   --boxes <file>         print the box and computed style of each selector in the file
+  --no-cache             neither use nor fill the HTTP cache of pages from the web
 
 window keys: arrows, space, PageUp/PageDown, Home/End scroll; Backspace goes back;
              F5 or Cmd/Ctrl+R reloads; Esc quits
@@ -77,6 +78,7 @@ fn parse_args() -> Result<Args, String> {
             "--scale" => a.scale = num("--scale", value("--scale")?)?,
             "--scroll" => a.scroll = num("--scroll", value("--scroll")?)?,
             "--stats" => a.stats = true,
+            "--no-cache" => render::cache::disable(),
             "--inspect" => a.inspect = Some(value("--inspect")?),
             "--boxes" => a.boxes = Some(value("--boxes")?.into()),
             "-h" | "--help" => return Err(String::new()),

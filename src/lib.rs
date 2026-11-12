@@ -1,5 +1,6 @@
 //! HTML/CSS rendering engine: parse -> style -> layout -> paint.
 
+pub mod cache;
 pub mod computed;
 pub mod cookie;
 pub mod css;

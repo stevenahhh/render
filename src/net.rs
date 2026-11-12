@@ -712,11 +712,19 @@ pub struct Client {
     pool: HashMap<(bool, String, u16), Conn>,
     /// The page whose resources this client fetches.
     referer: Option<Arc<str>>,
+    /// Where plain GET answers are kept and looked up.
+    cache: Option<Arc<crate::cache::Cache>>,
 }
 
 impl Client {
     pub fn new(tls: Arc<rustls::ClientConfig>) -> Client {
-        Client { tls, pool: HashMap::new(), referer: None }
+        Client { tls, pool: HashMap::new(), referer: None, cache: crate::cache::shared() }
+    }
+
+    #[cfg(test)]
+    fn caching(mut self, cache: Option<Arc<crate::cache::Cache>>) -> Client {
+        self.cache = cache;
+        self
     }
 
     /// A client fetching the resources of the page at `page`.
@@ -762,7 +770,7 @@ impl Client {
             return Err(FetchError::Aborted);
         }
         let started = Instant::now();
-        let result = self.send_on_any(ask, watch);
+        let result = self.send_cached(ask, watch);
         if let (Some(start), Ok((response, how))) = (timeline(), &result) {
             let (head, end) = (since(start, response.head_at), since(start, Instant::now()));
             let bytes = response.body.len();
@@ -771,6 +779,31 @@ impl Client {
             eprintln!("[net] {:8.1} {} failed {} at {:.1}: {e}", since(start, started), ask.method.as_str(), ask.url, since(start, Instant::now()));
         }
         result.map(|(response, _)| response)
+    }
+
+    /// `send_on_any` through the cache for a plain GET: a fresh stored answer is
+    /// used as it is, a stale one with validators is revalidated, and a new answer
+    /// that may be kept is stored. `watch` sees a stored body as if it arrived.
+    fn send_cached(&mut self, ask: &Ask, mut watch: Option<&mut Watcher>) -> Result<(Response, &'static str), FetchError> {
+        // The jar's cookies may go with a plain GET; a script's own headers may not.
+        let plain = ask.method == Method::Get && ask.headers.iter().all(|h| h.0 == "cookie") && ask.body.is_none();
+        let Some(cache) = self.cache.clone().filter(|_| plain) else { return self.send_on_any(ask, watch) };
+        let key = ask.url.to_string();
+        let stored = match cache.get(&key) {
+            Some(s) if s.fresh(std::time::SystemTime::now()) => return Ok((replay(&ask.url, s, watch), "cache")),
+            s => s,
+        };
+        let validators = stored.as_ref().map(crate::cache::Stored::validators).unwrap_or_default();
+        let headers = ask.headers.iter().cloned().chain(validators).collect();
+        let conditional = Ask { headers, abort: ask.abort.clone(), ..Ask::get(ask.url.clone()) };
+        let (response, how) = self.send_on_any(&conditional, watch.as_deref_mut())?;
+        if let (304, Some(s)) = (response.status, stored) {
+            let s = cache.refresh(&key, s, &response.headers);
+            return Ok((replay(&ask.url, s, watch), "revalidated"));
+        }
+        let answer = crate::cache::Answer { status: response.status, reason: &response.reason, headers: &response.headers, body: &response.body };
+        cache.put(&key, &answer);
+        Ok((response, how))
     }
 
     /// `send`, also telling which connection carried the request: one this client
@@ -899,6 +932,17 @@ impl Client {
         }
         Err(FetchError::TooManyRedirects(format!("{}: too many redirects", ask.url)))
     }
+}
+
+/// A stored answer as a response, shown to `watch` as if it had just arrived.
+fn replay(url: &Url, stored: crate::cache::Stored, watch: Option<&mut Watcher>) -> Response {
+    if let Some(see) = watch {
+        see(url, Arrival::Head { early_links: &[] });
+        if !stored.body.is_empty() {
+            see(url, Arrival::Body(&stored.body));
+        }
+    }
+    Response { head_at: Instant::now(), status: stored.status, reason: stored.reason, headers: stored.headers, body: stored.body }
 }
 
 /// Open connections no client is using. A client leaves its connections here when
@@ -1872,6 +1916,40 @@ mod tests {
         site.prefetch(&scripts);
         assert_eq!(site.wait_for(&scripts, Instant::now()), (10, 10));
         assert_eq!(state.0.lock().unwrap().1, 6);
+    }
+
+    #[test]
+    fn responses_are_reused_while_fresh_and_revalidated_when_stale() {
+        let dir = std::env::temp_dir().join(format!("render.http-cache-test-{}", std::process::id()));
+        let cache = Arc::new(crate::cache::Cache::at(dir.clone(), 1 << 20));
+        let (origin, requests) = serve(vec![
+            b"HTTP/1.1 200 OK\r\nCache-Control: max-age=60\r\nContent-Length: 5\r\n\r\nfresh".to_vec(),
+            b"HTTP/1.1 200 OK\r\nCache-Control: no-cache\r\nETag: \"v1\"\r\nContent-Length: 4\r\n\r\netag".to_vec(),
+            b"HTTP/1.1 304 Not Modified\r\nETag: \"v1\"\r\n\r\n".to_vec(),
+            b"HTTP/1.1 200 OK\r\nLast-Modified: Tue, 10 Nov 2026 08:00:00 GMT\r\nContent-Length: 2\r\n\r\nlm".to_vec(),
+            b"HTTP/1.1 304 Not Modified\r\n\r\n".to_vec(),
+            b"HTTP/1.1 200 OK\r\nCache-Control: no-store, max-age=60\r\nContent-Length: 1\r\n\r\nx".to_vec(),
+            b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\ny".to_vec(),
+            b"HTTP/1.1 200 OK\r\nCache-Control: max-age=60\r\nVary: Referer\r\nContent-Length: 1\r\n\r\nz".to_vec(),
+            b"HTTP/1.1 200 OK\r\nCache-Control: max-age=60\r\nContent-Length: 1\r\n\r\nw".to_vec(),
+        ]);
+        let mut client = Client::new(super::tls_config()).caching(Some(cache));
+        let mut get = |path: &str| {
+            let (_, response) = client.get(&Url::parse(&format!("{origin}{path}")).unwrap()).unwrap();
+            (response.status, String::from_utf8(response.body).unwrap())
+        };
+        let bodies: Vec<_> = ["/a", "/a", "/b", "/b", "/c", "/c", "/d", "/d", "/e", "/e"].map(|p| get(p)).to_vec();
+        let expected = ["fresh", "fresh", "etag", "etag", "lm", "lm", "x", "y", "z", "w"];
+        assert_eq!(bodies, expected.map(|b| (200, b.to_string())).to_vec());
+        drop(client);
+        let sent: Vec<String> = requests.iter().take(9).collect();
+        let lines: Vec<&str> = sent.iter().map(|r| r.lines().next().unwrap()).collect();
+        let paths = ["/a", "/b", "/b", "/c", "/c", "/d", "/d", "/e", "/e"];
+        assert_eq!(lines, paths.map(|p| format!("GET {p} HTTP/1.1")).to_vec());
+        assert!(sent[2].contains("\r\nif-none-match: \"v1\"\r\n"), "{}", sent[2]);
+        assert!(sent[4].contains("\r\nif-modified-since: Tue, 10 Nov 2026 08:00:00 GMT\r\n"), "{}", sent[4]);
+        assert!(!sent[6].contains("\r\nif-") && !sent[8].contains("\r\nif-"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
