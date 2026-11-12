@@ -1402,6 +1402,9 @@ pub fn restyle(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId, styles
     let chain = hover_chain(dom, hover);
     let mut s = Styler::new(dom, sheet, vw, vh, &chain);
     let mut out = Restyled::default();
+    // Custom-property maps replaced by equal ones the elements had, kept to the
+    // end of the pass: `Deferred` expansions are cached by the address of a map.
+    let mut replaced = Vec::new();
     let mut i = root;
     while i != NONE {
         let node = &dom.nodes[i as usize];
@@ -1415,8 +1418,15 @@ pub fn restyle(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId, styles
         s.enter(node.parent);
         dirty.set(i, SEEN);
         if again {
-            let new = s.style(i, &styles[node.parent as usize]);
+            let mut new = s.style(i, &styles[node.parent as usize]);
             let old = &styles[i as usize];
+            // The map the element had, when equal, is the one it keeps: the elements
+            // below then inherit a map they can tell is theirs without comparing it.
+            if let (Some(was), Some(now)) = (&old.vars, &new.vars) {
+                if !Rc::ptr_eq(was, now) && was == now {
+                    replaced.push(new.vars.replace(was.clone()));
+                }
+            }
             if node.tag == atom::HTML && new.font_size != old.font_size {
                 return None;
             }
