@@ -279,6 +279,52 @@ impl Style {
     pub fn has_deco(&self) -> bool {
         self.bg.a() > 0 || self.grad.is_some() || self.bw.iter().any(|w| *w > 0.0)
     }
+
+    /// How the page drawn with this style changes when it becomes `new`.
+    pub fn change(&self, new: &Style) -> Change {
+        if self == new {
+            return Change::None;
+        }
+        // This style with everything that only colours what is drawn taken from `new`.
+        let recoloured = Style {
+            bg: new.bg,
+            grad: new.grad.clone(),
+            bc: new.bc,
+            bc_set: new.bc_set,
+            radius: new.radius,
+            color: new.color,
+            fill: new.fill,
+            deco: new.deco,
+            opacity: new.opacity,
+            own_opacity: new.own_opacity,
+            pointer: new.pointer,
+            vars: new.vars.clone(),
+            ..self.clone()
+        };
+        // A box that gains or loses its decoration, or stops or starts being fully
+        // transparent, gains or loses items in the layout.
+        if recoloured != *new || self.has_deco() != new.has_deco() || (self.opacity <= 0.0) != (new.opacity <= 0.0) {
+            return Change::Layout;
+        }
+        // The cursor and custom properties draw nothing themselves.
+        if (Style { pointer: new.pointer, vars: new.vars.clone(), ..self.clone() }) == *new {
+            Change::None
+        } else {
+            Change::Paint
+        }
+    }
+}
+
+/// How a changed style changes the drawn page.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// Nothing drawn differs.
+    None,
+    /// Only colours, opacity, border colours and radius, or text decoration
+    /// differ: every box keeps its place and size.
+    Paint,
+    /// Something layout reads differs.
+    Layout,
 }
 
 struct Ctx {
@@ -1086,11 +1132,13 @@ impl Dirty {
     }
 }
 
-/// What a `restyle` pass changed.
+/// What a `restyle` pass changed in what is drawn.
 #[derive(Default)]
 pub struct Restyled {
-    /// Some style changed.
+    /// Some style changed in something layout reads.
     pub layout: bool,
+    /// Elements whose style changed only as `Change::Paint` allows.
+    pub paint: Vec<NodeId>,
 }
 
 /// Styles again the elements `dirty` marks and, below them, those whose parent's
@@ -1136,7 +1184,11 @@ pub fn restyle(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId, styles
             } else if *old != new {
                 dirty.set(i, KIDS);
             }
-            out.layout |= *old != new;
+            match old.change(&new) {
+                Change::None => {}
+                Change::Paint => out.paint.push(i),
+                Change::Layout => out.layout = true,
+            }
             styles[i as usize] = new;
             if hidden {
                 unstyle_below(dom, styles, i);

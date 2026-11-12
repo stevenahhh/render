@@ -518,8 +518,7 @@ impl Page {
 
     /// Notes a change of the attribute `name`, which had the value `old`: the
     /// elements whose selectors it can change are styled again, and the layout,
-    /// which reads `src`, `width` and the like, is redone for every attribute
-    /// but the class, id and inline style.
+    /// which reads `src`, `width` and the like, is redone for those it reads.
     pub(crate) fn attr_changed(&mut self, n: NodeId, name: Atom, old: Option<&str>) {
         self.dirty = true;
         if !self.dom.connected(n) {
@@ -532,7 +531,7 @@ impl Page {
                 return;
             }
         }
-        if !matches!(name, atom::CLASS | atom::ID | atom::STYLE) || self.in_svg(n) {
+        if crate::layout::READ_ATTRS.contains(&name) || self.in_svg(n) {
             self.stale = true;
         }
         let atoms = &self.dom.atoms;
@@ -942,7 +941,8 @@ impl Page {
     }
 
     /// Styles again the elements marked since the last update, then lays the page
-    /// out again when a style changed. With shadow trees, whose composed form the
+    /// out again when a style changed in what layout reads, or repaints the boxes
+    /// whose colours alone changed. With shadow trees, whose composed form the
     /// marks do not follow, every element is styled again instead.
     fn restyle_marked(&mut self, fonts: &mut Fonts, vw: f32, vh: f32, resized: bool) -> bool {
         let restyled = match crate::shadow::compose(&mut self.dom) {
@@ -956,11 +956,11 @@ impl Page {
             self.style_and_layout(fonts, vw, vh, true);
             return true;
         };
-        let relayout = resized || self.stale || r.layout;
+        let relayout = resized || self.stale || r.layout || (!r.paint.is_empty() && !self.layout.recolour(&self.dom, &self.styles, &r.paint));
         if relayout {
             self.style_and_layout(fonts, vw, vh, false);
         }
-        relayout
+        relayout || !r.paint.is_empty()
     }
 
     /// Records the hovered node; returns true when the page changed visually.

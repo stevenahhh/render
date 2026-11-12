@@ -84,6 +84,61 @@ pub struct Layout {
     pub record_boxes: bool,
 }
 
+/// The attributes layout reads. A change of any other attribute, outside an
+/// inline `<svg>` whose markup is drawn whole, leaves the layout as it was.
+pub const READ_ATTRS: [u32; 11] = [
+    atom::START,
+    atom::ALT,
+    atom::VALUE,
+    atom::PLACEHOLDER,
+    atom::TYPE,
+    atom::MEDIA,
+    atom::SRC,
+    atom::SRCSET,
+    atom::POSTER,
+    atom::WIDTH,
+    atom::HEIGHT,
+];
+
+impl Layout {
+    /// Gives the items of `nodes` the colours of their styles in `st`, for styles
+    /// that changed only as `Change::Paint` allows. False, with nothing changed,
+    /// when one of them draws more than its own colours: replaced content, a list
+    /// marker, or the canvas, which takes the background of `<html>` or `<body>`.
+    pub fn recolour(&mut self, dom: &Dom, st: &[Style], nodes: &[NodeId]) -> bool {
+        let mut set: FxMap<NodeId, ()> = FxMap::default();
+        for &n in nodes {
+            let (tag, s) = (dom.nodes[n as usize].tag, &st[n as usize]);
+            let marker = s.display == Display::ListItem && s.list_style != ListStyle::None;
+            if marker || matches!(tag, atom::INPUT | atom::HTML | atom::BODY) || dom.shows_image(n) {
+                return false;
+            }
+            set.insert(n, ());
+        }
+        for it in &self.items {
+            if !set.contains_key(&it.node) {
+                continue;
+            }
+            let s = &st[it.node as usize];
+            let o = s.opacity;
+            match it.kind {
+                Kind::Box => {
+                    let d = &mut self.boxes[it.data as usize];
+                    (d.bg, d.bc, d.radius, d.grad) = (s.bg.with_opacity(o), s.bc.map(|c| c.with_opacity(o)), s.radius, s.grad.clone());
+                }
+                Kind::Text => {
+                    let t = &mut self.texts[it.data as usize];
+                    (t.color, t.deco) = (s.color.with_opacity(o), s.deco);
+                }
+                Kind::Image => self.pictures[it.data as usize].alpha = o,
+                Kind::Clip | Kind::PopClip | Kind::Area => {}
+            }
+        }
+        true
+    }
+
+}
+
 const NAN: f32 = f32::NAN;
 /// Slack for float error when deciding whether content still fits a line.
 const FIT: f32 = 0.05;
