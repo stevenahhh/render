@@ -167,6 +167,12 @@ pub enum Decl {
     BoxSizing(bool),
     Background(Color),
     Gradient(Option<Rc<Gradient>>),
+    /// `background-image: url()`, the URL resolved against its stylesheet.
+    BgImage(Option<Rc<str>>),
+    BgSize(BgSize),
+    BgPos(Len, Len),
+    /// `background-clip: text`.
+    ClipText(bool),
     /// `None` is `inherit`.
     Color(Option<Color>),
     FontSize(FontSize),
@@ -204,8 +210,19 @@ pub enum Decl {
     Fill(Option<Color>),
     /// Custom property definition.
     Var(Box<str>, Box<str>),
-    /// A value containing `var()`, parsed once the variables are known.
+    /// A value containing `var()`, or lengths only known while styling, parsed
+    /// once the variables and sizes are known.
     Deferred(Box<str>, Box<str>),
+}
+
+/// `background-size`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum BgSize {
+    Auto,
+    Cover,
+    Contain,
+    /// Width and height; `Auto` keeps the image's aspect ratio.
+    Size(Len, Len),
 }
 
 pub const DECO_UNDERLINE: u8 = 1;
@@ -615,6 +632,95 @@ fn named(s: &str) -> Option<u32> {
 }
 
 /// Colour token including `transparent`.
+/// A grid track list without its `[line names]`, which are not tracks.
+fn without_line_names(v: &str) -> String {
+    let mut depth = 0u32;
+    v.chars()
+        .filter(|&c| {
+            match c {
+                '[' => depth += 1,
+                ']' => depth = depth.saturating_sub(1),
+                _ => return depth == 0,
+            }
+            false
+        })
+        .collect()
+}
+
+/// The address in a `url()` token, without quotes.
+fn css_url(t: &str) -> Option<&str> {
+    let inner = t.strip_prefix("url(")?.strip_suffix(')')?.trim();
+    let unquoted = inner.strip_prefix(['"', '\'']).and_then(|s| s.strip_suffix(['"', '\''])).unwrap_or(inner);
+    Some(unquoted.trim()).filter(|u| !u.is_empty())
+}
+
+fn is_position(t: &str) -> bool {
+    matches!(t, "left" | "right" | "top" | "bottom" | "center") || matches!(parse_len(t), Some(Len::Px(_) | Len::Pct(_)))
+}
+
+/// `background-position` from its keywords and lengths; a missing axis is centred.
+fn bg_position(parts: &[&str]) -> Option<(Len, Len)> {
+    let (mut x, mut y, mut rest) = (None, None, Vec::new());
+    for &p in parts {
+        match p {
+            "left" => x = Some(Len::Pct(0.0)),
+            "right" => x = Some(Len::Pct(100.0)),
+            "top" => y = Some(Len::Pct(0.0)),
+            "bottom" => y = Some(Len::Pct(100.0)),
+            "center" => rest.push(Len::Pct(50.0)),
+            _ => rest.push(parse_len(p).filter(|l| *l != Len::Auto)?),
+        }
+    }
+    let mut rest = rest.into_iter();
+    let x = x.or_else(|| rest.next()).unwrap_or(Len::Pct(50.0));
+    let y = y.or_else(|| rest.next()).unwrap_or(Len::Pct(50.0));
+    Some((x, y))
+}
+
+fn bg_size(v: &str) -> Option<BgSize> {
+    match v.trim() {
+        "" => None,
+        "cover" => Some(BgSize::Cover),
+        "contain" => Some(BgSize::Contain),
+        v => {
+            let mut t = tokens(v).map(parse_len);
+            let w = t.next()??;
+            Some(BgSize::Size(w, t.next().flatten().unwrap_or(Len::Auto)))
+        }
+    }
+}
+
+/// `css` with every relative `url()` rewritten to resolve against `base`, the
+/// location of the stylesheet it came from: a URL, or a path relative to the page.
+fn rebase_urls<'a>(css: &'a str, base: &str) -> Cow<'a, str> {
+    if base.is_empty() || !css.contains("url(") {
+        return Cow::Borrowed(css);
+    }
+    let web = crate::net::Url::parse(base);
+    let dir = &base[..base.rfind('/').map_or(0, |i| i + 1)];
+    let mut out = String::with_capacity(css.len());
+    let mut rest = css;
+    while let Some(p) = rest.find("url(") {
+        let Some(len) = rest[p..].find(')') else { break };
+        let token = &rest[p..p + len + 1];
+        out.push_str(&rest[..p]);
+        let absolute = |u: &str| u.starts_with(['/', '#']) || u.starts_with("data:") || u.contains("://");
+        match css_url(token).filter(|u| !absolute(u)) {
+            Some(u) => {
+                let joined = match &web {
+                    Some(b) => b.join(u).map(|j| j.to_string()),
+                    None => Some(format!("{dir}{u}")),
+                };
+                out.push_str(&format!("url(\"{}\")", joined.as_deref().unwrap_or(u)));
+            }
+            None => out.push_str(token),
+        }
+        rest = &rest[p + len + 1..];
+    }
+    out.push_str(rest);
+    Cow::Owned(out)
+}
+
 fn color_tok(t: &str) -> Option<Color> {
     if t == "transparent" {
         Some(Color::TRANSPARENT)
@@ -871,7 +977,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             let cols = match v.strip_prefix("repeat(") {
                 Some(r) => r.split(',').next().and_then(|n| n.trim().parse().ok()).unwrap_or(3),
                 None if v == "none" => 1,
-                None => tokens(v).count().clamp(1, 12),
+                None => tokens(&without_line_names(v)).count().clamp(1, 12),
             };
             let even = v.contains("fr") || v.contains('%') || v.contains("repeat(");
             out.push(D::GridCols(cols as u8, even));
@@ -937,14 +1043,24 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "border-radius" => push(tokens(v).next().and_then(parse_len).map(D::Radius)),
         "box-sizing" => push(Some(D::BoxSizing(v == "border-box"))),
         "background" | "background-color" | "background-image" => {
-            let (mut color, mut grad, mut none) = (None, None, false);
+            let (mut color, mut grad, mut none, mut url) = (None, None, false, None);
+            let (mut pos, mut size, mut after_slash) = (Vec::new(), None, false);
             for t in tokens(v) {
                 if t.starts_with("linear-gradient(") {
-                    grad = parse_gradient(t).map(Rc::new);
+                    // Of several layers the last, painted under the others, stands for them all.
+                    grad = SplitTop::new(t, b',').filter_map(|l| parse_gradient(l.trim())).last().map(Rc::new);
+                } else if let Some(u) = css_url(t.trim_end_matches(',')) {
+                    url = url.or(Some(Rc::from(u)));
                 } else if t == "none" {
                     none = true;
                 } else if let Some(c) = color_tok(t) {
                     color = Some(c);
+                } else if name == "background" {
+                    // Position, then `/ size`, written with or without spaces around the slash.
+                    let (p, s) = t.split_once('/').unwrap_or(if after_slash { ("", t) } else { (t, "") });
+                    after_slash = t.ends_with('/');
+                    pos.extend((!p.is_empty() && is_position(p)).then_some(p));
+                    size = size.or_else(|| bg_size(s));
                 }
             }
             if name != "background-image" && (color.is_some() || name == "background") {
@@ -953,7 +1069,18 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             if name != "background-color" && (grad.is_some() || none || name == "background") {
                 out.push(D::Gradient(grad));
             }
+            if name != "background-color" && (url.is_some() || none || name == "background") {
+                out.push(D::BgImage(url));
+            }
+            if name == "background" {
+                let (x, y) = if pos.is_empty() { (Len::Pct(0.0), Len::Pct(0.0)) } else { bg_position(&pos).unwrap_or((Len::Pct(0.0), Len::Pct(0.0))) };
+                out.push(D::BgPos(x, y));
+                out.push(D::BgSize(size.unwrap_or(BgSize::Auto)));
+            }
         }
+        "background-size" => push(bg_size(v).map(D::BgSize)),
+        "background-clip" | "-webkit-background-clip" => push(Some(D::ClipText(SplitTop::new(v, b',').any(|l| l.trim() == "text")))),
+        "background-position" => push(bg_position(&tokens(v).collect::<Vec<_>>()).map(|(x, y)| D::BgPos(x, y))),
         "color" => {
             if v == "inherit" {
                 out.push(D::Color(None));
@@ -1147,6 +1274,50 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
     }
 }
 
+/// Units whose size is known only while styling an element.
+const CONTEXT_UNITS: [&str; 6] = ["vw", "vh", "vmin", "vmax", "rem", "em"];
+
+/// True when a function such as `calc()` or `min()` combines lengths in units
+/// known only while styling, which it cannot add up until then.
+fn needs_context(val: &str) -> bool {
+    val.contains('(') && absolute_lengths(val, |u| CONTEXT_UNITS.contains(&u).then_some(1.0)).is_some()
+}
+
+/// `v` with every length whose unit `px_per` gives a size for rewritten in px,
+/// or `None` when there is no such length.
+pub fn absolute_lengths(v: &str, px_per: impl Fn(&str) -> Option<f32>) -> Option<String> {
+    let b = v.as_bytes();
+    let word = |i: usize| b[i].is_ascii_alphanumeric() || matches!(b[i], b'_' | b'#' | b'.');
+    let (mut out, mut copied, mut i) = (String::new(), 0, 0);
+    while i < b.len() {
+        // A number starts after a separator or a minus sign that is not part of a name.
+        let after_minus = i > 0 && b[i - 1] == b'-' && (i < 2 || !(word(i - 2) || b[i - 2] == b'-'));
+        let starts = (b[i].is_ascii_digit() || b[i] == b'.') && (i == 0 || !(word(i - 1) || b[i - 1] == b'-') || after_minus);
+        if !starts {
+            i += 1;
+            continue;
+        }
+        let mut j = i;
+        while j < b.len() && (b[j].is_ascii_digit() || b[j] == b'.') {
+            j += 1;
+        }
+        let mut k = j;
+        while k < b.len() && b[k].is_ascii_alphabetic() {
+            k += 1;
+        }
+        match (v[i..j].parse::<f32>(), px_per(&v[j..k])) {
+            (Ok(n), Some(f)) if k == b.len() || !(b[k].is_ascii_digit() || b[k] == b'%') => {
+                out.push_str(&v[copied..i]);
+                out.push_str(&format!("{}px", n * f));
+                copied = k;
+            }
+            _ => {}
+        }
+        i = k.max(i + 1);
+    }
+    (copied > 0).then(|| out + &v[copied..])
+}
+
 /// Parses a declaration block into (normal, !important, uses custom properties).
 pub fn parse_declarations(body: &str) -> (Vec<Decl>, Vec<Decl>, bool) {
     let (mut normal, mut imp, mut dynamic) = (Vec::new(), Vec::new(), false);
@@ -1175,7 +1346,7 @@ pub fn parse_declarations(body: &str) -> (Vec<Decl>, Vec<Decl>, bool) {
         } else {
             Cow::Borrowed(name)
         };
-        if val.contains("var(") {
+        if val.contains("var(") || needs_context(val) {
             out.push(Decl::Deferred(lname.into(), val.into()));
             dynamic = true;
         } else {
@@ -1503,7 +1674,8 @@ fn parse_media(q: &str, outer: Option<Media>) -> Media {
             "min-height" if !px.is_nan() => m.min_h = m.min_h.max(px),
             "max-height" if !px.is_nan() => m.max_h = m.max_h.min(px),
             "prefers-color-scheme" => m.on &= val == "light",
-            "prefers-reduced-motion" => m.on &= val == "no-preference",
+            // One still frame is painted, so motion is always reduced.
+            "prefers-reduced-motion" => m.on &= val == "reduce",
             _ => {}
         }
     }
@@ -1611,8 +1783,11 @@ fn strip_comments(css: &str) -> Cow<'_, str> {
 }
 
 impl Sheet {
-    pub fn add(&mut self, css: &str, atoms: &mut Interner, level: u8) {
+    /// Adds the rules of a stylesheet. `base` is where it was loaded from, which
+    /// its relative `url()`s resolve against; empty when that is the page itself.
+    pub fn add(&mut self, css: &str, atoms: &mut Interner, level: u8, base: &str) {
         let css = strip_comments(css);
+        let css = rebase_urls(&css, base);
         let mut i = 0;
         self.rules_in(&css, &mut i, u32::MAX, level, atoms, false);
     }

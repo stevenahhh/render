@@ -19,7 +19,7 @@ pub enum Kind {
     Text,
     Clip,
     PopClip,
-    /// `data` is an id in `Images`.
+    /// `data` indexes `Layout::pictures`.
     Image,
     /// Border box of an element that paints nothing itself; only present
     /// when `Layout::record_boxes` is set.
@@ -47,6 +47,16 @@ pub struct BoxDeco {
     pub grad: Option<Rc<Gradient>>,
 }
 
+/// What an image item draws: a picture in `Images` and the opacity it is drawn at.
+#[derive(Clone, Copy)]
+pub struct PicRef {
+    pub id: u32,
+    pub alpha: f32,
+    /// For a background image, where the whole image lies, `[x, y, w, h]` from the
+    /// item's origin: the item covers only the part inside the element's box.
+    pub tile: Option<[f32; 4]>,
+}
+
 #[derive(Clone, Copy)]
 pub struct TextRun {
     pub start: u32,
@@ -65,6 +75,7 @@ pub struct Layout {
     pub items: Vec<Item>,
     pub boxes: Vec<BoxDeco>,
     pub texts: Vec<TextRun>,
+    pub pictures: Vec<PicRef>,
     pub text: String,
     pub width: f32,
     pub height: f32,
@@ -324,6 +335,7 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
     reuse.items.clear();
     reuse.boxes.clear();
     reuse.texts.clear();
+    reuse.pictures.clear();
     reuse.text.clear();
     let mut e = Engine {
         dom,
@@ -400,6 +412,51 @@ impl<'a> Engine<'a> {
             grad: s.grad.clone(),
         };
         self.push_deco(node, x, y, w, h, deco)
+    }
+
+    fn push_picture(&mut self, node: NodeId, x: f32, y: f32, w: f32, h: f32, pic: PicRef) {
+        let data = self.out.pictures.len() as u32;
+        self.out.pictures.push(pic);
+        self.out.items.push(Item { x, y, w, h, kind: Kind::Image, node, data });
+    }
+
+    /// Reserves the item that paints an element's background image, under its
+    /// content; `place_background` sets it once the box size is known. Returns the
+    /// item and the image's natural size.
+    fn background_slot(&mut self, n: NodeId, s: &Style) -> Option<(u32, f32, f32)> {
+        if !s.visible || s.opacity <= 0.0 {
+            return None;
+        }
+        let id = self.images.file(s.bg_image.as_deref()?)?;
+        let (iw, ih) = self.images.size(id);
+        if iw <= 0.0 || ih <= 0.0 {
+            return None;
+        }
+        self.push_picture(n, 0.0, 0.0, 0.0, 0.0, PicRef { id, alpha: s.opacity, tile: Some([0.0; 4]) });
+        Some((self.mark() - 1, iw, ih))
+    }
+
+    /// Sizes and positions a background image in its element's padding box
+    /// `[x, y, w, h]`. One copy is drawn: repeating backgrounds are not tiled.
+    fn place_background(&mut self, slot: u32, s: &Style, pad: [f32; 4], iw: f32, ih: f32) {
+        let [px, py, pw, ph] = pad;
+        let (tw, th) = match s.bg_size {
+            BgSize::Cover => (iw * (pw / iw).max(ph / ih), ih * (pw / iw).max(ph / ih)),
+            BgSize::Contain => (iw * (pw / iw).min(ph / ih), ih * (pw / iw).min(ph / ih)),
+            BgSize::Auto => (iw, ih),
+            BgSize::Size(a, b) => match (definite(a, pw), definite(b, ph)) {
+                (Some(w), Some(h)) => (w, h),
+                (Some(w), None) => (w, w * ih / iw),
+                (None, Some(h)) => (h * iw / ih, h),
+                (None, None) => (iw, ih),
+            },
+        };
+        let (tx, ty) = (px + rs(s.bg_pos[0], pw - tw), py + rs(s.bg_pos[1], ph - th));
+        let (x0, y0) = (tx.max(px), ty.max(py));
+        let (x1, y1) = ((tx + tw).min(px + pw), (ty + th).min(py + ph));
+        let it = &mut self.out.items[slot as usize];
+        (it.x, it.y, it.w, it.h) = (x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0));
+        self.out.pictures[it.data as usize].tile = Some([tx - x0, ty - y0, tw, th]);
     }
 
     /// Emits already-shaped text at a fixed position and returns its width.
@@ -533,7 +590,7 @@ impl<'a> Engine<'a> {
             Some(w) => (w, true),
             None => {
                 let fill = (cw - sd.ml - sd.mr).max(0.0);
-                let w = if matches!(dom_tag(self.dom, n), atom::IMG | atom::SVG) { (self.intrinsic(n) - sd.ml - sd.mr).min(fill) } else { fill };
+                let w = if self.dom.shows_image(n) { (self.intrinsic(n) - sd.ml - sd.mr).min(fill) } else { fill };
                 let c = clamp_w(s, w, cw, &sd);
                 (c, c != fill)
             }
@@ -571,6 +628,7 @@ impl<'a> Engine<'a> {
         } else {
             NONE
         };
+        let bg = self.background_slot(n, s);
         let clip = if s.overflow_hidden {
             self.out.items.push(Item { x: x + bl, y: y + bt, w: w - bl - br, h: 0.0, kind: Kind::Clip, node: n, data: 0 });
             self.mark() - 1
@@ -599,7 +657,7 @@ impl<'a> Engine<'a> {
 
         let saved_bl = self.last_bl;
         self.last_bl = NAN;
-        let (content_h, mb_out) = if matches!(tag, atom::IMG | atom::INPUT | atom::SVG) {
+        let (content_h, mb_out) = if tag == atom::INPUT || self.dom.shows_image(n) {
             (self.replaced(n, s, cx, cy, cw, inner_h, tag), 0.0)
         } else if matches!(s.display, Display::Flex | Display::InlineFlex) {
             let inner_min = if min_h.is_nan() { NAN } else { (min_h - vextra).max(0.0) };
@@ -623,6 +681,9 @@ impl<'a> Engine<'a> {
         }
         if item != NONE {
             self.out.items[item as usize].h = h;
+        }
+        if let Some((slot, iw, ih)) = bg {
+            self.place_background(slot, s, [x + bl, y + bt, w - bl - br, h - bt - bb], iw, ih);
         }
         let baseline = if self.last_bl.is_nan() {
             self.last_bl = saved_bl;
@@ -666,12 +727,12 @@ impl<'a> Engine<'a> {
         if tag != atom::INPUT {
             if let Some((id, _, _)) = self.picture(n) {
                 let h = if inner_h.is_nan() { 0.0 } else { inner_h };
-                if s.visible {
-                    self.out.items.push(Item { x: cx, y: cy, w: cw, h, kind: Kind::Image, node: n, data: id });
+                if s.visible && s.opacity > 0.0 {
+                    self.push_picture(n, cx, cy, cw, h, PicRef { id, alpha: s.opacity, tile: None });
                 }
                 return h;
             }
-            if tag == atom::SVG {
+            if matches!(tag, atom::SVG | atom::VIDEO) {
                 return 0.0;
             }
             if self.waiting.contains_key(&n) {
@@ -1466,7 +1527,7 @@ impl<'a> Engine<'a> {
                 }
             }
             found
-                .or_else(|| dom.attr(n, atom::SRC).and_then(|u| self.images.file(u)))
+                .or_else(|| dom.attr(n, if node.tag == atom::VIDEO { atom::POSTER } else { atom::SRC }).and_then(|u| self.images.file(u)))
                 .or_else(|| dom.attr(n, atom::SRCSET).and_then(first_candidate).and_then(|u| self.images.file(u)))
         };
         let p = id.map(|id| (id, self.images.size(id))).map(|(id, (w, h))| (id, w, h)).filter(|p| p.1 > 0.0 && p.2 > 0.0);
@@ -1481,7 +1542,7 @@ impl<'a> Engine<'a> {
     /// over the image's own size, keeping its aspect ratio.
     fn natural(&mut self, n: NodeId) -> Option<(f32, f32)> {
         let dom = self.dom;
-        if !matches!(dom.nodes[n as usize].tag, atom::IMG | atom::SVG) {
+        if !dom.shows_image(n) {
             return None;
         }
         let num = |a| dom.attr(n, a).and_then(|v| v.trim().trim_end_matches("px").parse::<f32>().ok()).filter(|v| *v > 0.0);

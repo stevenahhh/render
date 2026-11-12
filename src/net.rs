@@ -522,6 +522,8 @@ fn extension(url: &Url, body: &[u8]) -> String {
         "gif".into()
     } else if body.starts_with(b"RIFF") && body.get(8..12) == Some(b"WEBP") {
         "webp".into()
+    } else if body.get(4..8) == Some(b"ftyp") && matches!(body.get(8..12), Some(b"avif" | b"avis")) {
+        "avif".into()
     } else if text.starts_with("<svg") || (text.starts_with("<?xml") && text.contains("<svg")) {
         "svg".into()
     } else {

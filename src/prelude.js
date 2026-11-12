@@ -8,7 +8,7 @@
     let n = nodes.get(id);
     if (!n) {
       const t = __tag(id);
-      n = t === '#text' ? new Text(id) : t === '#document' ? new Document(id) : new Element(id, t);
+      n = t === '#text' ? new Text(id) : t === '#document' ? new Document(id) : t === 'video' || t === 'audio' ? new HTMLMediaElement(id, t) : new Element(id, t);
       nodes.set(id, n);
     }
     return n;
@@ -318,6 +318,27 @@
     load() {}
     canPlayType() { return ''; }
   }
+  const MEDIA_STATES = { HAVE_NOTHING: 0, HAVE_METADATA: 1, HAVE_CURRENT_DATA: 2, HAVE_FUTURE_DATA: 3, HAVE_ENOUGH_DATA: 4, NETWORK_EMPTY: 0, NETWORK_IDLE: 1, NETWORK_LOADING: 2, NETWORK_NO_SOURCE: 3 };
+  // A <video> or <audio> that never loads: nothing buffered, paused at the start.
+  class HTMLMediaElement extends Element {
+    get readyState() { return 0; }
+    get networkState() { return 0; }
+    get paused() { return true; }
+    get ended() { return false; }
+    get currentTime() { return 0; }
+    set currentTime(v) {}
+    get duration() { return NaN; }
+    get error() { return null; }
+    get poster() { return this.getAttribute('poster') || ''; }
+    get currentSrc() { return this.getAttribute('src') || ''; }
+  }
+  Object.assign(HTMLMediaElement, MEDIA_STATES);
+  Object.assign(HTMLMediaElement.prototype, MEDIA_STATES);
+  class MediaError {
+    constructor(code) { this.code = code; this.message = ''; }
+  }
+  Object.assign(MediaError, { MEDIA_ERR_ABORTED: 1, MEDIA_ERR_NETWORK: 2, MEDIA_ERR_DECODE: 3, MEDIA_ERR_SRC_NOT_SUPPORTED: 4 });
+
   for (const k of ['id', 'title', 'href', 'src', 'alt', 'name', 'type', 'value', 'placeholder', 'rel', 'lang', 'dir', 'role', 'target', 'media', 'srcset']) {
     Object.defineProperty(Element.prototype, k, {
       configurable: true,
@@ -500,8 +521,8 @@
     Event, CustomEvent, EventTarget, Node, Element, Text, Document, XMLHttpRequest, Storage,
     AbortController, DOMMatrix, DOMMatrixReadOnly: DOMMatrix, WebKitCSSMatrix: DOMMatrix, URL, URLSearchParams,
     HTMLElement: Element, HTMLDivElement: Element, HTMLAnchorElement: Element, HTMLImageElement: Element,
-    HTMLInputElement: Element, HTMLButtonElement: Element, HTMLCanvasElement: Element, HTMLVideoElement: Element,
-    HTMLMediaElement: Element, SVGElement: Element, DocumentFragment: Element, ShadowRoot: Element,
+    HTMLInputElement: Element, HTMLButtonElement: Element, HTMLCanvasElement: Element, HTMLVideoElement: HTMLMediaElement,
+    HTMLAudioElement: HTMLMediaElement, HTMLMediaElement, MediaError, SVGElement: Element, DocumentFragment: Element, ShadowRoot: Element,
     NodeList: Array, HTMLCollection: Array, DOMTokenList: ClassList,
     MutationObserver: Observer, IntersectionObserver: Observer, ResizeObserver: Observer, PerformanceObserver: Observer,
     addEventListener: win.addEventListener.bind(g),
@@ -517,7 +538,7 @@
     cancelIdleCallback: clearTimer,
     queueMicrotask: (fn) => { Promise.resolve().then(fn); },
     getComputedStyle: (el) => (el && el.style ? el.style : styleProxy(document.createElement('div'))),
-    matchMedia: (q) => ({ matches: false, media: String(q), addListener: noop, removeListener: noop, addEventListener: noop, removeEventListener: noop }),
+    matchMedia: (q) => ({ matches: __media(String(q)), media: String(q), onchange: null, addListener: noop, removeListener: noop, addEventListener: noop, removeEventListener: noop }),
     fetch: () => Promise.reject(new Error('network access is disabled')),
     Image: function () { return document.createElement('img'); },
     localStorage: new Storage(),

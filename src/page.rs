@@ -95,6 +95,7 @@ fn resource_srcs(html: &str, scripts: bool) -> (Vec<String>, Vec<String>) {
                 out.extend(dom.attr(n, atom::SRC).map(str::to_string));
                 out.extend(dom.attr(n, atom::SRCSET).and_then(first));
             }
+            atom::VIDEO => out.extend(dom.attr(n, atom::POSTER).map(str::to_string)),
             // A <source> names an image with srcset; src is for video and audio.
             atom::SOURCE => out.extend(dom.attr(n, atom::SRCSET).and_then(first)),
             _ => {}
@@ -109,14 +110,14 @@ fn resource_srcs(html: &str, scripts: bool) -> (Vec<String>, Vec<String>) {
 /// uses viewport units, and the stylesheets left out.
 fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bool) -> (Sheet, bool, Vec<String>) {
     let mut sheet = Sheet::default();
-    sheet.add(UA_CSS, &mut dom.atoms, 0);
+    sheet.add(UA_CSS, &mut dom.atoms, 0, "");
     let (mut viewport_units, mut left_out) = (false, Vec::new());
     for n in 0..dom.nodes.len() as NodeId {
         match dom.nodes[n as usize].tag {
             atom::STYLE => {
                 let mut css = String::new();
                 dom.text_content(n, &mut css);
-                sheet.add(&css, &mut dom.atoms, 1);
+                sheet.add(&css, &mut dom.atoms, 1, "");
             }
             atom::LINK => {
                 let is_css = dom.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet"));
@@ -132,7 +133,12 @@ fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bo
                 if let Some(css) = path.and_then(|p| std::fs::read(p).ok()) {
                     let css = String::from_utf8_lossy(&css);
                     viewport_units |= css.contains("vw") || css.contains("vh");
-                    sheet.add(&css, &mut dom.atoms, 1);
+                    // Where the sheet came from: its URL, or its path relative to the page.
+                    let at = match site {
+                        Some(site) => href.and_then(|h| site.url.join(h)).map(|u| u.to_string()).unwrap_or_default(),
+                        None => href.unwrap_or_default().to_string(),
+                    };
+                    sheet.add(&css, &mut dom.atoms, 1, &at);
                 }
             }
             _ => {}
@@ -273,7 +279,9 @@ impl Page {
             page.images.fetch_from(site, wait);
         }
         if !scripts.is_empty() {
-            page.js = Some(Js::new(base));
+            let js = Js::new(base, page.site.clone());
+            // Only the window defers: there a page may roll its dice. One-shot output is repeatable.
+            page.js = Some(if defer { js } else { js.repeatable() });
             if defer {
                 page.deferred = scripts;
             } else {
@@ -380,20 +388,24 @@ impl Page {
         self.with_js(|js| js.timers()).flatten()
     }
 
-    /// Lays the page out and lets script timers run for up to `budget`, for
-    /// one-shot output where no event loop keeps the page alive.
+    /// Lays the page out and lets script timers run for up to `budget` of page
+    /// time, for one-shot output where no event loop keeps the page alive. Nothing
+    /// is painted until the end, so the waits between timers are skipped rather
+    /// than slept: only the time spent working is real.
     pub fn settle(&mut self, fonts: &mut Fonts, vw: f32, vh: f32, budget: std::time::Duration) {
         let start = std::time::Instant::now();
+        let mut skipped = std::time::Duration::ZERO;
         loop {
             self.update(fonts, vw, vh);
             let wait = match self.tick() {
                 Some(ms) => std::time::Duration::from_secs_f64(ms.max(1.0) / 1e3),
                 None => break,
             };
-            if start.elapsed() + wait > budget {
+            if start.elapsed() + skipped + wait > budget {
                 break;
             }
-            std::thread::sleep(wait);
+            skipped += wait;
+            self.with_js(|js| js.skip(wait.as_secs_f64() * 1e3));
         }
         self.update(fonts, vw, vh);
     }
@@ -405,6 +417,12 @@ impl Page {
 
     pub fn set_scroll(&mut self, y: f32) {
         self.scroll = y;
+    }
+
+    /// Scrolls to `y` and dispatches `scroll`, so scripts see the position.
+    pub fn scroll_to(&mut self, y: f32) {
+        self.scroll = y;
+        self.with_js(|js| js.dispatch(0, "scroll"));
     }
 
     /// Like `load`, but holds deferred scripts back until `run_deferred`.

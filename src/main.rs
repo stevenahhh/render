@@ -20,6 +20,11 @@ use winit::window::{CursorIcon, Window, WindowId};
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
+/// Page time that one-shot output (--screenshot, --boxes) lets scripts run
+/// before the frame is taken. Component frameworks such as apple.com's mount
+/// their components after about half a second of timers and animation frames.
+const SETTLE: Duration = Duration::from_millis(1000);
+
 const USAGE: &str = "usage: render <file.html | http(s) URL> [options]
 
   (no option)            open the page in a window
@@ -115,7 +120,11 @@ fn device_size(a: &Args) -> (usize, usize) {
 fn screenshot(a: &Args, out: &Path) -> std::io::Result<()> {
     let mut fonts = Fonts::new();
     let mut page = Page::load(&a.path)?;
-    page.settle(&mut fonts, a.width, a.height, Duration::from_millis(400));
+    if a.scroll > 0.0 {
+        page.update(&mut fonts, a.width, a.height);
+        page.scroll_to(a.scroll.clamp(0.0, (page.layout.height - a.height).max(0.0)));
+    }
+    page.settle(&mut fonts, a.width, a.height, SETTLE);
     if let Some(sel) = &a.inspect {
         for line in page.inspect(sel) {
             eprintln!("{line}");
@@ -138,7 +147,7 @@ fn boxes(a: &Args, selectors: &Path) -> std::io::Result<()> {
     let mut fonts = Fonts::new();
     let mut page = Page::load(&a.path)?;
     page.record_boxes = true;
-    page.settle(&mut fonts, a.width, a.height, Duration::from_millis(400));
+    page.settle(&mut fonts, a.width, a.height, SETTLE);
     let mut out = String::new();
     for (i, sel) in list.lines().enumerate() {
         match page.describe(sel) {

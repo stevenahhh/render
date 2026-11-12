@@ -43,7 +43,7 @@ atoms! {
     ID = "id", CLASS = "class", HREF = "href", REL = "rel", TYPE = "type",
     VALUE = "value", PLACEHOLDER = "placeholder", ALT = "alt", WIDTH = "width",
     HEIGHT = "height", START = "start", SRC = "src", SRCSET = "srcset", MEDIA = "media",
-    PICTURE = "picture", NOSCRIPT = "noscript", SVG = "svg",
+    PICTURE = "picture", NOSCRIPT = "noscript", SVG = "svg", VIDEO = "video", POSTER = "poster",
 }
 
 pub struct Interner {
@@ -176,6 +176,16 @@ impl Dom {
     pub fn is_element(&self, n: NodeId) -> bool {
         let t = self.nodes[n as usize].tag;
         t != atom::TEXT && t != atom::DOCUMENT
+    }
+
+    /// True for an element whose content is an image: `<img>`, inline `<svg>`,
+    /// and a `<video>` with a poster, which stands still on its poster frame.
+    pub fn shows_image(&self, n: NodeId) -> bool {
+        match self.nodes[n as usize].tag {
+            atom::IMG | atom::SVG => true,
+            atom::VIDEO => self.attr(n, atom::POSTER).is_some_and(|p| !p.is_empty()),
+            _ => false,
+        }
     }
 
     #[inline]

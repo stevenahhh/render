@@ -2057,6 +2057,8 @@ dependencies = [
  "memchr",
  "memmap2",
  "mimalloc",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
  "resvg",
  "rustls",
  "softbuffer",

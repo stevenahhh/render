@@ -10,13 +10,18 @@ use boa_engine::native_function::NativeFunctionPointer;
 use boa_engine::object::builtins::JsArray;
 use boa_engine::builtins::promise::PromiseState;
 use boa_engine::{Context, JsArgs, JsResult, JsString, JsValue, Module, NativeFunction, Source};
-use boa_engine::module::SimpleModuleLoader;
+use crate::net::{Site, Url};
+use boa_engine::module::{ModuleLoader, ModuleRequest, Referrer, SimpleModuleLoader};
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Instant;
 
 const PRELUDE: &str = include_str!("prelude.js");
+
+/// Replaces `Math.random` with mulberry32 from a fixed seed.
+const FIXED_RANDOM: &str = "{ let s = 0x9E3779B9; Math.random = () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }";
 /// Stops runaway loops in page scripts instead of freezing the window.
 const LOOP_LIMIT: u64 = 20_000_000;
 
@@ -34,6 +39,8 @@ pub struct Host {
 thread_local! {
     static HOST: RefCell<Option<Host>> = const { RefCell::new(None) };
     static START: Instant = Instant::now();
+    /// Milliseconds the script clock runs ahead of the wall clock; see `Js::skip`.
+    static SKIPPED: std::cell::Cell<f64> = const { std::cell::Cell::new(0.0) };
 }
 
 fn with<R>(f: impl FnOnce(&mut Host) -> Option<R>) -> Option<R> {
@@ -246,8 +253,15 @@ fn view(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     Ok(js_array(v.iter().map(|v| JsValue::from(*v as f64)).collect(), ctx))
 }
 
+/// `__media(query)`: whether a media query matches the current viewport.
+fn media(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let q = str_arg(a, 0, ctx)?;
+    let [w, h, _] = with(|h| Some(h.view)).unwrap_or([0.0; 3]);
+    Ok(crate::css::media_matches(&q, w, h).into())
+}
+
 fn now(_: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
-    Ok(JsValue::from(START.with(|s| s.elapsed().as_secs_f64() * 1e3)))
+    Ok(JsValue::from(START.with(|s| s.elapsed().as_secs_f64() * 1e3) + SKIPPED.get()))
 }
 
 const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
@@ -269,28 +283,98 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__matches", 2, matches),
     ("__rect", 1, rect),
     ("__view", 0, view),
+    ("__media", 1, media),
     ("__now", 0, now),
 ];
+
+/// Loads the modules of a page from the web. A specifier resolves against the URL
+/// of the module that imports it, is downloaded through the page's `Site`, and
+/// each URL is parsed (and so evaluated) once.
+struct WebModules {
+    site: Arc<Site>,
+    /// The URL of every parsed module, by the local path it was parsed with.
+    urls: RefCell<FxMap<PathBuf, Url>>,
+    modules: RefCell<FxMap<Url, Module>>,
+}
+
+impl WebModules {
+    /// The module at `url` parsed from `code`, kept at `path`; the one parsed
+    /// before when there is one.
+    fn parse(&self, url: Url, path: &Path, code: &[u8], ctx: &mut Context) -> JsResult<Module> {
+        if let Some(m) = self.modules.borrow().get(&url) {
+            return Ok(m.clone());
+        }
+        let module = Module::parse(Source::from_bytes(code).with_path(path), None, ctx)?;
+        self.urls.borrow_mut().insert(path.to_path_buf(), url.clone());
+        self.modules.borrow_mut().insert(url, module.clone());
+        Ok(module)
+    }
+
+    /// Downloads and parses the module `specifier` names, imported by `referrer`.
+    fn load(&self, referrer: &Referrer, specifier: &str, ctx: &mut Context) -> JsResult<Module> {
+        let base = referrer.path().and_then(|p| self.urls.borrow().get(p).cloned()).unwrap_or_else(|| self.site.url.clone());
+        let url = base.join(specifier).ok_or_else(|| js_error(format!("cannot resolve module {specifier}")))?;
+        if let Some(m) = self.modules.borrow().get(&url) {
+            return Ok(m.clone());
+        }
+        let path = self.site.file(&url.to_string()).ok_or_else(|| js_error(format!("cannot download module {url}")))?;
+        let code = std::fs::read(&path).map_err(|e| js_error(format!("{url}: {e}")))?;
+        self.parse(url, &path, &code, ctx)
+    }
+}
+
+fn js_error(message: String) -> boa_engine::JsError {
+    boa_engine::JsNativeError::typ().with_message(message).into()
+}
+
+impl ModuleLoader for WebModules {
+    fn load_imported_module(
+        self: Rc<Self>,
+        referrer: Referrer,
+        request: ModuleRequest,
+        context: &RefCell<&mut Context>,
+    ) -> impl std::future::Future<Output = JsResult<Module>> {
+        let specifier = request.specifier().to_std_string_escaped();
+        let result = self.load(&referrer, &specifier, &mut context.borrow_mut());
+        async { result }
+    }
+}
 
 pub struct Js {
     ctx: Context,
     booted: bool,
+    /// `Math.random` is seeded, so every run computes the same page.
+    repeatable: bool,
+    /// Set for a page from the web.
+    web: Option<Rc<WebModules>>,
 }
 
 impl Js {
-    /// `base` is the directory that module imports may load from.
-    pub fn new(base: Option<&Path>) -> Js {
-        let loader = base.and_then(|b| SimpleModuleLoader::new(b).ok());
-        let mut ctx = match loader {
-            Some(l) => Context::builder().module_loader(Rc::new(l)).build().expect("create script context"),
-            None => Context::default(),
+    /// Module imports load from `site` for a page from the web, else from the
+    /// directory `base`.
+    pub fn new(base: Option<&Path>, site: Option<Arc<Site>>) -> Js {
+        let web = site.map(|site| Rc::new(WebModules { site, urls: RefCell::default(), modules: RefCell::default() }));
+        let local = base.filter(|_| web.is_none()).and_then(|b| SimpleModuleLoader::new(b).ok());
+        let builder = Context::builder();
+        let builder = match (&web, local) {
+            (Some(w), _) => builder.module_loader(w.clone()),
+            (None, Some(l)) => builder.module_loader(Rc::new(l)),
+            (None, None) => builder,
         };
+        let mut ctx = builder.build().expect("create script context");
         ctx.runtime_limits_mut().set_loop_iteration_limit(LOOP_LIMIT);
         for &(name, len, f) in NATIVES {
             ctx.register_global_callable(JsString::from(name), len, NativeFunction::from_fn_ptr(f)).expect("register native function");
         }
         START.with(|_| ());
-        Js { ctx, booted: false }
+        Js { ctx, booted: false, repeatable: false, web }
+    }
+
+    /// Makes `Math.random` return the same sequence in every run. One-shot output
+    /// (a screenshot, a box dump) must not depend on a page's dice.
+    pub fn repeatable(mut self) -> Js {
+        self.repeatable = true;
+        self
     }
 
     /// Lends the page state to scripts. Every `enter` needs a `leave`.
@@ -299,6 +383,9 @@ impl Js {
         if !self.booted {
             self.booted = true;
             self.eval(PRELUDE, "prelude");
+            if self.repeatable {
+                self.eval(FIXED_RANDOM, "fixed random");
+            }
         }
     }
 
@@ -327,7 +414,14 @@ impl Js {
     /// resolve against it.
     pub fn eval_module(&mut self, code: &str, name: &str, path: &Path) {
         let report = |e: String| eprintln!("[js] {name}: {}", e.chars().take(300).collect::<String>());
-        let module = match Module::parse(Source::from_bytes(code).with_path(path), None, &mut self.ctx) {
+        let parsed = match &self.web {
+            Some(web) => match web.site.url.join(name) {
+                Some(url) => web.parse(url, path, code.as_bytes(), &mut self.ctx),
+                None => return report(format!("cannot resolve module {name}")),
+            },
+            None => Module::parse(Source::from_bytes(code).with_path(path), None, &mut self.ctx),
+        };
+        let module = match parsed {
             Ok(m) => m,
             Err(e) => return report(e.to_string()),
         };
@@ -348,6 +442,12 @@ impl Js {
     /// Dispatches a bubbling event; true when a listener prevented the default.
     pub fn dispatch(&mut self, node: NodeId, event: &str) -> bool {
         self.eval(&format!("__dispatch({node}, \"{event}\")"), event).is_some_and(|v| v.to_boolean())
+    }
+
+    /// Moves the script clock (`performance.now`, timer and frame times) `ms`
+    /// ahead, as if that time had passed with nothing to do.
+    pub fn skip(&mut self, ms: f64) {
+        SKIPPED.set(SKIPPED.get() + ms);
     }
 
     /// Runs due timers; returns milliseconds until the next one.

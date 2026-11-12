@@ -279,17 +279,25 @@ fn draw_text(t: &mut Target, clip: Rect, l: &Layout, fonts: &mut Fonts, it: &Ite
     }
 }
 
-/// Copies a picture already scaled to `r`, blending premultiplied alpha.
-fn draw_image(t: &mut Target, clip: Rect, pic: &Picture, r: Rect) {
+/// Scales a premultiplied ARGB pixel by `k` / 256.
+fn fade(s: u32, k: u32) -> u32 {
+    ((s & 0x00FF_00FF) * k >> 8 & 0x00FF_00FF) | ((s >> 8 & 0x00FF_00FF) * k & 0xFF00_FF00)
+}
+
+/// Copies a picture already scaled to `r`, blending premultiplied alpha after
+/// scaling every pixel by `opacity`.
+fn draw_image(t: &mut Target, clip: Rect, pic: &Picture, r: Rect, opacity: f32) {
     let c = clip.intersect(r);
     if c.is_empty() {
         return;
     }
     let n = (c.x1 - c.x0) as usize;
+    let k = (opacity.clamp(0.0, 1.0) * 256.0).round() as u32;
     for y in c.y0..c.y1 {
         let src = &pic.px[((y - r.y0) as u32 * pic.w + (c.x0 - r.x0) as u32) as usize..][..n];
         let dst = &mut t.buf[(y * t.w + c.x0) as usize..][..n];
         for (d, &s) in dst.iter_mut().zip(src) {
+            let s = if k == 256 { s } else { fade(s, k) };
             let a = s >> 24;
             if a == 255 {
                 *d = s & 0x00FF_FFFF;
@@ -315,6 +323,17 @@ pub fn paint(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Target,
         x1: ((it.x + it.w) * scale).round() as i32,
         y1: ((it.y + it.h) * scale).round() as i32 - sy,
     };
+    // Where the whole image of an image item lies: the item itself, or for a
+    // background image the tile it shows part of.
+    let whole = |it: &Item, r: Rect| match l.pictures[it.data as usize].tile {
+        Some([dx, dy, w, h]) => Rect {
+            x0: ((it.x + dx) * scale).round() as i32,
+            y0: ((it.y + dy) * scale).round() as i32 - sy,
+            x1: ((it.x + dx + w) * scale).round() as i32,
+            y1: ((it.y + dy + h) * scale).round() as i32 - sy,
+        },
+        None => r,
+    };
     let (top, bottom) = (scroll - 4.0, scroll + t.h as f32 / scale + 4.0);
     // Decode every image this frame draws up front, in parallel.
     let mut wants: Vec<(u32, u32, u32)> = Vec::new();
@@ -329,7 +348,8 @@ pub fn paint(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Target,
             Kind::Image if !(it.y + it.h < top || it.y > bottom || clip.is_empty()) => {
                 let r = dev(it);
                 if !r.is_empty() {
-                    wants.push((it.data, (r.x1 - r.x0) as u32, (r.y1 - r.y0) as u32));
+                    let r = whole(it, r);
+                    wants.push((l.pictures[it.data as usize].id, (r.x1 - r.x0) as u32, (r.y1 - r.y0) as u32));
                 }
             }
             _ => {}
@@ -350,14 +370,16 @@ pub fn paint(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Target,
             Kind::Box => draw_box(t, clip, &l.boxes[it.data as usize], dev(it), scale),
             Kind::Text => draw_text(t, clip, l, fonts, it, sy, scale),
             Kind::Image => {
-                let r = dev(it);
-                if !r.is_empty() {
+                let (part, r) = (dev(it), whole(it, dev(it)));
+                if !part.is_empty() {
+                    let clip = clip.intersect(part);
                     let v = clip.intersect(r);
                     let part = |a: i32, origin: i32| (a - origin).max(0) as u32;
                     let visible = [part(v.x0, r.x0), part(v.y0, r.y0), part(v.x1, r.x0), part(v.y1, r.y0)];
-                    if let Some((pic, x, y)) = images.get(it.data, (r.x1 - r.x0) as u32, (r.y1 - r.y0) as u32, visible) {
+                    let p = l.pictures[it.data as usize];
+                    if let Some((pic, x, y)) = images.get(p.id, (r.x1 - r.x0) as u32, (r.y1 - r.y0) as u32, visible) {
                         let (x0, y0) = (r.x0 + x as i32, r.y0 + y as i32);
-                        draw_image(t, clip, pic, Rect { x0, y0, x1: x0 + pic.w as i32, y1: y0 + pic.h as i32 });
+                        draw_image(t, clip, pic, Rect { x0, y0, x1: x0 + pic.w as i32, y1: y0 + pic.h as i32 }, p.alpha);
                     }
                 }
             }

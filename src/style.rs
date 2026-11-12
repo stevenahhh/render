@@ -31,6 +31,11 @@ pub struct Style {
     pub border_box: bool,
     pub bg: Color,
     pub grad: Option<Rc<Gradient>>,
+    pub bg_image: Option<Rc<str>>,
+    pub bg_size: BgSize,
+    /// `background-position`; percentages refer to the free space around the image.
+    pub bg_pos: [Len; 2],
+    clip_text: bool,
     pub overflow_hidden: bool,
     /// `transform: translate()`; percentages refer to the box itself.
     pub translate: [Len; 2],
@@ -99,6 +104,10 @@ impl Style {
             border_box: false,
             bg: Color::TRANSPARENT,
             grad: None,
+            bg_image: None,
+            bg_size: BgSize::Auto,
+            bg_pos: [Len::Pct(0.0); 2],
+            clip_text: false,
             overflow_hidden: false,
             translate: [Len::Px(0.0); 2],
             contents: false,
@@ -271,6 +280,34 @@ fn resolve(l: Len, em: f32, c: &Ctx) -> Len {
     }
 }
 
+/// `background-clip: text` shows the background only through the glyphs. Glyphs
+/// are not used as a clip here, so the box paints no background and transparent
+/// text takes one colour of it: the opaque gradient stop nearest the middle, or
+/// the background colour.
+fn text_from_background(st: &mut Style) {
+    let middle = |s: &&(f32, Color)| ((s.0 - 0.5).abs() * 1e4) as u32;
+    let grad = st.grad.take();
+    let from = grad.as_ref().and_then(|g| g.stops.iter().filter(|s| s.1.a() > 0).min_by_key(middle)).map_or(st.bg, |s| s.1);
+    if st.color.a() == 0 && from.a() > 0 {
+        st.color = from;
+    }
+    st.bg = Color::TRANSPARENT;
+}
+
+/// Pixels per `unit` in a value resolved while styling: viewport units and `rem`
+/// always, `em` only when its size is given (in `font-size`, the parent's).
+fn unit_px(unit: &str, em: Option<f32>, c: &Ctx) -> Option<f32> {
+    match unit {
+        "vw" => Some(c.vw * 0.01),
+        "vh" => Some(c.vh * 0.01),
+        "vmin" => Some(c.vw.min(c.vh) * 0.01),
+        "vmax" => Some(c.vw.max(c.vh) * 0.01),
+        "rem" => Some(c.root_fs),
+        "em" => em,
+        _ => None,
+    }
+}
+
 fn px(l: Len, em: f32, c: &Ctx) -> f32 {
     match resolve(l, em, c) {
         Len::Px(v) => v,
@@ -343,6 +380,15 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::RowGap(l) => st.gap_row = px(l, em, c),
         Decl::ColGap(l) => st.gap_col = px(l, em, c),
         Decl::Overflow(v) => st.overflow_hidden = v,
+        Decl::BgImage(ref u) => st.bg_image = u.clone(),
+        Decl::BgSize(v) => {
+            st.bg_size = match v {
+                BgSize::Size(w, h) => BgSize::Size(r(w), r(h)),
+                v => v,
+            }
+        }
+        Decl::BgPos(x, y) => st.bg_pos = [r(x), r(y)],
+        Decl::ClipText(v) => st.clip_text = v,
         Decl::Visible(v) => st.visible = v,
         Decl::Opacity(v) => st.own_opacity = v,
         Decl::Pointer(v) => st.pointer = v,
@@ -710,6 +756,8 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
                 Decl::Var(..) => {}
                 Decl::Deferred(name, v) => {
                     if let Some(sv) = subst(v, vars, 0) {
+                        let em = (&**name == "font-size").then_some(parent.font_size);
+                        let sv = crate::css::absolute_lengths(&sv, |u| unit_px(u, em, &ctx)).unwrap_or(sv);
                         parse_decl(name, &sv, &mut expanded);
                     }
                 }
@@ -739,6 +787,9 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
             if st.bc_set & (1 << s) == 0 {
                 st.bc[s] = st.color;
             }
+        }
+        if st.clip_text {
+            text_from_background(&mut st);
         }
         st.opacity = parent.opacity * st.own_opacity;
         let parent_flex = matches!(parent.display, Display::Flex | Display::InlineFlex);
@@ -772,6 +823,11 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
             st.basis = Len::Calc(100.0 / n, -parent.gap_col * (n - 1.0) / n);
             st.grow = 0.0;
         }
+        // A grid that places its items in columns adds a track per item and
+        // overflows rather than squeezing them.
+        if parent_flex && parent.grid_flow_col {
+            st.shrink = 0.0;
+        }
         st.z_ctx = st.z_set && (st.position != Position::Static || parent_flex);
         let blockify = node.parent == 0
             || matches!(st.position, Position::Absolute | Position::Fixed)
@@ -783,7 +839,7 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
                 d => d,
             };
         }
-        let replaced = matches!(node.tag, atom::IMG | atom::SVG | atom::INPUT);
+        let replaced = node.tag == atom::INPUT || dom.shows_image(i);
         if replaced && st.display == Display::Inline {
             st.display = Display::InlineBlock;
         }

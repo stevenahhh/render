@@ -1,4 +1,4 @@
-//! Image loading: JPEG/PNG files and SVG (files or inline markup).
+//! Image loading: JPEG/PNG files, AVIF files on macOS, and SVG (files or inline markup).
 //!
 //! Layout only needs intrinsic sizes, which come from file headers. Pixels
 //! are decoded when an image is first painted and cached at the size drawn.
@@ -130,7 +130,7 @@ impl Images {
                 let size = tree.size();
                 Some((Source::Svg(tree), size.width(), size.height()))
             } else {
-                let (w, h) = image::image_dimensions(&path).ok()?;
+                let (w, h) = dimensions(&path)?;
                 Some((Source::File(path), w as f32, h as f32))
             }
         });
@@ -275,8 +275,98 @@ fn premultiply(rgba: &[u8]) -> u32 {
     a << 24 | m(rgba[0]) << 16 | m(rgba[1]) << 8 | m(rgba[2])
 }
 
+fn is_avif(path: &std::path::Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("avif"))
+}
+
+/// Width and height of an image file, read from its header.
+fn dimensions(path: &std::path::Path) -> Option<(u32, u32)> {
+    if is_avif(path) {
+        return system::dimensions(&std::fs::read(path).ok()?);
+    }
+    image::image_dimensions(path).ok()
+}
+
+/// An image file's pixels as straight RGBA.
+fn open(path: &std::path::Path) -> Option<image::RgbaImage> {
+    if is_avif(path) {
+        return system::decode(&std::fs::read(path).ok()?);
+    }
+    Some(image::open(path).ok()?.into_rgba8())
+}
+
+/// AVIF through ImageIO, the decoder macOS ships since macOS 13.
+#[cfg(target_os = "macos")]
+mod system {
+    use objc2_core_foundation::{CFData, CFDictionary, CFRetained, CFType, CGPoint, CGRect, CGSize};
+    use objc2_core_graphics::{CGBitmapContextCreate, CGColorSpace, CGContext, CGImage, CGImageAlphaInfo};
+    use std::ptr::NonNull;
+
+    #[link(name = "ImageIO", kind = "framework")]
+    extern "C-unwind" {
+        fn CGImageSourceCreateWithData(data: &CFData, options: Option<&CFDictionary>) -> Option<NonNull<CFType>>;
+        fn CGImageSourceCreateImageAtIndex(source: &CFType, index: usize, options: Option<&CFDictionary>) -> Option<NonNull<CGImage>>;
+    }
+
+    /// The first image in an encoded file; its pixels are decoded when drawn.
+    fn image(bytes: &[u8]) -> Option<CFRetained<CGImage>> {
+        let data = CFData::from_bytes(bytes);
+        // SAFETY: `data` is a live CFData and no options are passed. The function follows
+        // the Create rule: the source comes back retained once, and `from_raw` takes over
+        // that one reference, released when it drops.
+        let source = unsafe { CFRetained::from_raw(CGImageSourceCreateWithData(&data, None)?) };
+        // SAFETY: `source` is the CGImageSource just created, alive for the call; an index
+        // with no image gives NULL, which is `None`. The image follows the Create rule as above.
+        Some(unsafe { CFRetained::from_raw(CGImageSourceCreateImageAtIndex(&source, 0, None)?) })
+    }
+
+    /// Width and height of an encoded image, without decoding its pixels.
+    pub fn dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+        let img = image(bytes)?;
+        Some((CGImage::width(Some(&img)) as u32, CGImage::height(Some(&img)) as u32))
+    }
+
+    /// The pixels of an encoded image, straight RGBA.
+    pub fn decode(bytes: &[u8]) -> Option<image::RgbaImage> {
+        let img = image(bytes)?;
+        let (w, h) = (CGImage::width(Some(&img)), CGImage::height(Some(&img)));
+        let mut px = vec![0u8; w.checked_mul(h)?.checked_mul(4)?];
+        let space = CGColorSpace::new_device_rgb()?;
+        // SAFETY: `px` holds exactly w * h * 4 bytes, matching the width, height, 8 bits per
+        // component and w * 4 bytes per row given here. It is neither moved nor read until
+        // `ctx`, the only writer, has been dropped below.
+        let ctx = unsafe { CGBitmapContextCreate(px.as_mut_ptr().cast(), w, h, 8, w * 4, Some(&space), CGImageAlphaInfo::PremultipliedLast.0) }?;
+        CGContext::draw_image(Some(&ctx), CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(w as f64, h as f64)), Some(&img));
+        drop(ctx);
+        // The context keeps premultiplied alpha; the rest of the pipeline takes straight alpha.
+        for p in px.chunks_exact_mut(4) {
+            let a = p[3] as u32;
+            if a != 0 && a != 255 {
+                for c in &mut p[..3] {
+                    *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+                }
+            }
+        }
+        image::RgbaImage::from_raw(w as u32, h as u32, px)
+    }
+}
+
+/// Elsewhere AVIF is not decoded and the image shows its alt text.
+#[cfg(not(target_os = "macos"))]
+mod system {
+    /// Always `None`: there is no AVIF decoder here.
+    pub fn dimensions(_: &[u8]) -> Option<(u32, u32)> {
+        None
+    }
+
+    /// Always `None`: there is no AVIF decoder here.
+    pub fn decode(_: &[u8]) -> Option<image::RgbaImage> {
+        None
+    }
+}
+
 fn decode(path: &std::path::Path, w: u32, h: u32) -> Option<Picture> {
-    let img = image::open(path).ok()?.into_rgba8();
+    let img = open(path)?;
     let img = if (img.width(), img.height()) == (w, h) {
         img
     } else if w <= img.width() && h <= img.height() {
@@ -290,7 +380,7 @@ fn decode(path: &std::path::Path, w: u32, h: u32) -> Option<Picture> {
 /// The part `keep` (`[x0, y0, x1, y1]`) of the image scaled to `w` x `h`: the matching
 /// source rectangle is cut out first, so the scaled copy is only as large as the part.
 fn decode_part(path: &std::path::Path, w: u32, h: u32, keep: [u32; 4]) -> Option<Picture> {
-    let img = image::open(path).ok()?.into_rgba8();
+    let img = open(path)?;
     let (nw, nh) = img.dimensions();
     let to_src = |v: u32, full: u32, n: u32, up: bool| {
         let s = v as u64 * n as u64;
