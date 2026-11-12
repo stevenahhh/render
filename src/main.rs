@@ -2,7 +2,7 @@ use render::font::Fonts;
 use render::page::{Download, Page};
 use render::layout::Layout;
 use render::paint::{self, paint, scrollbar, Target};
-use render::present::{frames_run, timer_wake, window_hidden, Alarm, DisplaySleep, FrameClock, Presenter, Rect, Sight};
+use render::present::{frames_run, timer_wake, window_hidden, Alarm, DisplaySleep, FrameClock, FrameStall, Presenter, Rect, Sight};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -231,6 +231,8 @@ struct App {
     surface: Option<Presenter>,
     /// The display refreshes that animation frames follow, where the system has them.
     clock: Option<FrameClock>,
+    /// Since when animation frame callbacks have waited for a refresh that did not come.
+    stall: FrameStall,
     /// Wakes the event loop for the page's next timer, where the system has a run loop timer.
     alarm: Option<Alarm>,
     /// Since when the window has been covered or minimized, while it is.
@@ -291,6 +293,8 @@ struct Meter {
     device: u32,
     /// Display refreshes that ran animation frame callbacks.
     refreshes: u32,
+    /// Animation frame callbacks run from a timer, without a display refresh.
+    timer_frames: u32,
     frames: u32,
     pixels: u64,
     script: Duration,
@@ -309,7 +313,7 @@ impl Meter {
             if print {
                 let [timer, event, poll] = self.wakes;
                 eprintln!(
-                    "stats {:.1}s: wake-ups {} (timer {timer}, event {event}, poll {poll}), events {} (cursor {}, device {}), refreshes {}, frames {}, pixels painted {}, script {:.2} ms, style+layout {:.2} ms, paint {:.2} ms, present {:.2} ms",
+                    "stats {:.1}s: wake-ups {} (timer {timer}, event {event}, poll {poll}), events {} (cursor {}, device {}), refreshes {}, frames {}, pixels painted {}, script {:.2} ms, style+layout {:.2} ms, paint {:.2} ms, present {:.2} ms, frame callbacks from a timer {}",
                     (now - since).as_secs_f64(),
                     timer + event + poll,
                     self.events,
@@ -321,7 +325,8 @@ impl Meter {
                     millis(self.script),
                     millis(self.update),
                     millis(self.paint),
-                    millis(self.present)
+                    millis(self.present),
+                    self.timer_frames
                 );
             }
             *self = Meter { since: Some(now), ..Meter::default() };
@@ -876,8 +881,15 @@ impl ApplicationHandler for App {
         }
         let next = self.page.tick(&mut self.fonts);
         // The display refreshed while animation frame callbacks waited: they run for this frame.
-        if self.clock.as_ref().is_some_and(FrameClock::take_refresh) {
+        let refreshed = self.clock.as_ref().is_some_and(FrameClock::take_refresh);
+        if refreshed {
             self.meter.refreshes += 1;
+            self.page.frame(&mut self.fonts);
+        }
+        // A page that can be seen gets its frames even when the display link stays silent.
+        let now = Instant::now();
+        if self.sight.hidden_since().is_none() && self.stall.due(now) {
+            self.meter.timer_frames += 1;
             self.page.frame(&mut self.fonts);
         }
         self.meter.script += started.elapsed();
@@ -889,9 +901,12 @@ impl ApplicationHandler for App {
             }
         }
         if let Some(clock) = &mut self.clock {
-            clock.run(frames_run(self.page.wants_frame(&mut self.fonts), self.sight.hidden_since().is_some()));
+            let waiting = frames_run(self.page.wants_frame(&mut self.fonts), self.sight.hidden_since().is_some());
+            clock.run(waiting);
+            self.stall.track(waiting, refreshed, now);
         }
-        let wake = next.map(|ms| timer_wake(Instant::now(), ms, self.sight.hidden_since()));
+        let timer = next.map(|ms| timer_wake(Instant::now(), ms, self.sight.hidden_since()));
+        let wake = timer.into_iter().chain(self.stall.deadline()).min();
         event_loop.set_control_flow(match &mut self.alarm {
             Some(alarm) => {
                 alarm.set(wake);
@@ -1030,6 +1045,7 @@ fn run() -> Result<(), String> {
         window: None,
         surface: None,
         clock: None,
+        stall: FrameStall::default(),
         alarm: Alarm::new(),
         sight: Sight::default(),
         occluded: false,

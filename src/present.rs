@@ -71,6 +71,48 @@ pub fn frames_run(wanted: bool, hidden: bool) -> bool {
     wanted && !hidden
 }
 
+/// How long animation frame callbacks of a page that can be seen wait for a display
+/// refresh before they run from a timer, and how often they run from it after that.
+pub const FRAME_STALL: Duration = Duration::from_millis(100);
+
+/// Animation frames the display link does not deliver. Browsers always run the frame
+/// callbacks of a page that can be seen, and scripts wait on them to build the page; a
+/// display link can stay silent for a window the system does not report hidden, as on a
+/// display that does not refresh. After `FRAME_STALL` without a refresh the callbacks run
+/// from a timer every `FRAME_STALL`, until refreshes come back. Without waiting callbacks
+/// nothing is timed, so an idle page wakes for nothing.
+#[derive(Default)]
+pub struct FrameStall {
+    since: Option<Instant>,
+}
+
+impl FrameStall {
+    /// After a turn of the event loop: whether callbacks wait in a window that can be seen
+    /// (`frames_run`), and whether the display refreshed in that turn.
+    pub fn track(&mut self, waiting: bool, refreshed: bool, now: Instant) {
+        self.since = match self.since {
+            _ if !waiting => None,
+            Some(since) if !refreshed => Some(since),
+            _ => Some(now),
+        };
+    }
+
+    /// True when the callbacks have waited `FRAME_STALL` without a refresh: they run now,
+    /// and the next wait starts.
+    pub fn due(&mut self, now: Instant) -> bool {
+        let due = self.deadline().is_some_and(|at| at <= now);
+        if due {
+            self.since = Some(now);
+        }
+        due
+    }
+
+    /// When the event loop must wake to run the callbacks from the timer, while they wait.
+    pub fn deadline(&self) -> Option<Instant> {
+        self.since.map(|since| since + FRAME_STALL)
+    }
+}
+
 #[cfg(target_os = "macos")]
 mod imp {
     use objc2::rc::Retained;
@@ -653,7 +695,7 @@ mod imp {
 
 #[cfg(test)]
 mod tests {
-    use super::{frames_run, timer_wake, window_hidden, Sight};
+    use super::{frames_run, timer_wake, window_hidden, FrameStall, Sight, FRAME_STALL};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -686,6 +728,38 @@ mod tests {
         assert!(!frames_run(true, true));
         assert!(!frames_run(false, false));
         assert!(!frames_run(false, true));
+    }
+
+    #[test]
+    fn frame_callbacks_run_from_a_timer_only_while_a_seen_page_waits_for_refreshes_that_do_not_come() {
+        let (mut stall, t0) = (FrameStall::default(), Instant::now());
+        let ms = |n: u64| t0 + Duration::from_millis(n);
+        // An idle page, or a hidden one: nothing timed, nothing due.
+        stall.track(false, false, t0);
+        assert_eq!(stall.deadline(), None);
+        assert!(!stall.due(ms(500)));
+        // Callbacks wait from 0 ms; refreshes every 16 ms keep pushing the deadline away.
+        stall.track(true, false, t0);
+        for n in 1..=10 {
+            assert!(!stall.due(ms(16 * n)));
+            stall.track(true, true, ms(16 * n));
+        }
+        assert_eq!(stall.deadline(), Some(ms(160) + FRAME_STALL));
+        // The refreshes stop: due once FRAME_STALL after the last one, then every FRAME_STALL.
+        assert!(!stall.due(ms(259)));
+        assert!(stall.due(ms(260)));
+        stall.track(true, false, ms(260));
+        assert!(!stall.due(ms(359)));
+        assert!(stall.due(ms(360)));
+        stall.track(true, false, ms(360));
+        // A refresh comes back: the timer steps aside.
+        stall.track(true, true, ms(380));
+        assert!(!stall.due(ms(460)));
+        assert!(stall.due(ms(480)));
+        // The callbacks stop waiting, or the window is hidden: no wake-up is left behind.
+        stall.track(false, false, ms(490));
+        assert_eq!(stall.deadline(), None);
+        assert!(!stall.due(ms(5000)));
     }
 
     #[test]
