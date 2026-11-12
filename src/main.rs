@@ -38,6 +38,7 @@ const USAGE: &str = "usage: render <file.html | http(s) URL> [options]
   --scale <factor>       device pixels per CSS pixel              (default 1)
   --scroll <px>          vertical scroll offset for --screenshot  (default 0)
   --stats                print per-frame timings in window mode
+  --minimized            open the window minimized
   --inspect <selector>   with --screenshot, print the computed box of matching elements
   --boxes <file>         print the box and computed style of each selector in the file
   --no-cache             neither use nor fill the HTTP cache of pages from the web
@@ -56,12 +57,13 @@ struct Args {
     scale: f32,
     scroll: f32,
     stats: bool,
+    minimized: bool,
     inspect: Option<String>,
     boxes: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
-    let mut a = Args { path: PathBuf::new(), screenshot: None, bench: None, width: 1024.0, height: 768.0, scale: 1.0, scroll: 0.0, stats: false, inspect: None, boxes: None };
+    let mut a = Args { path: PathBuf::new(), screenshot: None, bench: None, width: 1024.0, height: 768.0, scale: 1.0, scroll: 0.0, stats: false, minimized: false, inspect: None, boxes: None };
     let mut it = std::env::args().skip(1);
     let mut path = None;
     while let Some(arg) = it.next() {
@@ -78,6 +80,7 @@ fn parse_args() -> Result<Args, String> {
             "--scale" => a.scale = num("--scale", value("--scale")?)?,
             "--scroll" => a.scroll = num("--scroll", value("--scroll")?)?,
             "--stats" => a.stats = true,
+            "--minimized" => a.minimized = true,
             "--no-cache" => render::cache::disable(),
             "--inspect" => a.inspect = Some(value("--inspect")?),
             "--boxes" => a.boxes = Some(value("--boxes")?.into()),
@@ -245,6 +248,8 @@ struct App {
     history: Vec<(PathBuf, f32)>,
     pointer: bool,
     stats: bool,
+    /// The window opens minimized.
+    minimized: bool,
     proxy: EventLoopProxy<()>,
     /// The current page has been shown at least once, so its held-back scripts may run.
     painted: bool,
@@ -800,6 +805,9 @@ impl ApplicationHandler for App {
         }
         let attrs = Window::default_attributes().with_title(title(&self.page, &self.path)).with_inner_size(LogicalSize::new(1024.0, 768.0));
         let window = Rc::new(event_loop.create_window(attrs).expect("create window"));
+        if self.minimized {
+            window.set_minimized(true);
+        }
         self.surface = Some(Presenter::new(&window).expect("create window surface"));
         self.clock = FrameClock::new(&window);
         if self.clock.is_some() {
@@ -1012,6 +1020,7 @@ fn run() -> Result<(), String> {
         history: Vec::new(),
         pointer: false,
         stats: args.stats,
+        minimized: args.minimized,
         proxy,
         painted: false,
         address: blank.then(String::new),
