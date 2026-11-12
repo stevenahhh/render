@@ -40,6 +40,12 @@ const STYLESHEETS_FIRST: Duration = Duration::from_millis(1000);
 /// string in `navigator.userAgent` (src/prelude.js keeps a copy until it reads this).
 pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 render/0.1";
 
+/// The languages every request asks for in `Accept-Language`, as Safari set to
+/// US English sends them: the language `navigator.languages` reports. Without it
+/// sites pick a language by the visitor's address, and scripts that assume
+/// `navigator.language` get a page in another one.
+pub const ACCEPT_LANGUAGE: &str = "en-US,en;q=0.9";
+
 /// A call that tells the owner of a page that something it waits for has arrived.
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
@@ -490,6 +496,9 @@ fn request_head(ask: &Ask, referer: Option<&str>) -> String {
     let mut head = format!("{} {} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: {USER_AGENT}\r\n", ask.method.as_str(), url.path);
     if !ask.headers.iter().any(|h| h.0 == "accept") {
         head.push_str("Accept: */*\r\n");
+    }
+    if !ask.headers.iter().any(|h| h.0 == "accept-language") {
+        head.push_str(&format!("Accept-Language: {ACCEPT_LANGUAGE}\r\n"));
     }
     head.push_str(&format!("Accept-Encoding: {ACCEPT_ENCODING}\r\n"));
     if let Some(r) = referer {
@@ -1441,6 +1450,10 @@ mod tests {
         assert!(include_str!("prelude.js").contains(&format!("userAgent: '{}'", super::USER_AGENT)));
         let head = request_head(&Ask::get(Url::parse("https://example.com/").unwrap()), None);
         assert!(head.contains(&format!("\r\nUser-Agent: {}\r\n", super::USER_AGENT)));
+        // The first language asked for is the one scripts read from navigator.language.
+        let first = super::ACCEPT_LANGUAGE.split(',').next().unwrap();
+        assert!(include_str!("prelude.js").contains(&format!("language: '{first}'")));
+        assert!(head.contains(&format!("\r\nAccept-Language: {}\r\n", super::ACCEPT_LANGUAGE)));
     }
 
     #[test]
