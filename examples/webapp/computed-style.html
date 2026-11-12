@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: getComputedStyle</title>
+<style>body{font-family:Arial,sans-serif;margin:16px;width:600px} .m{font:13px monospace;margin:2px 0}
+#a{display:block;width:200px;padding:10px 5px;margin:4px 8%;border:2px solid black;font-size:20px;color:#336699;background-color:rgba(255,0,0,.5);opacity:.5;transform:translate(10px,5px);overflow:hidden;--brand:#f00}
+#d{box-sizing:border-box;width:50%;padding:0 10px}
+#c{display:none;width:50px}
+#e{visibility:hidden;position:absolute;top:3px;left:1em}
+#f{width:100px;margin:0 auto;height:2em}
+#g{display:grid;grid-template-columns:20px 20px}#g1{grid-column:2 / span 1;grid-row:1}#g2{grid-row-start:main}
+#fl{float:right;clear:both;width:10px}#cl{clear:left}
+</style>
+</head>
+<body>
+<h1 data-m="STATIC computed-style">STATIC computed-style</h1>
+<div id="out"></div>
+<div id="a"><span id="b">inline</span><div id="d">half</div><div id="c">none</div><div id="f">auto</div></div>
+<p id="e">hidden</p>
+<div id="g"><i id="g1">a</i><i id="g2">b</i></div><span id="fl">f</span><div id="cl">c</div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+function cs(id, props){var s=getComputedStyle(document.getElementById(id));return props.map(function(p){return p+'='+s.getPropertyValue(p);}).join(' ');}
+check('box', function(){
+  mark('CS a '+cs('a',['display','width','margin-left','margin-top','padding-left','padding-top','font-size','position','visibility']));
+});
+check('paint', function(){
+  mark('CS a '+cs('a',['color','background-color','opacity','transform','overflow']));
+});
+check('resolved', function(){
+  mark('CS b '+cs('b',['display','width','color']));
+  mark('CS d '+cs('d',['width','box-sizing','--brand']));
+  mark('CS c '+cs('c',['display','width']));
+  mark('CS e '+cs('e',['visibility','position','top','left']));
+  mark('CS f '+cs('f',['margin-left','margin-right','height']));
+});
+check('float-grid', function(){
+  mark('CS g '+cs('g',['display'])+' g1 '+cs('g1',['grid-column-start','grid-column-end','grid-row-start','grid-row-end'])+' g2 '+cs('g2',['grid-row-start','grid-column-start']));
+  mark('CS fl '+cs('fl',['float','clear','display'])+' cl '+cs('cl',['clear','float']));
+});
+check('camel', function(){
+  var s=getComputedStyle(document.getElementById('a'));
+  var before=s.width;
+  document.getElementById('a').style.width='300px';
+  mark('CS live before:'+before+' after:'+s.width+' fontSize:'+s.fontSize+' brand:'+s.getPropertyValue('--brand')+' missing:'+(s.getPropertyValue('--missing')||'empty'));
+});
+</script>
+</body>
+</html>

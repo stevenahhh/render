@@ -1124,6 +1124,35 @@
       has(t, k) { return typeof k === 'string'; },
     });
   };
+  // getComputedStyle: resolved values from the style system, read each time one
+  // is asked for; a property it does not resolve falls back to the inline style.
+  const computedStyle = (el) => {
+    if (!(el instanceof Element)) throw new TypeError("Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'.");
+    const id = el[ID];
+    const inline = el.style || styleProxy(el);
+    const value = (k) => { const v = __computed(id, k); return v === undefined ? inline.getPropertyValue(k) : v; };
+    const readOnly = () => { throw domError('NoModificationAllowedError', 'These styles are computed, and therefore read-only.'); };
+    const api = {
+      getPropertyValue(k) { k = String(k); return value(k.startsWith('--') ? k : k.toLowerCase()); },
+      getPropertyPriority() { return ''; },
+      setProperty: readOnly,
+      removeProperty: readOnly,
+      item(i) { return __computed(id)[2 * i] || ''; },
+    };
+    return new Proxy(api, {
+      get(t, k) {
+        if (typeof k !== 'string') return undefined;
+        if (k in t) return t[k];
+        if (k === 'length') return __computed(id).length / 2;
+        if (k === 'cssText') return '';
+        if (k === 'parentRule') return null;
+        if (/^\d+$/.test(k)) return t.item(+k);
+        return value(kebab(k));
+      },
+      set() { return true; },
+      has(t, k) { return typeof k === 'string'; },
+    });
+  };
   const STYLE = Symbol('style');
   const DATASET = Symbol('dataset');
   const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
@@ -2137,7 +2166,7 @@
     DOMRect, DOMRectReadOnly, SVGAnimatedString, DOMPoint, DOMPointReadOnly: DOMPoint, DOMMatrix, DOMMatrixReadOnly: DOMMatrix, WebKitCSSMatrix: DOMMatrix, MediaQueryList, MediaError, FontFace,
     TrustedHTML, TrustedScript, TrustedScriptURL, TrustedTypePolicyFactory: Object,
     matchMedia, postMessage,
-    getComputedStyle: (el) => (el && el.style ? el.style : styleProxy(document.createElement('div'))),
+    getComputedStyle: (el) => computedStyle(el),
     btoa: (s) => __btoa(String(s)),
     atob: (s) => __atob(String(s)),
     Image: function Image(w, h) { const i = document.createElement('img'); if (w !== undefined) i.width = w; if (h !== undefined) i.height = h; return i; },

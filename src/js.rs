@@ -388,6 +388,32 @@ fn connected(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
     Ok(with(|h| live(&h.page.dom, n).map(|n| h.page.dom.connected(n))).unwrap_or(false).into())
 }
 
+/// `__computed(id, name)`: the resolved value of a property of an element, from
+/// an up-to-date style and layout; without `name`, `[name, value, ...]` of all
+/// the properties `getComputedStyle` lists. Undefined for a property it does not know.
+fn computed(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let n = id_arg(a, 0);
+    let name = if a.get_or_undefined(1).is_undefined() { None } else { Some(str_arg(a, 1, ctx)?) };
+    let values = with(|h| {
+        let n = live(&h.page.dom, n)?;
+        h.page.fresh_rect(&mut h.fonts, n);
+        let page = &h.page;
+        let parent = page.dom.nodes[n as usize].parent;
+        let style = page.styles.get(n as usize)?;
+        let parent = page.styles.get(parent as usize).zip(page.rect_of(parent));
+        let el = crate::computed::Element { style, rect: page.rect_of(n), parent };
+        Some(match &name {
+            Some(name) => vec![el.value(name).map_or(JsValue::undefined(), |v| js_str(&v))],
+            None => crate::computed::NAMES.iter().flat_map(|p| [js_str(p), js_str(&el.value(p).unwrap_or_default())]).collect(),
+        })
+    });
+    Ok(match (name, values) {
+        (Some(_), Some(mut v)) => v.pop().unwrap_or_default(),
+        (None, Some(v)) => js_array(v, ctx),
+        (_, None) => JsValue::undefined(),
+    })
+}
+
 /// `__cookie(url, line)`: stores a `document.cookie` assignment for the page at
 /// `url`; without `line`, what `document.cookie` reads there.
 fn cookie(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
@@ -802,6 +828,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__shadow", 1, shadow),
     ("__define", 1, define),
     ("__cookie", 2, cookie),
+    ("__computed", 2, computed),
     ("__adopt", 2, adopt),
     ("__fetch", 6, fetch),
     ("__abort_fetch", 1, abort_fetch),

@@ -129,3 +129,18 @@ cookies.html	STATIC cookies
 cookies.html	CK after set:a=10; e=5; h=8; later=1; b=2 enabled:true
 cookies.html	CK after delete:a=10; h=8; later=1
 cookies.html	CK order:a=10; h=8; later=1; mm=2; zz=1; aa=3
+animate.html	STATIC animate
+animate.html	AN start a:running d:idle animation:true effect:true count:3 inline:none
+animate.html	AN end a:finished b:finished c:finished log:finished:true,c-finished,onfinish:true,finish-event
+animate.html	AN styles opacity:0.5 width-b:40px margin-b:7px width-c:30px width-d:30px inline:none
+computed-style.html	STATIC computed-style
+computed-style.html	CS a display=block width=200px margin-left=48px margin-top=4px padding-left=5px padding-top=10px font-size=20px position=static visibility=visible
+computed-style.html	CS a color=rgb(51, 102, 153) background-color=rgba(255, 0, 0, 0.5) opacity=0.5 transform=matrix(1, 0, 0, 1, 10, 5) overflow=hidden
+computed-style.html	CS b display=inline width=auto color=rgb(51, 102, 153)
+computed-style.html	CS d width=100px box-sizing=border-box --brand=#f00
+computed-style.html	CS c display=none width=50px
+computed-style.html	CS e visibility=hidden position=absolute top=3px left=16px
+computed-style.html	CS f margin-left=50px margin-right=50px height=40px
+computed-style.html	CS g display=grid g1 grid-column-start=2 grid-column-end=span 1 grid-row-start=1 grid-row-end=auto g2 grid-row-start=main grid-column-start=auto
+computed-style.html	CS fl float=right clear=both display=block cl clear=left float=none
+computed-style.html	CS live before:200px after:300px fontSize:20px brand:#f00 missing:empty

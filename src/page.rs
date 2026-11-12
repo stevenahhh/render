@@ -619,6 +619,11 @@ impl Page {
         self.rects.get(&n).copied().unwrap_or([0.0; 4])
     }
 
+    /// The border box of a node in the last layout, if it has one.
+    pub(crate) fn rect_of(&self, n: NodeId) -> Option<[f32; 4]> {
+        self.rects.get(&n).copied()
+    }
+
     /// Viewport width, height and scroll offset in CSS pixels, as scripts see them.
     pub(crate) fn script_view(&self) -> [f32; 3] {
         if self.vw < 0.0 {
