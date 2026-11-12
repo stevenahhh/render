@@ -957,7 +957,17 @@ impl Modules {
         }
     }
 
+    /// Starts downloading the modules that `code`, found at `href`, imports, so
+    /// they arrive together rather than one after another as the loader asks.
+    fn prefetch_imports(&self, code: &[u8], href: &str) {
+        let (Some(site), Ok(code)) = (&self.site, std::str::from_utf8(code)) else { return };
+        let base = Url::parse(href, Some(&self.page));
+        let urls = static_imports(code).into_iter().filter_map(|s| Url::parse(s, base.as_ref()).map(|u| u.href()));
+        site.prefetch_later(urls.collect());
+    }
+
     fn parse(&self, href: String, path: &Path, code: &[u8], ctx: &mut Context) -> JsResult<Module> {
+        self.prefetch_imports(code, &href);
         let module = Module::parse(Source::from_bytes(code).with_path(path), None, ctx)?;
         self.urls.borrow_mut().insert(path.to_path_buf(), href.clone());
         self.modules.borrow_mut().insert(href, module.clone());
@@ -966,6 +976,7 @@ impl Modules {
 
     /// A `<script type=module>` with its code in the page, or inserted by a script.
     fn parse_inline(&self, code: &str, href: &str, ctx: &mut Context) -> JsResult<Module> {
+        self.prefetch_imports(code.as_bytes(), href);
         let path = PathBuf::from(href);
         let module = Module::parse(Source::from_bytes(code).with_path(&path), None, ctx)?;
         self.urls.borrow_mut().insert(path, href.to_string());
@@ -1009,6 +1020,32 @@ impl ModuleLoader for Modules {
         // Defining a property on a fresh ordinary object cannot fail.
         let _ = import_meta.set(JsString::from("url"), js_str(&href), false, context);
     }
+}
+
+/// The relative and absolute specifiers of a module's static imports, found by
+/// their text: `import x from "s"`, `import "s"`, `export * from "s"`. A match in
+/// a string or comment only costs a download nobody uses.
+fn static_imports(code: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    for keyword in ["from", "import"] {
+        let mut at = 0;
+        while let Some(i) = code[at..].find(keyword) {
+            let start = at + i;
+            at = start + keyword.len();
+            let before = code[..start].bytes().next_back();
+            if before.is_some_and(|b| b.is_ascii_alphanumeric() || b"_$.".contains(&b)) {
+                continue;
+            }
+            let rest = code[at..].trim_start();
+            let Some(quote) = rest.bytes().next().filter(|b| *b == b'"' || *b == b'\'') else { continue };
+            let Some(end) = rest[1..].find(quote as char) else { continue };
+            let specifier = &rest[1..1 + end];
+            if ["./", "../", "/", "http:", "https:"].iter().any(|p| specifier.starts_with(p)) {
+                out.push(specifier);
+            }
+        }
+    }
+    out
 }
 
 /// Keeps the promises that were rejected while nothing handled them, so they
