@@ -804,7 +804,9 @@
   };
   const imageChanged = (img) => {
     const src = imageSource(img[ID]);
-    if (src !== null) addTimer(() => imageLoaded(img, src), 0, false, []);
+    if (src === null) return;
+    if (src !== '' && !/^data:/i.test(src)) __prefetch(src);
+    addTimer(() => imageLoaded(img, src), 0, false, []);
   };
 
 

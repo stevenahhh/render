@@ -556,6 +556,17 @@ fn undetectable(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue
     Ok(JsObject::from_proto_and_data(proto, IsHTMLDDA).into())
 }
 
+/// `__prefetch(src)`: starts downloading the image `src` names when one-shot output
+/// will wait for it.
+fn prefetch(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let src = str_arg(a, 0, ctx)?;
+    with(|h| {
+        h.page.prefetch_image(&src);
+        Some(())
+    });
+    Ok(JsValue::undefined())
+}
+
 /// `__image(src)`: `[width, height]` of the image `src` names, looked up as layout
 /// looks images up; null when it cannot be had, 0 while it is still downloading.
 fn image(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
@@ -885,6 +896,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__media", 1, media),
     ("__supports", 2, supports),
     ("__now", 0, now),
+    ("__prefetch", 1, prefetch),
     ("__url", 2, url),
     ("__btoa", 1, btoa),
     ("__atob", 1, atob),

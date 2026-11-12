@@ -443,6 +443,15 @@ impl Page {
         }
     }
 
+    /// Starts downloading the image `src` names in the background, for one-shot output,
+    /// which later waits for it where the page needs it: images that scripts name one
+    /// after another then download together instead of one at a time.
+    pub fn prefetch_image(&self, src: &str) {
+        if let Some(site) = self.site.as_ref().filter(|_| self.wait) {
+            site.prefetch_later(vec![src.to_string()]);
+        }
+    }
+
     /// The code of an external classic script, read from disk or the web.
     fn script_code(&self, src: &str) -> Option<(String, String)> {
         let url = Url::parse(src, Some(&self.url))?;
@@ -1351,6 +1360,51 @@ mod tests {
         let mut page = Page::load_url(&origin, false).unwrap();
         page.run_pending(&mut Fonts::new(), 800.0, 600.0);
         assert_eq!(query(&mut page.dom, 0, "[data-b='from b']", false).len(), 1);
+        assert_eq!(state.0.lock().unwrap().1, 2);
+    }
+
+    #[test]
+    fn images_a_script_names_download_together() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::{Arc, Condvar, Mutex};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://127.0.0.1:{}/", listener.local_addr().unwrap().port());
+        // Images asked for and not answered yet, and the most of them at once.
+        let state = Arc::new((Mutex::new((0usize, 0usize)), Condvar::new()));
+        let shared = state.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let state = shared.clone();
+                std::thread::spawn(move || {
+                    let mut conn = BufReader::new(stream.unwrap());
+                    loop {
+                        let mut request = String::new();
+                        while conn.read_line(&mut request).unwrap_or(0) > 0 && !request.ends_with("\r\n\r\n") {}
+                        let Some(path) = request.split_whitespace().nth(1).map(str::to_string) else { return };
+                        let body = match path.as_str() {
+                            "/" => "<body><script>for (const n of ['a', 'b']) { const i = document.createElement('img'); i.onload = () => document.body.setAttribute('data-' + n, 'load'); i.src = n + '.svg'; document.body.append(i); }</script>",
+                            _ => {
+                                let (lock, changed) = &*state;
+                                let mut s = lock.lock().unwrap();
+                                s.0 += 1;
+                                s.1 = s.1.max(s.0);
+                                changed.notify_all();
+                                // Held until both images were asked for, or for a while.
+                                let mut s = changed.wait_timeout_while(s, std::time::Duration::from_millis(1500), |s| s.1 < 2).unwrap().0;
+                                s.0 -= 1;
+                                "<svg xmlns='http://www.w3.org/2000/svg' width='4' height='4'/>"
+                            }
+                        };
+                        let kind = if path.ends_with(".svg") { "image/svg+xml" } else { "text/html" };
+                        let reply = format!("HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+                        conn.get_mut().write_all(reply.as_bytes()).unwrap();
+                    }
+                });
+            }
+        });
+        let mut page = Page::load_url(&origin, false).unwrap();
+        page.settle(&mut Fonts::new(), 800.0, 600.0, std::time::Duration::from_millis(100));
+        assert_eq!(query(&mut page.dom, 0, "body[data-a=load][data-b=load]", false).len(), 1);
         assert_eq!(state.0.lock().unwrap().1, 2);
     }
 
