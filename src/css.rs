@@ -166,6 +166,45 @@ pub enum FontSize {
     Smaller,
 }
 
+/// One outer `box-shadow`. `color` is `None` for currentColor.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shadow {
+    pub x: Len,
+    pub y: Len,
+    pub blur: Len,
+    pub spread: Len,
+    pub color: Option<Color>,
+}
+
+/// `box-shadow`: its outer shadows, `Some(None)` for none. Inset shadows, which are
+/// not drawn, are left out.
+fn box_shadow(v: &str) -> Option<Option<Rc<[Shadow]>>> {
+    if v == "none" {
+        return Some(None);
+    }
+    let mut out = Vec::new();
+    for part in SplitTop::new(v, b',') {
+        let (mut lens, mut color, mut inset) = (Vec::new(), None, false);
+        for t in tokens(part) {
+            if t == "inset" {
+                inset = true;
+            } else if let Some(l) = parse_len(t) {
+                lens.push(l);
+            } else {
+                color = border_color(t)?;
+            }
+        }
+        if !(2..=4).contains(&lens.len()) {
+            return None;
+        }
+        if !inset {
+            let zero = Len::Px(0.0);
+            out.push(Shadow { x: lens[0], y: lens[1], blur: lens.get(2).copied().unwrap_or(zero), spread: lens.get(3).copied().unwrap_or(zero), color });
+        }
+    }
+    Some((!out.is_empty()).then(|| Rc::from(out)))
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Gradient {
     /// CSS angle in degrees: 0 points up, 90 points right.
@@ -261,6 +300,7 @@ pub enum Decl {
     BoxSizing(bool),
     Background(Color),
     Gradient(Option<Rc<Gradient>>),
+    BoxShadow(Option<Rc<[Shadow]>>),
     /// `background-image: url()`, the URL resolved against its stylesheet.
     BgImage(Option<Rc<str>>),
     BgSize(BgSize),
@@ -1350,6 +1390,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "border-bottom-right-radius" => push(tokens(v).next().and_then(parse_len).map(|l| D::Radius(2, l))),
         "border-bottom-left-radius" => push(tokens(v).next().and_then(parse_len).map(|l| D::Radius(3, l))),
         "box-sizing" => push(Some(D::BoxSizing(v == "border-box"))),
+        "box-shadow" => push(box_shadow(v).map(D::BoxShadow)),
         "background" | "background-color" | "background-image" => {
             let (mut color, mut grad, mut none, mut url) = (None, None, false, None);
             let (mut pos, mut size, mut after_slash) = (Vec::new(), None, false);

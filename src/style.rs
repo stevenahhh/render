@@ -32,6 +32,8 @@ pub struct Style {
     pub border_box: bool,
     pub bg: Color,
     pub grad: Option<Rc<Gradient>>,
+    /// Outer box shadows, lengths in px.
+    pub shadow: Option<Rc<[Shadow]>>,
     pub bg_image: Option<Rc<str>>,
     pub bg_size: BgSize,
     /// `background-position`; percentages refer to the free space around the image.
@@ -177,6 +179,7 @@ impl Style {
             border_box: false,
             bg: Color::TRANSPARENT,
             grad: None,
+            shadow: None,
             bg_image: None,
             bg_size: BgSize::Auto,
             bg_pos: [Len::Pct(0.0); 2],
@@ -357,7 +360,7 @@ impl Style {
     }
 
     pub fn has_deco(&self) -> bool {
-        self.bg.a() > 0 || self.grad.is_some() || self.bw.iter().any(|w| *w > 0.0)
+        self.bg.a() > 0 || self.grad.is_some() || self.bw.iter().any(|w| *w > 0.0) || self.shadow.is_some()
     }
 
     /// How the page drawn with this style changes when it becomes `new`.
@@ -369,6 +372,7 @@ impl Style {
         let recoloured = Style {
             bg: new.bg,
             grad: new.grad.clone(),
+            shadow: new.shadow.clone(),
             bc: new.bc,
             bc_set: new.bc_set,
             radius: new.radius,
@@ -498,6 +502,10 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::BoxSizing(b) => st.border_box = b,
         Decl::Background(col) => st.bg = col,
         Decl::Gradient(ref g) => st.grad = g.clone(),
+        Decl::BoxShadow(ref s) => {
+            let px = |l: Len| Len::Px(px(l, em, c));
+            st.shadow = s.as_ref().map(|l| l.iter().map(|sh| Shadow { x: px(sh.x), y: px(sh.y), blur: px(sh.blur), spread: px(sh.spread), color: sh.color }).collect());
+        }
         Decl::Color(col) => st.color = col.unwrap_or(parent.color),
         Decl::Weight(w) => st.weight = relative_weight(w, parent.weight),
         Decl::Italic(b) => st.italic = b,
@@ -2004,6 +2012,16 @@ mod tests {
                     <div><p class='h in'></p><p class='h init'></p><p class='h bad'></p></div>\
                     <div class=h><p class=in></p><p class=un></p><p class=init></p></div>";
         assert_eq!(styles_of(html, "p").iter().map(|s| s.visible).collect::<Vec<_>>(), [true, true, false, false, false, true]);
+    }
+
+    #[test]
+    fn box_shadow_keeps_the_outer_shadows_in_px() {
+        let html = "<style>p{font-size:10px} .a{box-shadow:rgba(0,0,0,.2) 0 8px 23px 0, inset 0 0 0 4px red} .b{box-shadow:0 1em 2px currentcolor}</style><p class=a></p><p class=b></p>";
+        let s = styles_of(html, "p");
+        let px = |l: Len| if let Len::Px(v) = l { v } else { f32::NAN };
+        let shadows = |s: &Style| s.shadow.as_deref().unwrap_or(&[]).iter().map(|sh| (px(sh.x), px(sh.y), px(sh.blur), px(sh.spread), sh.color.map(|c| c.a()))).collect::<Vec<_>>();
+        assert_eq!(shadows(&s[0]), [(0.0, 8.0, 23.0, 0.0, Some(51))]);
+        assert_eq!(shadows(&s[1]), [(0.0, 10.0, 2.0, 0.0, None)]);
     }
 
     #[test]

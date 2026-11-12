@@ -50,6 +50,13 @@ pub struct BoxDeco {
     pub bc: [Color; 4],
     pub radius: [Len; 4],
     pub grad: Option<Rc<Gradient>>,
+    /// Outer box shadows, with their colours.
+    pub shadow: Option<Rc<[Shadow]>>,
+}
+
+/// `s`'s box shadows with currentColor and opacity applied.
+fn shadows(s: &Style) -> Option<Rc<[Shadow]>> {
+    s.shadow.as_ref().map(|l| l.iter().map(|sh| Shadow { color: Some(sh.color.unwrap_or(s.color).with_opacity(s.opacity)), ..*sh }).collect())
 }
 
 /// What an image item draws: a picture in `Images` and the opacity it is drawn at.
@@ -132,6 +139,7 @@ impl Layout {
                 Kind::Box => {
                     let d = &mut self.boxes[it.data as usize];
                     (d.bg, d.bc, d.radius, d.grad) = (s.bg.with_opacity(o), s.bc.map(|c| c.with_opacity(o)), s.radius, s.grad.clone());
+                    d.shadow = shadows(s);
                 }
                 Kind::Text => {
                     let t = &mut self.texts[it.data as usize];
@@ -537,6 +545,7 @@ impl<'a> Engine<'a> {
             bc: s.bc.map(|c| c.with_opacity(o)),
             radius: s.radius,
             grad: s.grad.clone(),
+            shadow: shadows(s),
         };
         self.push_deco(node, x, y, w, h, deco)
     }
@@ -544,7 +553,7 @@ impl<'a> Engine<'a> {
     /// The corners a clip inside `s`'s border box rounds its content with: `s`'s radii,
     /// and `inset`, how far inside the border box the clip lies on each side.
     fn clip_shape(&mut self, s: &Style, inset: [f32; 4]) -> u32 {
-        self.out.boxes.push(BoxDeco { bg: Color::TRANSPARENT, bw: inset, bc: [Color::TRANSPARENT; 4], radius: s.radius, grad: None });
+        self.out.boxes.push(BoxDeco { bg: Color::TRANSPARENT, bw: inset, bc: [Color::TRANSPARENT; 4], radius: s.radius, grad: None, shadow: None });
         self.out.boxes.len() as u32 - 1
     }
 
@@ -940,6 +949,7 @@ impl<'a> Engine<'a> {
             bc: [color; 4],
             radius: [if s.list_style == ListStyle::Square { Len::Px(0.0) } else { Len::Pct(50.0) }; 4],
             grad: None,
+            shadow: None,
         };
         self.push_deco(n, cx - size * 0.55 - d, baseline - size * 0.34 - d / 2.0, d, d, deco);
     }

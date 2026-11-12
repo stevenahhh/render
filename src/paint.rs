@@ -1,6 +1,6 @@
 //! Software rasterizer: paints a `Layout` into a 0x00RRGGBB pixel buffer.
 
-use crate::css::{Color, Gradient, Len, DECO_LINE_THROUGH, DECO_UNDERLINE};
+use crate::css::{Color, Gradient, Len, Shadow, DECO_LINE_THROUGH, DECO_UNDERLINE};
 use crate::font::Fonts;
 use crate::img::{Images, Picture};
 use crate::layout::{BoxDeco, Item, Kind, Layout, TextRun};
@@ -101,6 +101,12 @@ fn span(t: &mut Target, y: i32, xa: i32, xb: i32, src: &Src) {
 /// `rad`, from its signed distance.
 #[inline]
 fn rr_cov(px: f32, py: f32, r: (f32, f32, f32, f32), rad: [f32; 4]) -> f32 {
+    (0.5 - rr_dist(px, py, r, rad)).clamp(0.0, 1.0)
+}
+
+/// Signed distance from (px, py) to the rounded rectangle of `rr_cov`, negative inside.
+#[inline]
+fn rr_dist(px: f32, py: f32, r: (f32, f32, f32, f32), rad: [f32; 4]) -> f32 {
     let (hw, hh) = ((r.2 - r.0) * 0.5, (r.3 - r.1) * 0.5);
     let (dx, dy) = (px - (r.0 + hw), py - (r.1 + hh));
     let rad = match (dx < 0.0, dy < 0.0) {
@@ -112,8 +118,71 @@ fn rr_cov(px: f32, py: f32, r: (f32, f32, f32, f32), rad: [f32; 4]) -> f32 {
     let qx = dx.abs() - (hw - rad);
     let qy = dy.abs() - (hh - rad);
     let (ox, oy) = (qx.max(0.0), qy.max(0.0));
-    let d = (ox * ox + oy * oy).sqrt() + qx.max(qy).min(0.0) - rad;
-    (0.5 - d).clamp(0.0, 1.0)
+    (ox * ox + oy * oy).sqrt() + qx.max(qy).min(0.0) - rad
+}
+
+/// The complementary error function, to within 1.5e-7 (Abramowitz and Stegun 7.1.26).
+fn erfc(x: f32) -> f32 {
+    let z = x.abs();
+    let t = 1.0 / (1.0 + 0.327_591_1 * z);
+    let y = t * (0.254_829_6 + t * (-0.284_496_74 + t * (1.421_413_7 + t * (-1.453_152 + t * 1.061_405_4)))) * (-z * z).exp();
+    if x >= 0.0 { y } else { 2.0 - y }
+}
+
+fn shadow_px(l: Len) -> f32 {
+    if let Len::Px(v) = l { v } else { 0.0 }
+}
+
+/// How far past its box a box's shadows can paint, in CSS px.
+fn shadow_ext(d: &BoxDeco) -> f32 {
+    let shadows = d.shadow.as_deref().unwrap_or(&[]);
+    shadows.iter().map(|s| shadow_px(s.x).abs().max(shadow_px(s.y).abs()) + shadow_px(s.spread).max(0.0) + 1.5 * shadow_px(s.blur)).fold(0.0, f32::max)
+}
+
+/// Paints an outer box shadow of the box `r` with corner radii `rad`: the box moved
+/// and grown as the shadow says, its edge blurred as by a Gaussian of half the blur
+/// radius, and left out where the box itself lies.
+fn draw_shadow(t: &mut Target, clip: Rect, r: Rect, rad: [f32; 4], s: &Shadow, scale: f32) {
+    let Some(color) = s.color.filter(|c| c.a() > 0) else { return };
+    let (dx, dy, spread) = (shadow_px(s.x) * scale, shadow_px(s.y) * scale, shadow_px(s.spread) * scale);
+    let sigma = shadow_px(s.blur).max(0.0) * scale / 2.0;
+    let sr = (r.x0 as f32 + dx - spread, r.y0 as f32 + dy - spread, r.x1 as f32 + dx + spread, r.y1 as f32 + dy + spread);
+    if sr.2 <= sr.0 || sr.3 <= sr.1 {
+        return;
+    }
+    let srad = rad.map(|v| if v > 0.0 { (v + spread).max(0.0) } else { 0.0 });
+    let pad = (3.0 * sigma).ceil() as i32 + 1;
+    let area = Rect { x0: sr.0.floor() as i32 - pad, y0: sr.1.floor() as i32 - pad, x1: sr.2.ceil() as i32 + pad, y1: sr.3.ceil() as i32 + pad }.intersect(clip);
+    if area.is_empty() {
+        return;
+    }
+    let own = (r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32);
+    // Pixels this far inside the box, away from its corners, are covered by it.
+    let m = rad.iter().fold(0.0f32, |a, &v| a.max(v)).ceil() as i32;
+    let (rgb, a) = (color.0 & 0x00FF_FFFF, color.a() as f32);
+    let k = if sigma > 0.0 { 1.0 / (sigma * std::f32::consts::SQRT_2) } else { 0.0 };
+    for y in area.y0..area.y1 {
+        let py = y as f32 + 0.5;
+        let in_rows = y >= r.y0 && y < r.y1;
+        let mid_rows = y >= r.y0 + m && y < r.y1 - m;
+        for x in area.x0..area.x1 {
+            if in_rows && x >= r.x0 && x < r.x1 && (mid_rows || (x >= r.x0 + m && x < r.x1 - m)) {
+                continue;
+            }
+            let px = x as f32 + 0.5;
+            let outside = 1.0 - rr_cov(px, py, own, rad);
+            if outside <= 0.0 {
+                continue;
+            }
+            let d = rr_dist(px, py, sr, srad);
+            let cov = if sigma > 0.0 { 0.5 * erfc(d * k) } else { (0.5 - d).clamp(0.0, 1.0) };
+            let alpha = (a * cov * outside + 0.5) as u32;
+            if alpha > 0 {
+                let p = &mut t.buf[(y * t.w + x) as usize];
+                *p = blend(*p, rgb, alpha);
+            }
+        }
+    }
 }
 
 /// Fills a rectangle with optional rounded corners and an optional rounded
@@ -216,6 +285,10 @@ fn radii(rad: &[Len; 4], w: f32, h: f32, scale: f32) -> [f32; 4] {
 fn draw_box(t: &mut Target, clip: Rect, d: &BoxDeco, r: Rect, scale: f32) {
     let (w, h) = ((r.x1 - r.x0) as f32, (r.y1 - r.y0) as f32);
     let rad = radii(&d.radius, w, h, scale);
+    // The first shadow is drawn on top.
+    for s in d.shadow.as_deref().unwrap_or(&[]).iter().rev() {
+        draw_shadow(t, clip, r, rad, s, scale);
+    }
 
     if let Some(g) = &d.grad {
         let lut = gradient_lut(g);
@@ -473,6 +546,8 @@ pub fn paint_part(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Ta
         }
     }
     images.prepare(&wants);
+    // How far past its box an item's shadows can paint, in CSS px.
+    let ext = |it: &Item| if it.kind == Kind::Box { shadow_ext(&l.boxes[it.data as usize]) } else { 0.0 };
     let mut clips: Vec<(Rect, Option<Corners>)> = Vec::new();
     let mut clip = full;
     for it in &l.items {
@@ -490,7 +565,7 @@ pub fn paint_part(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Ta
                 clip = outer;
             }
             Kind::Area => {}
-            _ if it.y + it.h < top || it.y > bottom || clip.is_empty() || (part != full && reach(l, it, dev(it), scale).intersect(part).is_empty()) => {}
+            _ if it.y + it.h + ext(it) < top || it.y - ext(it) > bottom || clip.is_empty() || (part != full && reach(l, it, dev(it), scale).intersect(part).is_empty()) => {}
             Kind::Box => draw_box(t, clip.intersect(part), &l.boxes[it.data as usize], dev(it), scale),
             Kind::Text => draw_text(t, clip.intersect(part), l, fonts, it, sy, scale),
             Kind::Image => {
@@ -516,6 +591,7 @@ pub fn paint_part(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Ta
 fn reach(l: &Layout, it: &Item, r: Rect, scale: f32) -> Rect {
     match it.kind {
         Kind::Text => r.grow((l.texts[it.data as usize].size * scale * 2.0).ceil() as i32 + 2),
+        Kind::Box => r.grow((shadow_ext(&l.boxes[it.data as usize]) * scale).ceil() as i32 + 1),
         _ => r.grow(1),
     }
 }
