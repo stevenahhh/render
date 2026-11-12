@@ -27,7 +27,8 @@ pub struct Style {
     pub bc: [Color; 4],
     bc_set: u8,
     bs: u8,
-    pub radius: Len,
+    /// Top-left, top-right, bottom-right and bottom-left.
+    pub radius: [Len; 4],
     pub border_box: bool,
     pub bg: Color,
     pub grad: Option<Rc<Gradient>>,
@@ -169,7 +170,7 @@ impl Style {
             bc: [Color::BLACK; 4],
             bc_set: 0,
             bs: 0,
-            radius: Len::Px(0.0),
+            radius: [Len::Px(0.0); 4],
             border_box: false,
             bg: Color::TRANSPARENT,
             grad: None,
@@ -487,7 +488,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
             }
             None => st.bc_set &= !(1 << i),
         },
-        Decl::Radius(l) => st.radius = r(l),
+        Decl::Radius(i, l) => st.radius[i as usize] = r(l),
         Decl::BoxSizing(b) => st.border_box = b,
         Decl::Background(col) => st.bg = col,
         Decl::Gradient(ref g) => st.grad = g.clone(),
@@ -1995,6 +1996,15 @@ mod tests {
                     <div><p class='h in'></p><p class='h init'></p><p class='h bad'></p></div>\
                     <div class=h><p class=in></p><p class=un></p><p class=init></p></div>";
         assert_eq!(styles_of(html, "p").iter().map(|s| s.visible).collect::<Vec<_>>(), [true, true, false, false, false, true]);
+    }
+
+    #[test]
+    fn border_radius_gives_each_corner_its_value() {
+        let html = "<style>.a{border-radius:0 40px 40px 0} .b{border-top-left-radius:30px} .c{border-radius:10px 30px 0} .d{border-radius:10px 20px / 5px}</style>\
+                    <p class=a></p><p class=b></p><p class=c></p><p class=d></p>";
+        let px = |s: &Style| s.radius.map(|l| if let Len::Px(v) = l { v } else { f32::NAN });
+        let s = styles_of(html, "p");
+        assert_eq!(s.iter().map(px).collect::<Vec<_>>(), [[0.0, 40.0, 40.0, 0.0], [30.0, 0.0, 0.0, 0.0], [10.0, 30.0, 0.0, 30.0], [10.0, 20.0, 10.0, 20.0]]);
     }
 
     #[test]

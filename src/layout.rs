@@ -47,7 +47,7 @@ pub struct BoxDeco {
     pub bg: Color,
     pub bw: [f32; 4],
     pub bc: [Color; 4],
-    pub radius: Len,
+    pub radius: [Len; 4],
     pub grad: Option<Rc<Gradient>>,
 }
 
@@ -922,7 +922,7 @@ impl<'a> Engine<'a> {
             bg: if hollow { Color::TRANSPARENT } else { color },
             bw: [if hollow { 1.0 } else { 0.0 }; 4],
             bc: [color; 4],
-            radius: if s.list_style == ListStyle::Square { Len::Px(0.0) } else { Len::Pct(50.0) },
+            radius: [if s.list_style == ListStyle::Square { Len::Px(0.0) } else { Len::Pct(50.0) }; 4],
             grad: None,
         };
         self.push_deco(n, cx - size * 0.55 - d, baseline - size * 0.34 - d / 2.0, d, d, deco);

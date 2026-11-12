@@ -254,7 +254,8 @@ pub enum Decl {
     BorderStyle(u8, bool),
     /// `None` is currentColor.
     BorderColor(u8, Option<Color>),
-    Radius(Len),
+    /// One corner's radius: 0 top-left, 1 top-right, 2 bottom-right, 3 bottom-left.
+    Radius(u8, Len),
     BoxSizing(bool),
     Background(Color),
     Gradient(Option<Rc<Gradient>>),
@@ -1326,7 +1327,16 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
                 out.extend(a.into_iter().enumerate().map(|(i, c)| D::BorderColor(i as u8, c)));
             }
         }
-        "border-radius" => push(tokens(v).next().and_then(parse_len).map(D::Radius)),
+        "border-radius" => {
+            // Vertical radii follow a `/`: the horizontal ones stand for both.
+            if let Some(a) = four(v.split('/').next().unwrap_or(v), parse_len) {
+                out.extend(a.into_iter().enumerate().map(|(i, l)| D::Radius(i as u8, l)));
+            }
+        }
+        "border-top-left-radius" => push(tokens(v).next().and_then(parse_len).map(|l| D::Radius(0, l))),
+        "border-top-right-radius" => push(tokens(v).next().and_then(parse_len).map(|l| D::Radius(1, l))),
+        "border-bottom-right-radius" => push(tokens(v).next().and_then(parse_len).map(|l| D::Radius(2, l))),
+        "border-bottom-left-radius" => push(tokens(v).next().and_then(parse_len).map(|l| D::Radius(3, l))),
         "box-sizing" => push(Some(D::BoxSizing(v == "border-box"))),
         "background" | "background-color" | "background-image" => {
             let (mut color, mut grad, mut none, mut url) = (None, None, false, None);

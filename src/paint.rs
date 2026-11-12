@@ -96,49 +96,56 @@ fn span(t: &mut Target, y: i32, xa: i32, xb: i32, src: &Src) {
     }
 }
 
-/// Coverage of the pixel centred at (px, py) by a rounded rectangle, from
-/// its signed distance.
+/// Coverage of the pixel centred at (px, py) by a rounded rectangle whose
+/// top-left, top-right, bottom-right and bottom-left corners have the radii
+/// `rad`, from its signed distance.
 #[inline]
-fn rr_cov(px: f32, py: f32, r: (f32, f32, f32, f32), rad: f32) -> f32 {
+fn rr_cov(px: f32, py: f32, r: (f32, f32, f32, f32), rad: [f32; 4]) -> f32 {
     let (hw, hh) = ((r.2 - r.0) * 0.5, (r.3 - r.1) * 0.5);
-    let qx = (px - (r.0 + hw)).abs() - (hw - rad);
-    let qy = (py - (r.1 + hh)).abs() - (hh - rad);
+    let (dx, dy) = (px - (r.0 + hw), py - (r.1 + hh));
+    let rad = match (dx < 0.0, dy < 0.0) {
+        (true, true) => rad[0],
+        (false, true) => rad[1],
+        (false, false) => rad[2],
+        (true, false) => rad[3],
+    };
+    let qx = dx.abs() - (hw - rad);
+    let qy = dy.abs() - (hh - rad);
     let (ox, oy) = (qx.max(0.0), qy.max(0.0));
     let d = (ox * ox + oy * oy).sqrt() + qx.max(qy).min(0.0) - rad;
     (0.5 - d).clamp(0.0, 1.0)
 }
 
 /// Fills a rectangle with optional rounded corners and an optional rounded
-/// hole (for border rings). Only the corner columns are evaluated per pixel;
-/// everything else is filled as solid spans.
-fn fill_shape(t: &mut Target, clip: Rect, r: Rect, rad: f32, hole: Option<(Rect, f32)>, src: &Src) {
+/// hole (for border rings), radii in the order of `rr_cov`. Only the corner
+/// columns are evaluated per pixel; everything else is filled as solid spans.
+fn fill_shape(t: &mut Target, clip: Rect, r: Rect, rad: [f32; 4], hole: Option<(Rect, [f32; 4])>, src: &Src) {
     let c = clip.intersect(r);
     if c.is_empty() {
         return;
     }
-    if rad < 0.5 && hole.is_none() {
+    if rad.iter().all(|&v| v < 0.5) && hole.is_none() {
         for y in c.y0..c.y1 {
             span(t, y, c.x0, c.x1, src);
         }
         return;
     }
     let outer = (r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32);
-    let rz = rad.ceil() as i32;
-    let (mut lz, mut rzs) = (r.x0 + rz, r.x1 - rz);
+    let (mut lz, mut rzs) = (r.x0 + rad[0].max(rad[3]).ceil() as i32, r.x1 - rad[1].max(rad[2]).ceil() as i32);
     let inner = hole.map(|(h, hr)| {
-        let hz = hr.ceil() as i32;
-        lz = lz.max(h.x0 + hz);
-        rzs = rzs.min(h.x1 - hz);
+        lz = lz.max(h.x0 + hr[0].max(hr[3]).ceil() as i32);
+        rzs = rzs.min(h.x1 - hr[1].max(hr[2]).ceil() as i32);
         ((h.x0 as f32, h.y0 as f32, h.x1 as f32, h.y1 as f32), hr, h)
     });
     if lz > rzs {
         lz = r.x1;
         rzs = r.x1;
     }
+    let (top, bottom) = (outer.1 + rad[0].max(rad[1]), outer.3 - rad[2].max(rad[3]));
     for y in c.y0..c.y1 {
         let py = y as f32 + 0.5;
         let in_hole = inner.is_some_and(|(_, _, h)| y >= h.y0 && y < h.y1);
-        let band = py < outer.1 + rad || py > outer.3 - rad;
+        let band = py < top || py > bottom;
         if !band && !in_hole {
             span(t, y, c.x0, c.x1, src);
             continue;
@@ -187,14 +194,28 @@ fn gradient_lut(g: &Gradient) -> [u32; 256] {
     lut
 }
 
-fn draw_box(t: &mut Target, clip: Rect, d: &BoxDeco, r: Rect, scale: f32) {
-    let (w, h) = ((r.x1 - r.x0) as f32, (r.y1 - r.y0) as f32);
-    let rad = match d.radius {
+/// Corner radii in device pixels of a box `w` x `h` device pixels, in the order of
+/// `rr_cov`. When the two radii on a side add up to more than the side, all of them
+/// shrink by the same factor, as CSS has it.
+fn radii(rad: &[Len; 4], w: f32, h: f32, scale: f32) -> [f32; 4] {
+    let mut out = rad.map(|l| match l {
         Len::Px(v) => v * scale,
         Len::Pct(p) => p * 0.01 * w.min(h),
         _ => 0.0,
+    });
+    if out.iter().all(|&v| v == out[0]) {
+        return [out[0].min(w.min(h) / 2.0); 4];
     }
-    .min(w.min(h) / 2.0);
+    out = out.map(|v| v.max(0.0));
+    let f = [(w, out[0] + out[1]), (h, out[1] + out[2]), (w, out[2] + out[3]), (h, out[3] + out[0])]
+        .into_iter()
+        .fold(1.0f32, |f, (side, sum)| if sum > side { f.min(side / sum) } else { f });
+    out.map(|v| v * f)
+}
+
+fn draw_box(t: &mut Target, clip: Rect, d: &BoxDeco, r: Rect, scale: f32) {
+    let (w, h) = ((r.x1 - r.x0) as f32, (r.y1 - r.y0) as f32);
+    let rad = radii(&d.radius, w, h, scale);
 
     if let Some(g) = &d.grad {
         let lut = gradient_lut(g);
@@ -212,7 +233,7 @@ fn draw_box(t: &mut Target, clip: Rect, d: &BoxDeco, r: Rect, scale: f32) {
     if bt + br + bb + bl == 0 {
         return;
     }
-    if rad < 0.5 {
+    if rad.iter().all(|&v| v < 0.5) {
         let edges = [
             Rect { x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y0 + bt },
             Rect { x0: r.x1 - br, y0: r.y0 + bt, x1: r.x1, y1: r.y1 - bb },
@@ -221,7 +242,7 @@ fn draw_box(t: &mut Target, clip: Rect, d: &BoxDeco, r: Rect, scale: f32) {
         ];
         for (e, c) in edges.into_iter().zip(d.bc) {
             if c.a() > 0 {
-                fill_shape(t, clip, e, 0.0, None, &solid(c));
+                fill_shape(t, clip, e, [0.0; 4], None, &solid(c));
             }
         }
         return;
@@ -229,7 +250,7 @@ fn draw_box(t: &mut Target, clip: Rect, d: &BoxDeco, r: Rect, scale: f32) {
     let side = bw.iter().position(|w| *w > 0).unwrap();
     let hole = Rect { x0: r.x0 + bl, y0: r.y0 + bt, x1: r.x1 - br, y1: r.y1 - bb };
     let widest = *bw.iter().max().unwrap() as f32;
-    let hole = (!hole.is_empty()).then_some((hole, (rad - widest).max(0.0)));
+    let hole = (!hole.is_empty()).then_some((hole, rad.map(|v| (v - widest).max(0.0))));
     fill_shape(t, clip, r, rad, hole, &solid(d.bc[side]));
 }
 
@@ -279,7 +300,7 @@ fn draw_text(t: &mut Target, clip: Rect, l: &Layout, fonts: &mut Fonts, it: &Ite
     if run.deco != 0 {
         let thick = ((size / 14.0).round() as i32).max(1);
         let (x0, x1) = ((it.x * scale).round() as i32, ((it.x + it.w) * scale).round() as i32);
-        let mut line = |y: i32| fill_shape(t, clip, Rect { x0, y0: y, x1, y1: y + thick }, 0.0, None, &solid(run.color));
+        let mut line = |y: i32| fill_shape(t, clip, Rect { x0, y0: y, x1, y1: y + thick }, [0.0; 4], None, &solid(run.color));
         if run.deco & DECO_UNDERLINE != 0 {
             line(baseline + ((size * 0.1).round() as i32).max(1));
         }
@@ -551,5 +572,5 @@ pub fn scrollbar(t: &mut Target, scroll: f32, doc_h: f32, scale: f32) {
         y1: ((y + thumb) * scale) as i32,
     };
     let full = Rect { x0: 0, y0: 0, x1: t.w, y1: t.h };
-    fill_shape(t, full, r, 3.5 * scale, None, &Src::Solid { rgb: 0, a: 110 });
+    fill_shape(t, full, r, [3.5 * scale; 4], None, &Src::Solid { rgb: 0, a: 110 });
 }
