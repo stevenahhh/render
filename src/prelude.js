@@ -1496,8 +1496,8 @@
     get visibilityState() { return pageHidden ? 'hidden' : 'visible'; }
     get hidden() { return pageHidden; }
     get referrer() { return ''; }
-    get cookie() { return ''; }
-    set cookie(v) {}
+    get cookie() { return this === document ? __cookie(docURL) : ''; }
+    set cookie(v) { if (this === document) __cookie(docURL, String(v)); }
     get domain() { return location.hostname; }
     set domain(v) {}
     get lastModified() { return new Date().toLocaleString(); }
@@ -2061,7 +2061,7 @@
     hardwareConcurrency: 8,
     maxTouchPoints: 0,
     onLine: false,
-    cookieEnabled: false,
+    cookieEnabled: true,
     doNotTrack: null,
     webdriver: false,
     pdfViewerEnabled: false,

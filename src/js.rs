@@ -388,6 +388,24 @@ fn connected(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
     Ok(with(|h| live(&h.page.dom, n).map(|n| h.page.dom.connected(n))).unwrap_or(false).into())
 }
 
+/// `__cookie(url, line)`: stores a `document.cookie` assignment for the page at
+/// `url`; without `line`, what `document.cookie` reads there.
+fn cookie(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let href = str_arg(a, 0, ctx)?;
+    let (https, host, path) = match (crate::net::Url::parse(&href), href.strip_prefix("file://")) {
+        (Some(url), _) => (url.https, url.host, url.path),
+        (None, Some(rest)) => (false, String::new(), rest[rest.find('/').unwrap_or(rest.len())..].to_string()),
+        (None, None) => return Ok(js_str("")),
+    };
+    let path = path.split(['?', '#']).next().unwrap_or("/");
+    let origin = crate::cookie::Origin { https, host: &host, path: if path.is_empty() { "/" } else { path } };
+    if a.get_or_undefined(1).is_undefined() {
+        return Ok(js_str(&crate::cookie::header(origin, true)));
+    }
+    crate::cookie::store(origin, &str_arg(a, 1, ctx)?, true);
+    Ok(JsValue::undefined())
+}
+
 /// `__define(name)`: notes a custom element definition, which `:defined` reads.
 fn define(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let name = str_arg(a, 0, ctx)?;
@@ -783,6 +801,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__attach_shadow", 1, attach_shadow),
     ("__shadow", 1, shadow),
     ("__define", 1, define),
+    ("__cookie", 2, cookie),
     ("__adopt", 2, adopt),
     ("__fetch", 6, fetch),
     ("__abort_fetch", 1, abort_fetch),

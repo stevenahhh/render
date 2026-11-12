@@ -125,3 +125,7 @@ document-write.html	DW style width:93
 document-open.html	STATIC document-open
 document-open.html	DO script ran title:replaced
 document-open.html	DO replaced before:true old:false order:inner,tail state:complete
+cookies.html	STATIC cookies
+cookies.html	CK after set:a=10; e=5; h=8; later=1; b=2 enabled:true
+cookies.html	CK after delete:a=10; h=8; later=1
+cookies.html	CK order:a=10; h=8; later=1; mm=2; zz=1; aa=3

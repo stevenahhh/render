@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: document.cookie</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC cookies">STATIC cookies</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+function show(s){return s.replace(/"/g,"'");}
+check('set', function(){
+  var i, c=['a=1','b=2; path=/','c=3; max-age=0','d=4; expires=Thu, 01 Jan 1970 00:00:00 GMT','e=5; Max-Age=3600','a=10',
+    'f=6; path=/nonexistent','h=8; SameSite=Strict','ho=9; HttpOnly','dom=1; domain=example.com','later=1; expires=Fri, 31 Dec 2100 23:59:59 GMT'];
+  for (i=0;i<c.length;i++) document.cookie=c[i];
+  mark('CK after set:'+show(document.cookie)+' enabled:'+navigator.cookieEnabled);
+});
+check('delete', function(){
+  document.cookie='b=; path=/; max-age=0';
+  document.cookie='e=gone; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+  mark('CK after delete:'+show(document.cookie));
+});
+check('order', function(){
+  document.cookie='zz=1'; document.cookie='mm=2'; document.cookie='aa=3; path=/';
+  mark('CK order:'+show(document.cookie));
+});
+</script>
+</body>
+</html>

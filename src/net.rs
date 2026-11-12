@@ -290,9 +290,7 @@ fn allowed_header(name: &str, value: &str) -> bool {
 /// meant for a worker thread behind a script's `fetch` or `XMLHttpRequest`.
 /// Connections come from, and go back to, the pool page downloads use.
 ///
-/// No cookies are sent, and `Set-Cookie` headers come back untouched. A cookie
-/// jar would hook into `Client::follow`, which sees the request and the
-/// response of every redirect hop.
+/// Cookies come from and go to the jar in `cookie`, on every redirect hop.
 ///
 /// ```no_run
 /// use render::net::{fetch, Method, Request};
@@ -823,10 +821,20 @@ impl Client {
         self.follow(Ask::get(url.clone()), watch).map_err(|e| e.to_string())
     }
 
-    /// Sends `ask` and follows its redirects. Returns the final URL with the response.
+    /// Sends `ask` and follows its redirects, with the cookies of the jar, which
+    /// keeps those every response sets. Returns the final URL with the response.
     fn follow(&mut self, mut ask: Ask, mut watch: Option<&mut Watcher>) -> Result<(Url, Response), FetchError> {
         for _ in 0..=MAX_REDIRECTS {
+            let origin = crate::cookie::Origin { https: ask.url.https, host: &ask.url.host, path: ask.url.path.split('?').next().unwrap_or("/") };
+            let cookies = crate::cookie::header(origin, false);
+            ask.headers.retain(|h| h.0 != "cookie");
+            if !cookies.is_empty() {
+                ask.headers.push(("cookie".into(), cookies));
+            }
             let response = self.send(&ask, watch.as_deref_mut())?;
+            for (_, line) in response.headers.iter().filter(|h| h.0 == "set-cookie") {
+                crate::cookie::store(origin, line, false);
+            }
             let target = response.header("location").filter(|_| matches!(response.status, 301 | 302 | 303 | 307 | 308));
             let Some(location) = target else { return Ok((ask.url, response)) };
             let next = ask.url.join(location).ok_or_else(|| FetchError::Protocol(format!("{}: bad redirect to {location}", ask.url)))?;
@@ -1480,6 +1488,23 @@ mod tests {
         assert!(sent.ends_with("\r\n\r\na=1&b=2"), "{sent}");
         assert_eq!(sent.matches("Host:").count(), 1);
         assert!(!sent.to_ascii_lowercase().contains("cookie") && !sent.contains("Injected") && !sent.contains("evil"), "{sent}");
+    }
+
+    #[test]
+    fn cookies_from_responses_go_back_on_later_requests_and_redirects() {
+        let (origin, requests) = serve(vec![
+            b"HTTP/1.1 302 Found\r\nLocation: /next\r\nSet-Cookie: hop=1; Path=/\r\nContent-Length: 0\r\n\r\n".to_vec(),
+            b"HTTP/1.1 200 OK\r\nSet-Cookie: id=7; HttpOnly\r\nSet-Cookie: deep=x; Path=/other\r\nContent-Length: 0\r\n\r\n".to_vec(),
+            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_vec(),
+        ]);
+        // A host of its own, so that no other test's cookies are sent with these.
+        let origin = origin.replace("127.0.0.1", "localhost");
+        fetch(Request::get(&format!("{origin}/start"))).unwrap();
+        fetch(Request::get(&format!("{origin}/again"))).unwrap();
+        let sent: Vec<String> = requests.iter().take(3).map(|r| r.lines().filter(|l| l.starts_with("cookie:")).collect::<Vec<_>>().join("|")).collect();
+        assert_eq!(sent, ["", "cookie: hop=1", "cookie: hop=1; id=7"]);
+        let page = crate::cookie::Origin { https: false, host: "localhost", path: "/again" };
+        assert_eq!(crate::cookie::header(page, true), "hop=1", "scripts do not see HttpOnly cookies");
     }
 
     #[test]
