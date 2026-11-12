@@ -5,7 +5,7 @@
 //! that take node indices. While a script runs, the page lends itself to a
 //! thread-local `Host` that those functions reach.
 
-use crate::dom::{atom, Dom, NodeId, HAS_CUSTOM, NONE};
+use crate::dom::{atom, Dom, NodeId, Parse, HAS_CUSTOM, NONE};
 use crate::font::Fonts;
 use crate::net::{Site, Wake};
 use crate::page::Page;
@@ -259,9 +259,16 @@ fn html(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
     Ok(r.unwrap_or(js_str("")))
 }
 
-/// Replaces the children with parsed HTML; returns what the new ones connected.
+/// `__set_html(id, html, how)`: replaces the children with parsed HTML, `how`
+/// 0 as `innerHTML`, 1 as `setHTMLUnsafe`, 2 a whole document; returns what
+/// the new ones connected.
 fn set_html(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let (n, s) = (id_arg(a, 0), str_arg(a, 1, ctx)?);
+    let how = match a.get_or_undefined(2).as_number() {
+        Some(1.0) => Parse::Unsafe,
+        Some(2.0) => Parse::Document,
+        _ => Parse::Fragment,
+    };
     let r = with(|h| {
         let n = live(&h.page.dom, n)?;
         let mut c = h.page.dom.nodes[n as usize].first_child;
@@ -269,7 +276,7 @@ fn set_html(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> 
             h.page.moved(c);
             c = h.page.dom.nodes[c as usize].next;
         }
-        h.page.dom.set_inner_html(n, &s);
+        h.page.dom.parse_into(n, &s, how);
         let mut flags = 0;
         let mut c = h.page.dom.nodes[n as usize].first_child;
         while c != NONE {
@@ -381,6 +388,12 @@ fn connected(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
     Ok(with(|h| live(&h.page.dom, n).map(|n| h.page.dom.connected(n))).unwrap_or(false).into())
 }
 
+/// `__shadow(id)`: the shadow root of a host, or -1.
+fn shadow(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+    let n = id_arg(a, 0);
+    Ok(js_id(with(|h| h.page.dom.shadows.get(&n).copied()).unwrap_or(NONE)))
+}
+
 fn attach_shadow(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
     let n = id_arg(a, 0);
     Ok(js_id(with(|h| {
@@ -403,20 +416,18 @@ fn adopt(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
 }
 
 /// Scripts (`HAS_SCRIPT`) or possible custom elements (`HAS_CUSTOM`) in the
-/// subtree of a node, the node included, in tree order.
+/// subtree of a node, the node and shadow trees included, in shadow-including tree order.
 fn tagged(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let (n, kind) = (id_arg(a, 0), id_arg(a, 1));
     let ids = with(|h| {
         let dom = &h.page.dom;
         let n = live(dom, n)?;
         let mut out = Vec::new();
-        let mut c = n;
-        while c != NONE {
+        dom.each_including(n, &mut |c| {
             if dom.kind_of(c) & kind != 0 {
                 out.push(js_id(c));
             }
-            c = dom.next_in(c, n);
-        }
+        });
         Some(out)
     });
     Ok(js_array(ids.unwrap_or_default(), ctx))
@@ -743,7 +754,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__insert", 3, insert),
     ("__remove", 1, remove),
     ("__html", 2, html),
-    ("__set_html", 2, set_html),
+    ("__set_html", 3, set_html),
     ("__content", 1, content),
     ("__query", 3, query),
     ("__scoped", 3, scoped),
@@ -756,6 +767,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__root", 1, root),
     ("__connected", 1, connected),
     ("__attach_shadow", 1, attach_shadow),
+    ("__shadow", 1, shadow),
     ("__adopt", 1, adopt),
     ("__fetch", 6, fetch),
     ("__abort_fetch", 1, abort_fetch),

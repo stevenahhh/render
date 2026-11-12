@@ -42,6 +42,9 @@
   const lazyMethods = (proto, part, names) => {
     for (const k of names) def(proto, { [k]: function (...a) { need(part); return this[k](...a); } });
   };
+  // Shadow roots the parser declared need the shadow part before scripts first see them.
+  const shadowPart = () => { need('shadow'); return true; };
+  const slotOf = (n) => ($.assignedSlot || (__shadow(__link(n[ID], 0)) >= 0 && shadowPart()) ? $.assignedSlot(n) : null);
   $.need = need;
   $.def = def;
   $.getters = getters;
@@ -700,11 +703,12 @@
   };
 
   // Parses markup the way `innerHTML` does: scripts in it never run.
-  const parseInto = (el, html) => {
+  // `how`: 1 lets the markup declare shadow roots, 2 parses a whole document.
+  const parseInto = (el, html, how = 0) => {
     const id = el[ID];
     const removed = $.mo ? __kids(id, false).map(wrap) : null;
     if ($.ce && __connected(id)) for (const c of __kids(id, false)) $.ce.disconnecting(c);
-    const got = __set_html(id, html);
+    const got = __set_html(id, html, how);
     if ($.ce) $.ce.disconnected();
     $.version++;
     if (got & SCRIPT) for (const s of __tagged(id, SCRIPT)) started.add(s);
@@ -809,7 +813,7 @@
     get nodeType() { return 3; }
     get nodeName() { return '#text'; }
     get wholeText() { return this.data; }
-    get assignedSlot() { return $.assignedSlot ? $.assignedSlot(this) : null; }
+    get assignedSlot() { return slotOf(this); }
     splitText(offset) {
       const d = this.data, rest = document.createTextNode(d.slice(offset));
       this.data = d.slice(0, offset);
@@ -939,8 +943,8 @@
     scrollTo() {}
     scrollBy() {}
     scroll() {}
-    get shadowRoot() { return $.shadowOf ? $.shadowOf(this) : null; }
-    get assignedSlot() { return $.assignedSlot ? $.assignedSlot(this) : null; }
+    get shadowRoot() { return $.shadowOf || (__shadow(this[ID]) >= 0 && shadowPart()) ? $.shadowOf(this) : null; }
+    get assignedSlot() { return slotOf(this); }
     animate() { return { cancel: noop, play: noop, pause: noop, finish: noop, reverse: noop, finished: Promise.resolve(), ready: Promise.resolve(), onfinish: null, currentTime: 0, playState: 'finished', addEventListener: noop, removeEventListener: noop }; }
     getAnimations() { return []; }
     requestFullscreen() { return Promise.reject(domError('NotSupportedError', 'Fullscreen is not supported')); }
@@ -952,7 +956,7 @@
   }
   mixin(Element, ParentNode);
   mixin(Element, ChildNode);
-  lazyMethods(Element.prototype, 'shadow', ['attachShadow']);
+  lazyMethods(Element.prototype, 'shadow', ['attachShadow', 'setHTMLUnsafe']);
 
   const adjacent = (el, pos, node) => {
     switch (String(pos).toLowerCase()) {
@@ -1418,6 +1422,9 @@
   class ShadowRoot extends DocumentFragment {
     constructor() { super(); illegal(); }
     get nodeName() { return '#document-fragment'; }
+    // A root the parser declared gets these when first asked.
+    get host() { need('shadow'); return $.rootOf(wrap(__host(this[ID]))).host; }
+    get mode() { need('shadow'); return $.rootOf(wrap(__host(this[ID]))).mode; }
   }
   protos.set('#document-fragment', DocumentFragment.prototype);
   protos.set('#shadow-root', ShadowRoot.prototype);
@@ -1543,6 +1550,7 @@
     adoptedStyleSheets: [function () { need('cssom'); return this.adoptedStyleSheets; }, function (v) { need('cssom'); this.adoptedStyleSheets = v; }],
   });
   protos.set('#document', Document.prototype);
+  def(Document, { parseHTMLUnsafe(v) { need('shadow'); return Document.parseHTMLUnsafe(v); } });
 
   // A document without a window, as `createHTMLDocument` makes.
   const newDocument = (html, title) => {

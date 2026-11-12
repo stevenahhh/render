@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: declarative shadow DOM</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}
+p.in{width:55px}</style>
+</head>
+<body>
+<h1 data-m="STATIC declarative-shadow">STATIC declarative-shadow</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+</script>
+<x-card id="card"><template shadowrootmode="open" shadowrootdelegatesfocus shadowrootclonable><style>p{display:block;width:123px;margin:0}</style><p id="sp" class="in">inside</p><slot></slot></template><span id="light">LIGHT</span></x-card>
+<div id="closed"><template shadowrootmode="closed"><p>secret</p></template></div>
+<ul id="list"><template shadowrootmode="open"><li>no host</li></template></ul>
+<script>
+check('parsed', function(){
+  var host=document.getElementById('card');
+  var root=host.shadowRoot;
+  mark('DSD parsed root:'+(root?root.mode:'null')+' host:'+(root&&root.host===host)+' templates:'+document.querySelectorAll('#card > template').length+' delegates:'+(root&&root.delegatesFocus)+' clonable:'+(root&&root.clonable));
+});
+check('style', function(){
+  var root=document.getElementById('card').shadowRoot;
+  mark('DSD style width:'+Math.round(root.getElementById('sp').getBoundingClientRect().width)+' slotted:'+(document.getElementById('light').getBoundingClientRect().width>0?'visible':'hidden'));
+});
+check('closed', function(){
+  mark('DSD closed shadowRoot:'+document.getElementById('closed').shadowRoot+' templates:'+document.querySelectorAll('#closed > template').length+' ulTemplate:'+document.querySelectorAll('#list > template').length);
+});
+check('attach-declared', function(){
+  var host=document.getElementById('card');
+  var old=host.shadowRoot;
+  var r=host.attachShadow({mode:'open'});
+  mark('DSD attachShadow reuses:'+(r===old)+' emptied:'+r.childNodes.length);
+  try { host.attachShadow({mode:'open'}); mark('DSD attachShadow again allowed'); } catch (e) { mark('DSD attachShadow again throws:'+e.name); }
+});
+check('innerHTML', function(){
+  var d=document.createElement('div');
+  d.innerHTML='<x-a><template shadowrootmode="open"><b>x</b></template></x-a>';
+  var viaInner=d.firstChild.shadowRoot;
+  d.setHTMLUnsafe('<x-a><template shadowrootmode="open"><b>x</b></template></x-a>');
+  mark('DSD innerHTML root:'+viaInner+' setHTMLUnsafe root:'+(d.firstChild.shadowRoot?d.firstChild.shadowRoot.innerHTML:'null'));
+});
+check('parseHTMLUnsafe', function(){
+  var doc=Document.parseHTMLUnsafe('<title>t</title><p id="h"><template shadowrootmode="open"><i>in</i></template></p>');
+  var p=doc.getElementById('h');
+  mark('DSD parseHTMLUnsafe title:'+doc.title+' root:'+(p&&p.shadowRoot?p.shadowRoot.innerHTML:'null')+' body:'+doc.body.innerHTML.replace(/"/g, "'"));
+});
+</script>
+</body>
+</html>

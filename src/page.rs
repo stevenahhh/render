@@ -579,12 +579,11 @@ impl Page {
         }
         // An `<html>` anywhere but at the root changes the size `rem` lengths
         // resolve against for the elements after it.
-        let (mut kinds, mut root, mut c) = (0, false, n);
-        while c != NONE {
+        let (mut kinds, mut root) = (0, false);
+        self.dom.each_including(n, &mut |c| {
             kinds |= self.dom.kind_of(c);
             root |= self.dom.nodes[c as usize].tag == atom::HTML;
-            c = self.dom.next_in(c, n);
-        }
+        });
         self.stale = true;
         if kinds & HAS_SHEET != 0 || self.in_style(n) {
             self.sheet_changed();

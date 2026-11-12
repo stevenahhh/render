@@ -296,14 +296,28 @@ impl Dom {
         }
     }
 
-    /// The kinds of all nodes in the subtree of `n`, `n` included.
+    /// The kinds of all nodes in the subtree of `n`, `n` and shadow trees included.
     pub fn kinds_in(&self, n: NodeId) -> u32 {
-        let (mut kinds, mut c) = (0, n);
+        let mut kinds = 0;
+        self.each_including(n, &mut |c| kinds |= self.kind_of(c));
+        kinds
+    }
+
+    /// Calls `f` on `n` and its descendants in shadow-including tree order: a
+    /// host's shadow tree comes right after the host, before its children.
+    pub fn each_including(&self, n: NodeId, f: &mut impl FnMut(NodeId)) {
+        let (mut c, hosts) = (n, !self.shadows.is_empty());
         while c != NONE {
-            kinds |= self.kind_of(c);
+            f(c);
+            if let Some(&root) = self.shadows.get(&c).filter(|_| hosts) {
+                let mut k = self.nodes[root as usize].first_child;
+                while k != NONE {
+                    self.each_including(k, f);
+                    k = self.nodes[k as usize].next;
+                }
+            }
             c = self.next_in(c, n);
         }
-        kinds
     }
 
     /// A shadow root for `host`, outside the tree like a template's content.
@@ -515,11 +529,52 @@ impl Dom {
 
     /// Replaces the children of `n` with the parsed fragment.
     pub fn set_inner_html(&mut self, n: NodeId, html: &str) {
+        self.parse_into(n, html, Parse::Fragment);
+    }
+
+    /// Replaces the children of `n` with parsed HTML: a fragment as `innerHTML`
+    /// parses one, one that may declare shadow roots as `setHTMLUnsafe` does, or
+    /// with `n` a document, a whole document.
+    pub fn parse_into(&mut self, n: NodeId, html: &str, how: Parse) {
         while self.nodes[n as usize].first_child != NONE {
             let c = self.nodes[n as usize].first_child;
             self.detach(c);
         }
-        Parser { src: html, b: html.as_bytes(), pos: 0, dom: self, stack: vec![n, n, n], html: n, head: NONE, body: n, fragment: true, templates: 0 }.run();
+        let (fragment, declarative) = match how {
+            Parse::Fragment => (true, false),
+            Parse::Unsafe => (true, true),
+            Parse::Document => (false, true),
+        };
+        let (stack, html_, body) = if fragment { (vec![n, n, n], n, n) } else { (vec![n], NONE, NONE) };
+        Parser { src: html, b: html.as_bytes(), pos: 0, dom: self, stack, html: html_, head: NONE, body, fragment, templates: 0, declarative }.run();
+    }
+
+    /// Makes the content of a `<template shadowrootmode>` that just closed the
+    /// shadow root of its parent, keeping the template's attributes on the root
+    /// for scripts to read. A parent that cannot host one, or already does,
+    /// keeps the template as it is.
+    fn declare_shadow(&mut self, template: NodeId) {
+        let host = self.nodes[template as usize].parent;
+        let mode = self.atoms.get("shadowrootmode").and_then(|a| self.attr(template, a));
+        if !matches!(mode, Some(m) if m.eq_ignore_ascii_case("open") || m.eq_ignore_ascii_case("closed")) || host == NONE || self.shadows.contains_key(&host) {
+            return;
+        }
+        let tag = self.atoms.name(self.nodes[host as usize].tag);
+        let valid = matches!(tag, "article" | "aside" | "blockquote" | "body" | "div" | "footer" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "header" | "main" | "nav" | "p" | "section" | "span")
+            || (tag.contains('-') && self.is_element(host));
+        if !valid {
+            return;
+        }
+        let Some(content) = self.templates.remove(&template) else { return };
+        self.hosts.remove(&content);
+        let root = self.attach_shadow(host);
+        self.nodes[root as usize].attrs = self.nodes[template as usize].attrs;
+        while self.nodes[content as usize].first_child != NONE {
+            let c = self.nodes[content as usize].first_child;
+            self.detach(c);
+            self.append(root, c);
+        }
+        self.detach(template);
     }
 
     /// Serializes a node (`outer`) or only its children back to HTML.
@@ -591,9 +646,17 @@ impl Dom {
     }
 }
 
+/// How `Dom::parse_into` reads its markup.
+#[derive(Clone, Copy)]
+pub enum Parse {
+    Fragment,
+    Unsafe,
+    Document,
+}
+
 pub fn parse_html(src: &str) -> Dom {
     let mut dom = Dom::new(src.len());
-    Parser { src, b: src.as_bytes(), pos: 0, dom: &mut dom, stack: vec![0], html: NONE, head: NONE, body: NONE, fragment: false, templates: 0 }.run();
+    Parser { src, b: src.as_bytes(), pos: 0, dom: &mut dom, stack: vec![0], html: NONE, head: NONE, body: NONE, fragment: false, templates: 0, declarative: true }.run();
     dom
 }
 
@@ -612,6 +675,8 @@ struct Parser<'a> {
     /// Template contents open on the stack. Inside one there is no implied
     /// `<head>` or `<body>`, and end tags do not reach past it.
     templates: u32,
+    /// A `<template shadowrootmode>` becomes the shadow root of its parent.
+    declarative: bool,
 }
 
 #[inline]
@@ -697,7 +762,7 @@ impl<'a> Parser<'a> {
     fn ensure_html(&mut self) {
         if self.html == NONE {
             self.html = self.dom.new_node(atom::HTML);
-            self.dom.append(0, self.html);
+            self.dom.append(self.stack[0], self.html);
             self.stack.truncate(1);
             self.stack.push(self.html);
         }
@@ -732,7 +797,7 @@ impl<'a> Parser<'a> {
     fn comment(&mut self, data: &str) {
         let parent = *self.stack.last().unwrap();
         // Layout finds <html> as the document's first child, so comments around it are left out.
-        if parent == 0 && !self.fragment {
+        if self.stack.len() == 1 && !self.fragment {
             return;
         }
         let n = self.dom.create_comment(data);
@@ -994,7 +1059,12 @@ impl<'a> Parser<'a> {
             let t = self.dom.nodes[self.stack[i] as usize].tag;
             if t == tag {
                 self.templates -= (tag == atom::TEMPLATE) as u32;
+                let template = self.stack[i];
                 self.stack.truncate(i);
+                // In a fragment the context node is no parent the markup declares.
+                if tag == atom::TEMPLATE && self.declarative && !(self.fragment && self.stack[i - 1] == self.stack[0]) {
+                    self.dom.declare_shadow(template);
+                }
                 return;
             }
             if t == atom::FRAGMENT && tag != atom::TEMPLATE {
@@ -1113,6 +1183,42 @@ mod tests {
         let mut html = String::new();
         dom.serialize(t, true, &mut html);
         assert_eq!(html, "<template id=\"t\"><li>A</li><li>B</li></template>");
+    }
+
+    #[test]
+    fn declarative_shadow_roots_attach_to_their_parent() {
+        let src = "<body><x-a><template shadowrootmode=open shadowrootdelegatesfocus><style>p{}</style><p>in</p><slot></slot></template><b>light</b></x-a>\
+            <x-b><template shadowrootmode=closed></template><template shadowrootmode=open><i>second</i></template></x-b>\
+            <ul><template shadowrootmode=open><li>no host</li></template></ul><div><template shadowrootmode=bogus></template></div></body>";
+        let mut dom = parse_html(src);
+        let tags: Vec<NodeId> = (0..dom.nodes.len() as NodeId).filter(|&n| dom.is_element(n) && dom.atoms.name(dom.nodes[n as usize].tag).starts_with("x-")).collect();
+        let (a, b) = (tags[0], tags[1]);
+        let root = dom.shadows[&a];
+        let mut html = String::new();
+        dom.serialize(root, false, &mut html);
+        assert_eq!(html, "<style>p{}</style><p>in</p><slot></slot>");
+        let mut light = String::new();
+        dom.serialize(a, false, &mut light);
+        assert_eq!(light, "<b>light</b>", "the template leaves the light tree");
+        let delegates = dom.atoms.get("shadowrootdelegatesfocus").unwrap();
+        assert_eq!(dom.attr(root, delegates), Some(""));
+        let rb = dom.shadows[&b];
+        assert_eq!(dom.nodes[rb as usize].first_child, NONE, "the first declared root wins");
+        let mut rest = String::new();
+        dom.serialize(b, false, &mut rest);
+        assert_eq!(rest, "<template shadowrootmode=\"open\"><i>second</i></template>");
+        assert_eq!(dom.shadows.len(), 2, "a <ul> or a bad mode declares nothing");
+        let div = first(&dom, atom::DIV);
+        dom.set_inner_html(div, "<x-c><template shadowrootmode=open><i></i></template></x-c>");
+        assert_eq!(dom.shadows.len(), 2, "innerHTML keeps templates");
+        dom.parse_into(div, "<template shadowrootmode=open></template><x-c><template shadowrootmode=open><i></i></template></x-c>", super::Parse::Unsafe);
+        assert_eq!(dom.shadows.len(), 3, "setHTMLUnsafe declares, but not on its own context");
+        let doc = dom.create_element("#document");
+        dom.parse_into(doc, "<title>t</title><p><template shadowrootmode=open>x</template></p>", super::Parse::Document);
+        let mut whole = String::new();
+        dom.serialize(doc, false, &mut whole);
+        assert_eq!(whole, "<html><head><title>t</title></head><body><p></p></body></html>");
+        assert_eq!(dom.shadows.len(), 4);
     }
 
     #[test]

@@ -104,3 +104,11 @@ syntax-error.html	STATIC syntax-error
 syntax-error.html	SYN error event SyntaxError:true
 syntax-error.html	SYN static after broken script
 syntax-error.html	SYN later script ran brokenRan:false
+declarative-shadow.html	STATIC declarative-shadow
+declarative-shadow.html	DSD parsed root:open host:true templates:0 delegates:true clonable:true
+declarative-shadow.html	DSD style width:123 slotted:visible
+declarative-shadow.html	DSD closed shadowRoot:null templates:0 ulTemplate:1
+declarative-shadow.html	DSD attachShadow reuses:true emptied:0
+declarative-shadow.html	DSD attachShadow again throws:NotSupportedError
+declarative-shadow.html	DSD innerHTML root:null setHTMLUnsafe root:<b>x</b>
+declarative-shadow.html	DSD parseHTMLUnsafe title:t root:<i>in</i> body:<p id='h'></p>
