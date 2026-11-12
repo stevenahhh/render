@@ -291,6 +291,10 @@ pub fn add_scoped_sheets(dom: &mut Dom, sheet: &mut Sheet) {
             }
             n = dom.next_in(n, root);
         }
+        if let Some(css) = dom.adopted.get(&root) {
+            let css = host_selectors(css, &host_name);
+            sheet.add(&css, &mut dom.atoms, 1, "");
+        }
         let scope = scope_class(dom, root);
         let slotted = dom.atoms.intern(SLOTTED);
         let outer = Some(dom.root_of(host)).filter(|&r| dom.nodes[r as usize].tag == atom::SHADOW);

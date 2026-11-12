@@ -5,6 +5,7 @@
 <title>webapp fixture: shadow tree selectors</title>
 <style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}
 x-late:not(:defined){display:none} x-late:defined{display:block;width:41px}
+:is(x-late, x-none):where(:defined){height:9px} :not(:defined, div){min-height:0}
 .theme x-ctx{display:block}</style>
 </head>
 <body>
@@ -19,6 +20,8 @@ function w(el){return Math.round(el.getBoundingClientRect().width);}
 :host{display:block;width:301px}
 :host(.big){width:302px}
 :host(.nope){width:999px}
+:host(:is(.big, .x)){height:23px}
+:is(.inner, .alt):not(.nope){height:7px}
 :host-context(.theme){height:17px}
 ::slotted(span){display:block;width:61px}
 ::slotted(.wide){width:62px}
@@ -30,17 +33,28 @@ slot[name=b]::slotted(*){display:block;width:63px}
 <script>
 check('host', function(){
   var h1=document.getElementById('h1'), h2=document.getElementById('h2');
-  mark('SS host width:'+w(h1)+' context:'+w(h2));
+  mark('SS host width:'+w(h1)+'x'+Math.round(h1.getBoundingClientRect().height>=23?23:0)+' context:'+w(h2));
 });
 check('slotted', function(){
   var r=document.getElementById('h1').shadowRoot;
-  mark('SS slotted span:'+w(document.getElementById('s1'))+' class:'+w(document.getElementById('s2'))+' named:'+w(document.getElementById('s3'))+' inner:'+w(r.getElementById('in'))+' fallback:'+(w(r.getElementById('fb'))===5?'styled':'plain'));
+  mark('SS slotted span:'+w(document.getElementById('s1'))+' class:'+w(document.getElementById('s2'))+' named:'+w(document.getElementById('s3'))+' inner:'+w(r.getElementById('in'))+'x'+Math.round(r.getElementById('in').getBoundingClientRect().height)+' fallback:'+(w(r.getElementById('fb'))===5?'styled':'plain'));
+});
+check('adopted', function(){
+  var h=document.body.appendChild(document.createElement('x-ad'));
+  var r=h.attachShadow({mode:'open'});
+  r.innerHTML='<p id="ap">a</p>';
+  var s=new CSSStyleSheet();
+  s.replaceSync(':host{display:block;width:87px} p{display:block;width:33px}');
+  r.adoptedStyleSheets=[s];
+  var first=w(h)+'/'+w(r.getElementById('ap'));
+  s.replaceSync(':host{display:block;width:88px}');
+  mark('SS adopted first:'+first+' replaced:'+w(h)+'/'+w(r.getElementById('ap'))+' document:'+w(document.getElementById('h1')));
 });
 check('defined', function(){
   var late=document.getElementById('late');
   var before=w(late);
   customElements.define('x-late', class extends HTMLElement {});
-  mark('SS defined before:'+before+' after:'+w(late)+' div:'+document.querySelectorAll('div:defined').length+' late:'+document.querySelectorAll('x-late:defined').length+' host:'+document.querySelectorAll('x-host:not(:defined)').length);
+  mark('SS defined before:'+before+' after:'+w(late)+'x'+Math.round(late.getBoundingClientRect().height)+' div:'+document.querySelectorAll('div:defined').length+' late:'+document.querySelectorAll('x-late:defined').length+' host:'+document.querySelectorAll('x-host:not(:defined)').length);
 });
 </script>
 </body>

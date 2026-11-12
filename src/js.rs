@@ -417,11 +417,13 @@ fn attach_shadow(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValu
     .unwrap_or(NONE)))
 }
 
-/// `__adopt(css)`: the style sheets the document adopted, applied after its own.
+/// `__adopt(css, root)`: the style sheets the document, or the shadow root
+/// `root`, adopted, applied after its own.
 fn adopt(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let css = str_arg(a, 0, ctx)?;
+    let root = (!a.get_or_undefined(1).is_undefined()).then(|| id_arg(a, 1));
     with(|h| {
-        h.page.adopt(css);
+        h.page.adopt(css, root);
         Some(())
     });
     Ok(JsValue::undefined())
@@ -781,7 +783,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__attach_shadow", 1, attach_shadow),
     ("__shadow", 1, shadow),
     ("__define", 1, define),
-    ("__adopt", 1, adopt),
+    ("__adopt", 2, adopt),
     ("__fetch", 6, fetch),
     ("__abort_fetch", 1, abort_fetch),
     ("__tagged", 2, tagged),

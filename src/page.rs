@@ -602,8 +602,12 @@ impl Page {
         self.restyle_all = true;
     }
 
-    pub(crate) fn adopt(&mut self, css: String) {
-        self.adopted = css;
+    /// Sets the CSS of the sheets the document, or with `root` a shadow root, adopted.
+    pub(crate) fn adopt(&mut self, css: String, root: Option<NodeId>) {
+        match root {
+            Some(root) => drop(self.dom.adopted.insert(root, css)),
+            None => self.adopted = css,
+        }
         self.sheet_changed();
         self.dirty = true;
     }

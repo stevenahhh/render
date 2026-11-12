@@ -113,6 +113,7 @@ declarative-shadow.html	DSD attachShadow again throws:NotSupportedError
 declarative-shadow.html	DSD innerHTML root:null setHTMLUnsafe root:<b>x</b>
 declarative-shadow.html	DSD parseHTMLUnsafe title:t root:<i>in</i> body:<p id='h'></p>
 shadow-selectors.html	STATIC shadow-selectors
-shadow-selectors.html	SS host width:302 context:150
-shadow-selectors.html	SS slotted span:61 class:62 named:63 inner:71 fallback:plain
-shadow-selectors.html	SS defined before:0 after:41 div:4 late:1 host:2
+shadow-selectors.html	SS host width:302x23 context:150
+shadow-selectors.html	SS slotted span:61 class:62 named:63 inner:71x7 fallback:plain
+shadow-selectors.html	SS adopted first:87/33 replaced:88/88 document:302
+shadow-selectors.html	SS defined before:0 after:41x9 div:5 late:1 host:2

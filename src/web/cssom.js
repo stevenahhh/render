@@ -105,10 +105,16 @@
   };
 
   // Sheets the document adopted, applied after its own.
+  // Shadow roots adopt theirs for their own tree.
+  const text = (list) => list.filter((s) => !s.disabled).map((s) => s._rules.join('\n')).join('\n');
+  const roots = new Set();
   const adopted = {
     list: [],
-    changed(sheet) { if (this.list.includes(sheet)) this.apply(); },
-    apply() { __adopt(this.list.filter((s) => !s.disabled).map((s) => s._rules.join('\n')).join('\n')); },
+    changed(sheet) {
+      if (this.list.includes(sheet)) this.apply();
+      for (const r of roots) if (r[ADOPTED].includes(sheet)) __adopt(text(r[ADOPTED]), r[$.ID]);
+    },
+    apply() { __adopt(text(this.list)); },
   };
   const ADOPTED = Symbol('adopted');
   const adoptedProp = {
@@ -122,6 +128,8 @@
         adopted.apply();
       } else {
         Object.defineProperty(this, ADOPTED, { value: list, configurable: true });
+        roots.add(this);
+        __adopt(text(list), this[$.ID]);
       }
     },
   };
