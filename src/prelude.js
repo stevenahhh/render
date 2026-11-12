@@ -1818,6 +1818,8 @@
     static fromRect(r = {}) { return new this(r.x, r.y, r.width, r.height); }
   }
   class DOMRect extends DOMRectReadOnly {}
+  // The type of `href` on SVG links in browsers; tested with `instanceof`.
+  class SVGAnimatedString { constructor() { illegal(); } }
   // The rects the platform makes, built as a literal: the class constructor costs three times as much.
   const rectOf = (r) => ({ __proto__: DOMRect.prototype, x: r[0], y: r[1], width: r[2], height: r[3] });
   class DOMPoint {
@@ -2025,7 +2027,7 @@
     devicePixelRatio: 1,
     Window, EventTarget, Node, CharacterData, Text, Comment, CDATASection, ProcessingInstruction, DocumentType, Element, Attr, NamedNodeMap, NodeList, HTMLCollection, DOMTokenList,
     Document, HTMLDocument: Document, XMLDocument: Document, DocumentFragment, ShadowRoot, DOMException, AbortController, AbortSignal, URL, URLSearchParams, webkitURL: URL, Location, History, Storage,
-    DOMRect, DOMRectReadOnly, DOMPoint, DOMPointReadOnly: DOMPoint, DOMMatrix, DOMMatrixReadOnly: DOMMatrix, WebKitCSSMatrix: DOMMatrix, MediaQueryList, MediaError, FontFace,
+    DOMRect, DOMRectReadOnly, SVGAnimatedString, DOMPoint, DOMPointReadOnly: DOMPoint, DOMMatrix, DOMMatrixReadOnly: DOMMatrix, WebKitCSSMatrix: DOMMatrix, MediaQueryList, MediaError, FontFace,
     TrustedHTML, TrustedScript, TrustedScriptURL, TrustedTypePolicyFactory: Object,
     matchMedia, postMessage,
     getComputedStyle: (el) => (el && el.style ? el.style : styleProxy(document.createElement('div'))),
