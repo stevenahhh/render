@@ -27,7 +27,7 @@ pub enum Kind {
 }
 
 /// `data` indexes `Layout::boxes` for boxes and `Layout::texts` for text.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Item {
     pub x: f32,
     pub y: f32,
@@ -38,7 +38,7 @@ pub struct Item {
     pub data: u32,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct BoxDeco {
     pub bg: Color,
     pub bw: [f32; 4],
@@ -48,7 +48,7 @@ pub struct BoxDeco {
 }
 
 /// What an image item draws: a picture in `Images` and the opacity it is drawn at.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct PicRef {
     pub id: u32,
     pub alpha: f32,
@@ -57,7 +57,7 @@ pub struct PicRef {
     pub tile: Option<[f32; 4]>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub struct TextRun {
     pub start: u32,
     pub len: u32,
@@ -137,6 +137,29 @@ impl Layout {
         true
     }
 
+    /// The first way this layout differs from `other` in what it draws or tells
+    /// scripts, for checks.
+    pub fn difference(&self, other: &Layout) -> Option<String> {
+        if (self.width, self.height, self.canvas) != (other.width, other.height, other.canvas) || self.text != other.text {
+            return Some(format!("size {}x{} canvas {:?}, expected {}x{} canvas {:?}, or text", self.width, self.height, self.canvas, other.width, other.height, other.canvas));
+        }
+        if self.items.len() != other.items.len() {
+            return Some(format!("{} items, expected {}", self.items.len(), other.items.len()));
+        }
+        for (i, (a, b)) in self.items.iter().zip(&other.items).enumerate() {
+            let geometry = |it: &Item| [it.x, it.y, it.w, it.h].map(f32::to_bits);
+            let data = match a.kind {
+                Kind::Box => format!("{:?}", self.boxes[a.data as usize]) == format!("{:?}", other.boxes[b.data as usize]),
+                Kind::Text => self.texts[a.data as usize] == other.texts[b.data as usize],
+                Kind::Image => self.pictures[a.data as usize] == other.pictures[b.data as usize],
+                Kind::Clip | Kind::PopClip | Kind::Area => true,
+            };
+            if a.kind != b.kind || a.node != b.node || geometry(a) != geometry(b) || !data {
+                return Some(format!("item {i}: {a:?}, expected {b:?}"));
+            }
+        }
+        None
+    }
 }
 
 const NAN: f32 = f32::NAN;

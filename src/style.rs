@@ -9,7 +9,7 @@ pub type Vars = FxMap<Box<str>, Box<str>>;
 
 /// Computed style. Lengths are `Auto`, `Px`, `Pct` or `Calc` only; font
 /// relative and viewport units are already resolved.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Style {
     pub display: Display,
     pub position: Position,
@@ -1222,6 +1222,28 @@ fn unstyle_below(dom: &Dom, styles: &mut [Style], n: NodeId) {
         styles[c as usize] = Style::initial();
         c = dom.next_in(c, n);
     }
+}
+
+/// The first node whose style in `got` differs from the one in `want`, which
+/// `compute_styles` computed, described with the fields that differ. A node
+/// `got` has no style for yet has the initial one.
+pub fn first_difference(dom: &Dom, got: &[Style], want: &[Style]) -> Option<String> {
+    let initial = Style::initial();
+    for (i, b) in want.iter().enumerate() {
+        let a = got.get(i).unwrap_or(&initial);
+        if a == b {
+            continue;
+        }
+        // NaN is not equal to itself; the printed forms tell real differences.
+        let (x, y) = (format!("{a:?}"), format!("{b:?}"));
+        if x != y {
+            let fields: Vec<String> = x.split(", ").zip(y.split(", ")).filter(|(p, q)| p != q).map(|(p, q)| format!("{p} (full restyle: {q})")).collect();
+            let classes: Vec<&str> = dom.classes_of(i as NodeId).iter().map(|&c| dom.atoms.name(c)).collect();
+            let (tag, id) = (dom.nodes[i].tag, dom.nodes[i].id);
+            return Some(format!("<{} id={:?} class={:?}> node {i}: {}", dom.atoms.name(tag), dom.atoms.name(id), classes.join(" "), fields.join(", ")));
+        }
+    }
+    None
 }
 
 /// Elements a change can restyle, told by their own compound: those with one of

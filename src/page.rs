@@ -12,9 +12,16 @@ use crate::style::{compute_styles, Dirty, Invalidation, Style, OWN};
 use crate::net::{Site, Wake};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+/// Set `RENDER_CHECK_RESTYLE` to have every incremental style update checked
+/// against styling and laying out the whole page again: the program stops with
+/// the first element or layout item that differs.
+fn check_restyles() -> bool {
+    static CHECK: OnceLock<bool> = OnceLock::new();
+    *CHECK.get_or_init(|| std::env::var_os("RENDER_CHECK_RESTYLE").is_some())
+}
 
 /// How long a page shown progressively waits for its linked stylesheets after the
 /// HTML has arrived; later ones restyle the page when they come. The preload
@@ -960,7 +967,25 @@ impl Page {
         if relayout {
             self.style_and_layout(fonts, vw, vh, false);
         }
+        if check_restyles() {
+            self.check(fonts, vw, vh);
+            eprintln!("[restyle check] incremental update matches a full one ({} recoloured, relayout {relayout})", r.paint.len());
+        }
         relayout || !r.paint.is_empty()
+    }
+
+    /// Stops the program when the styles or the layout differ from styling and
+    /// laying out the whole page again (see `check_restyles`).
+    fn check(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
+        let full = compute_styles(&self.dom, &self.sheet, vw, vh, self.hover);
+        if let Some(d) = crate::style::first_difference(&self.dom, &self.styles, &full) {
+            panic!("incremental restyle differs from a full one at {d}");
+        }
+        let mut fresh = Layout { record_boxes: self.record_boxes || self.scripted, ..Layout::default() };
+        fresh = layout(&self.dom, &full, fonts, &mut self.images, vw, vh, fresh);
+        if let Some(d) = self.layout.difference(&fresh) {
+            panic!("layout after an incremental restyle differs from a full one: {d}");
+        }
     }
 
     /// Records the hovered node; returns true when the page changed visually.
@@ -1019,3 +1044,163 @@ impl Page {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::Page;
+    use crate::css::Len;
+    use crate::dom::{NodeId, NONE};
+    use crate::font::Fonts;
+    use crate::layout::{layout, Layout};
+    use crate::style::{compute_styles, first_difference, query};
+
+    /// Checks that the page's styles and layout are those of styling and laying out
+    /// the whole page again at 1024 by 768, on the composed tree, as updates do.
+    fn assert_matches_full(page: &mut Page, fonts: &mut Fonts) {
+        let composed = crate::shadow::compose(&mut page.dom);
+        let full = compute_styles(&page.dom, &page.sheet, 1024.0, 768.0, page.hover);
+        let styles = first_difference(&page.dom, &page.styles, &full);
+        let fresh = layout(&page.dom, &full, fonts, &mut page.images, 1024.0, 768.0, Layout { record_boxes: true, ..Layout::default() });
+        if let Some(c) = composed {
+            crate::shadow::restore(&mut page.dom, c);
+        }
+        assert_eq!(styles, None);
+        assert_eq!(page.layout.difference(&fresh), None);
+    }
+
+    /// Loads a page whose script changes it after it was styled once, reading
+    /// layout where the script has `;;` so that the update there is incremental,
+    /// and checks the result against a full restyle. `$(id)` finds an element.
+    fn after_script(css: &str, body: &str, script: &str) -> (Page, Fonts) {
+        let read = "document.body.offsetHeight;";
+        let script = script.replace(";;", &format!(";{read}"));
+        let html = format!("<html><head><style>{css}</style></head><body>{body}<script>const $=(i)=>document.getElementById(i);{read}{script}{read}</script></body></html>");
+        let mut page = Page::from_html(&html, None);
+        let mut fonts = Fonts::new();
+        page.update(&mut fonts, 1024.0, 768.0);
+        assert_matches_full(&mut page, &mut fonts);
+        (page, fonts)
+    }
+
+    /// Text colours, as hex, of the elements matching `sel` below `root`.
+    fn colours(page: &mut Page, root: NodeId, sel: &str) -> Vec<String> {
+        let found = query(&mut page.dom, root, sel, false);
+        found.into_iter().map(|n| format!("{:06x}", page.styles[n as usize].color.0 & 0xff_ffff)).collect()
+    }
+
+    #[test]
+    fn script_changes_restyle_what_their_selectors_reach() {
+        // (rule, css, body, script, selector, colours after it)
+        let cases: [(&str, &str, &str, &str, &str, &[&str]); 19] = [
+            ("descendant", ".on .x{color:#f00}", "<div id=a><p class=x></p><p></p></div><p class=x></p>", "$('a').className='on';", "p", &["ff0000", "000000", "000000"]),
+            ("child", ".on>.x{color:#f00} b{color:#00f}", "<div id=a><p class=x><b class=x></b></p></div>", "$('a').classList.add('on');", ".x", &["ff0000", "0000ff"]),
+            ("adjacent", ".a+.b{color:#f00}", "<i id=s></i><b class=b></b><b class=b></b>", "$('s').className='a';", "b", &["ff0000", "000000"]),
+            ("adjacent after insertion", ".a+.b{color:#f00}", "<i class=a id=s></i><b class=b></b>", "$('s').after(document.createElement('u'));", "b", &["000000"]),
+            ("general sibling", ".a~.b{color:#f00}", "<b class=b></b><i id=s></i><b class=b></b><p><b class=b></b></p><b class=b></b>", "$('s').className='a';", "b", &["000000", "ff0000", "000000", "ff0000"]),
+            ("sibling after removal", ".a~.b{color:#f00}", "<i class=a id=s></i><b class=b></b>", "$('s').remove();", "b", &["000000"]),
+            (
+                "structural",
+                "li:first-child{color:#f00} li:last-child{color:#00f} li:nth-child(2){color:#0f0}",
+                "<ul id=u><li id=x></li><li></li><li id=y></li></ul>",
+                "$('u').insertBefore(document.createElement('li'),$('u').firstChild);;$('y').remove();",
+                "li",
+                &["ff0000", "00ff00", "0000ff"],
+            ),
+            (
+                "attribute",
+                "[data-open] .p{color:#f00} [aria-hidden=true]{color:#00f}",
+                "<div id=d><p class=p></p></div><i id=s></i>",
+                "$('d').setAttribute('data-open','');$('s').setAttribute('aria-hidden','true');;$('d').removeAttribute('data-open');",
+                "p, i",
+                &["000000", "0000ff"],
+            ),
+            ("not", ".c:not(.on){color:#f00}", "<p class=c id=c1></p><p class=c></p>", "$('c1').classList.add('on');", "p", &["000000", "ff0000"]),
+            (
+                "has",
+                ".l:has(.sel){color:#f00}",
+                "<div class=l><p id=i></p></div><div class=l id=m></div>",
+                "$('i').className='sel';;const q=document.createElement('b');q.className='sel';$('m').appendChild(q);",
+                "div",
+                &["ff0000", "ff0000"],
+            ),
+            (
+                "has outside the subject",
+                ".c:has(.t) p{color:#f00}",
+                "<div class=c><i id=x></i><p></p></div><div class=c id=d><p></p></div>",
+                "$('x').className='t';;const t=document.createElement('i');t.className='t';$('d').appendChild(t);",
+                "p",
+                &["ff0000", "ff0000"],
+            ),
+            (
+                "link attributes",
+                ".on{color:#f00}",
+                "<p id=p></p>",
+                "const l=document.createElement('link');l.rel='preload';document.head.appendChild(l);l.setAttribute('as','style');;$('p').className='on';",
+                "p",
+                &["ff0000"],
+            ),
+            ("inherited", ".t{color:#f00}", "<div id=t><section><p></p></section></div>", "$('t').className='t';;$('t').style.color='#00f';", "p", &["0000ff"]),
+            ("custom property", ".t{--c:#0f0} p{color:var(--c,#000)}", "<div id=t><section><p></p></section></div><p></p>", "$('t').className='t';", "p", &["00ff00", "000000"]),
+            ("shown again", ".h{display:none} .x{color:#f00}", "<div id=h class=h><span><p class=x></p></span></div>", "$('h').className='';", "p", &["ff0000"]),
+            ("hidden", ".h{display:none} .x{color:#f00}", "<div id=h><p class=x></p></div>", "$('h').className='h';", "p", &["000000"]),
+            ("moved", ".a .x{color:#f00}", "<div class=a id=a></div><div><p class=x id=p></p></div>", "$('a').appendChild($('p'));", "p", &["ff0000"]),
+            ("moved into svg", ".x{color:#f00}", "<svg id=s></svg><p class=x id=p></p>", "$('s').appendChild($('p'));", "p", &["000000"]),
+            (
+                "stylesheet",
+                "",
+                "<p id=p></p>",
+                "const s=document.createElement('style');s.textContent='p{color:#f00}';document.head.appendChild(s);;$('p').className='x';;s.remove();",
+                "p",
+                &["000000"],
+            ),
+        ];
+        for (rule, css, body, script, sel, want) in cases {
+            let (mut page, _) = after_script(css, body, script);
+            assert_eq!(colours(&mut page, 0, sel), want, "{rule}");
+        }
+    }
+
+    #[test]
+    fn colour_changes_repaint_the_laid_out_boxes() {
+        let css = "div{border:1px solid #000} .on{background:#f00;color:#0f0;opacity:.5}";
+        let toggle = "$('a').classList.toggle('on');";
+        let (mut page, _) = after_script(css, "<div id=a>text <span>more</span></div>", &[toggle; 3].join(";"));
+        assert_eq!(colours(&mut page, 0, "div, span"), ["00ff00", "00ff00"]);
+    }
+
+    #[test]
+    fn font_relative_lengths_follow_font_size_changes() {
+        let css = ".big{font-size:20px} .x{width:2em;height:2rem}";
+        let (mut page, _) = after_script(css, "<div id=a><p class=x></p></div>", "$('a').className='big';;document.documentElement.className='big';");
+        let p = query(&mut page.dom, 0, "p", true)[0];
+        let s = &page.styles[p as usize];
+        assert_eq!((s.width, s.height), (Len::Px(40.0), Len::Px(40.0)));
+    }
+
+    #[test]
+    fn media_queries_and_hover_restyle_on_viewport_and_pointer_changes() {
+        let css = "@media (max-width:600px){.x{color:#f00}} .h:hover .x{color:#00f}";
+        let (mut page, mut fonts) = after_script(css, "<div class=h id=h><p class=x></p></div>", "");
+        page.update(&mut fonts, 500.0, 768.0);
+        assert_eq!(colours(&mut page, 0, "p"), ["ff0000"]);
+        page.update(&mut fonts, 1024.0, 768.0);
+        let h = query(&mut page.dom, 0, "#h", true)[0];
+        assert!(page.set_hover(&mut fonts, h));
+        assert_eq!(colours(&mut page, 0, "p"), ["0000ff"]);
+        assert_matches_full(&mut page, &mut fonts);
+        assert!(page.set_hover(&mut fonts, NONE));
+        assert_eq!(colours(&mut page, 0, "p"), ["000000"]);
+        assert_matches_full(&mut page, &mut fonts);
+    }
+
+    #[test]
+    fn shadow_trees_restyle_their_scoped_rules_and_slots() {
+        let script = "const r=$('h').attachShadow({mode:'open'});\
+                      r.innerHTML='<style>.in{color:#f00} .on .in{color:#0f0}</style><div><p class=in><slot></slot></p></div>';;\
+                      r.lastChild.className='on';;$('h').appendChild(document.createElement('b'));";
+        let (mut page, _) = after_script(".in{color:#00f} b{color:#f0f}", "<div id=h><b></b></div>", script);
+        let host = query(&mut page.dom, 0, "#h", true)[0];
+        let root = page.dom.shadows[&host];
+        assert_eq!(colours(&mut page, root, ".in"), ["00ff00"]);
+        assert_eq!(colours(&mut page, 0, "b"), ["ff00ff", "ff00ff"]);
+    }
+}
