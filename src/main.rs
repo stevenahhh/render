@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
@@ -31,7 +31,9 @@ const USAGE: &str = "usage: render <file.html | http(s) URL> [options]
   --boxes <file>         print the box and computed style of each selector in the file
 
 window keys: arrows, space, PageUp/PageDown, Home/End scroll; Backspace goes back;
-             F5 or Cmd/Ctrl+R reloads; Esc quits";
+             F5 or Cmd/Ctrl+R reloads; Esc quits
+address bar: click it or press Cmd/Ctrl+L, type a URL or a file path, Enter opens it;
+             Cmd/Ctrl+V pastes; Esc leaves it. Without a file the window starts empty";
 
 struct Args {
     path: PathBuf,
@@ -71,7 +73,12 @@ fn parse_args() -> Result<Args, String> {
             s => path = Some(PathBuf::from(s)),
         }
     }
-    a.path = path.ok_or("missing HTML file")?;
+    a.path = match path {
+        Some(path) => path,
+        // The window can start empty: the page is then chosen in its address bar.
+        None if a.screenshot.is_none() && a.boxes.is_none() && a.bench.is_none() => PathBuf::new(),
+        None => return Err("missing HTML file".into()),
+    };
     if !(a.width >= 1.0 && a.height >= 1.0 && a.scale > 0.0) {
         return Err("--width, --height and --scale must be positive".into());
     }
@@ -204,6 +211,46 @@ struct App {
     pointer: bool,
     stats: bool,
     proxy: EventLoopProxy<()>,
+    /// The text being typed into the address bar, while it is being edited.
+    address: Option<String>,
+    /// The next typed text replaces the whole address, as after select-all.
+    replace: bool,
+    /// The location to open, and whether the bar has shown "Loading" for it yet.
+    loading: Option<(PathBuf, bool)>,
+    /// Why the last location could not be opened.
+    notice: Option<String>,
+    /// The address bar as last drawn: its markup, width in pixels and pixels.
+    bar: (String, u32, Vec<u32>),
+}
+
+/// Height of the address bar in CSS pixels.
+const BAR: f32 = 34.0;
+
+/// What the address bar opens for typed text: a URL, an existing file, or a host
+/// name that gets `https://` in front.
+fn locate(input: &str) -> PathBuf {
+    let host_like = !input.contains(' ') && (input.contains('.') || input.starts_with("localhost"));
+    if !render::net::is_url(input) && !Path::new(input).exists() && host_like {
+        PathBuf::from(format!("https://{input}"))
+    } else {
+        PathBuf::from(input)
+    }
+}
+
+/// Text on the system clipboard, read with the platform's own tool.
+fn clipboard() -> String {
+    let tool = if cfg!(target_os = "macos") { "pbpaste" } else { "wl-paste" };
+    std::process::Command::new(tool).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default()
+}
+
+/// Draws the address bar by rendering a one-element page.
+fn draw_bar(markup: &str, fonts: &mut Fonts, w: u32, h: u32, scale: f32) -> Vec<u32> {
+    let mut page = Page::from_html(markup, None);
+    page.update(fonts, w as f32 / scale, h as f32 / scale);
+    let mut pixels = vec![0; (w * h) as usize];
+    let mut target = Target { buf: &mut pixels, w: w as i32, h: h as i32 };
+    paint(&page.layout, fonts, &mut page.images, &mut target, 0.0, scale);
+    pixels
 }
 
 /// Decode the page's images off the main thread; a finished one wakes the event loop.
@@ -219,7 +266,60 @@ impl App {
     fn view(&self) -> (f32, f32, f32) {
         let Some(w) = &self.window else { return (1.0, 1.0, 1.0) };
         let (size, scale) = (w.inner_size(), w.scale_factor() as f32);
-        (size.width as f32 / scale, size.height as f32 / scale, scale)
+        (size.width as f32 / scale, (size.height as f32 / scale - BAR).max(1.0), scale)
+    }
+
+    fn bar_markup(&self) -> String {
+        let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+        let (text, border, color) = match (&self.loading, &self.address, &self.notice) {
+            (Some((target, _)), _, _) => (format!("Loading {} ...", escape(&target.display().to_string())), "#c8c8c8", "#777"),
+            (None, Some(text), _) if text.is_empty() => ("<span style=\"color:#999\">Type a URL or a file path, then press Enter</span>".to_string(), "#0a84ff", "#222"),
+            (None, Some(text), _) => (format!("{}<span style=\"color:#0a84ff\">|</span>", escape(text)), "#0a84ff", "#222"),
+            (None, None, Some(notice)) => (escape(notice), "#d33", "#b00"),
+            (None, None, None) => (escape(&self.path.display().to_string()), "#c8c8c8", "#222"),
+        };
+        format!(
+            "<body style=\"margin:0;background:#ececec\"><div style=\"margin:5px 8px;padding:3px 10px;height:16px;background:#fff;border:1px solid {border};border-radius:6px;font-family:Arial;font-size:13px;line-height:16px;color:{color};white-space:nowrap;overflow:hidden\">{text}</div></body>"
+        )
+    }
+
+    fn edit_address(&mut self) {
+        self.address = Some(self.path.display().to_string());
+        self.replace = true;
+        self.notice = None;
+        self.request_redraw();
+    }
+
+    fn address_key(&mut self, event: &KeyEvent, command: bool) {
+        let mut text = self.address.take().unwrap_or_default();
+        let replace = std::mem::take(&mut self.replace);
+        let insert = |text: &mut String, typed: &str| {
+            if replace {
+                text.clear();
+            }
+            text.extend(typed.chars().filter(|c| !c.is_control()));
+        };
+        let mut editing = true;
+        match event.logical_key.as_ref() {
+            Key::Named(NamedKey::Escape) => editing = false,
+            Key::Named(NamedKey::Enter) => {
+                editing = false;
+                if !text.trim().is_empty() {
+                    self.loading = Some((locate(text.trim()), false));
+                }
+            }
+            Key::Named(NamedKey::Backspace) if replace => text.clear(),
+            Key::Named(NamedKey::Backspace) => drop(text.pop()),
+            Key::Character("a") if command => self.replace = true,
+            Key::Character("v") if command => insert(&mut text, clipboard().trim()),
+            _ if command => self.replace = replace,
+            _ => match &event.text {
+                Some(typed) => insert(&mut text, typed),
+                None => self.replace = replace,
+            },
+        }
+        self.address = editing.then_some(text);
+        self.request_redraw();
     }
 
     fn request_redraw(&self) {
@@ -239,8 +339,12 @@ impl App {
     }
 
     fn open(&mut self, path: PathBuf, scroll: f32, remember: bool) {
+        let started = Instant::now();
         match Page::load(&path) {
             Ok(mut page) => {
+                if self.stats {
+                    eprintln!("opened {} in {:.1} ms", path.display(), started.elapsed().as_secs_f64() * 1e3);
+                }
                 decode_in_background(&mut page, &self.proxy);
                 if remember {
                     self.history.push((self.path.clone(), self.scroll));
@@ -248,12 +352,17 @@ impl App {
                 self.page = page;
                 self.path = path;
                 self.scroll = scroll;
+                self.notice = None;
                 if let Some(w) = &self.window {
                     w.set_title(&title(&self.page, &self.path));
                 }
                 self.request_redraw();
             }
-            Err(e) => eprintln!("cannot open {}: {e}", path.display()),
+            Err(e) => {
+                eprintln!("cannot open {}: {e}", path.display());
+                self.notice = Some(format!("Cannot open {}: {e}", path.display()));
+                self.request_redraw();
+            }
         }
     }
 
@@ -282,11 +391,17 @@ impl App {
     }
 
     fn redraw(&mut self) {
+        let markup = self.bar_markup();
         let (Some(window), Some(surface)) = (self.window.as_ref(), self.surface.as_mut()) else { return };
         let size = window.inner_size();
         let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
         let scale = window.scale_factor() as f32;
-        let (vw, vh) = (size.width as f32 / scale, size.height as f32 / scale);
+        // The address bar takes the top rows; the page gets the rest as its viewport.
+        let bar_h = ((BAR * scale).round() as u32).min(size.height - 1);
+        let (vw, vh) = (size.width as f32 / scale, (size.height - bar_h) as f32 / scale);
+        if self.bar.0 != markup || self.bar.1 != size.width || self.bar.2.len() != (size.width * bar_h) as usize {
+            self.bar = (markup.clone(), size.width, draw_bar(&markup, &mut self.fonts, size.width, bar_h, scale));
+        }
         let t0 = Instant::now();
         self.page.update(&mut self.fonts, vw, vh);
         self.scroll = self.scroll.clamp(0.0, (self.page.layout.height - vh).max(0.0));
@@ -294,12 +409,17 @@ impl App {
         surface.resize(w, h).expect("resize window surface");
         let mut buf = surface.buffer_mut().expect("acquire frame buffer");
         let t1 = Instant::now();
-        let mut target = Target { buf: &mut buf, w: size.width as i32, h: size.height as i32 };
+        let (bar, rest) = buf.split_at_mut(self.bar.2.len());
+        bar.copy_from_slice(&self.bar.2);
+        let mut target = Target { buf: rest, w: size.width as i32, h: (size.height - bar_h) as i32 };
         paint(&self.page.layout, &mut self.fonts, &mut self.page.images, &mut target, self.scroll, scale);
         scrollbar(&mut target, self.scroll, self.page.layout.height, scale);
         let t2 = Instant::now();
         buf.present().expect("present frame");
         let present = t2.elapsed();
+        if let Some((_, shown)) = &mut self.loading {
+            *shown = true;
+        }
         if !FIRST_FRAME.swap(true, std::sync::atomic::Ordering::Relaxed) && self.stats {
             if let Some(start) = PROCESS_START.get() {
                 eprintln!("first frame: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
@@ -319,7 +439,8 @@ impl App {
     }
 
     fn hover(&mut self) {
-        let node = self.page.hit(self.mouse.0, self.mouse.1 + self.scroll);
+        // Above the page, on the address bar, nothing in the document is under the pointer.
+        let node = if self.mouse.1 < 0.0 { render::dom::NONE } else { self.page.hit(self.mouse.0, self.mouse.1 + self.scroll) };
         let pointer = self.page.pointer(node);
         if pointer != self.pointer {
             self.pointer = pointer;
@@ -365,6 +486,13 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Opening blocks while the page downloads, so it starts only after a frame has
+        // shown "Loading" in the address bar.
+        if matches!(self.loading, Some((_, true))) {
+            if let Some((target, _)) = self.loading.take() {
+                self.open(target, 0.0, true);
+            }
+        }
         // Once a frame is on screen, run the held-back scripts one per turn of the
         // loop, so input and repaints are served in between.
         if FIRST_FRAME.load(std::sync::atomic::Ordering::Relaxed) {
@@ -407,10 +535,12 @@ impl ApplicationHandler for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.view().2;
-                self.mouse = (position.x as f32 / scale, position.y as f32 / scale);
+                self.mouse = (position.x as f32 / scale, position.y as f32 / scale - BAR);
                 self.hover();
             }
+            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } if self.mouse.1 < 0.0 => self.edit_address(),
             WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
+                self.address = None;
                 let node = self.page.hit(self.mouse.0, self.mouse.1 + self.scroll);
                 let href = self.page.link(node).map(str::to_string);
                 let cancelled = self.page.click(node);
@@ -424,7 +554,12 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput { event, .. } if event.state == ElementState::Pressed => {
                 let page_step = self.view().1 * 0.9;
                 let command = self.mods.super_key() || self.mods.control_key();
+                if self.address.is_some() {
+                    self.address_key(&event, command);
+                    return;
+                }
                 match event.logical_key.as_ref() {
+                    Key::Character("l") if command => self.edit_address(),
                     Key::Named(NamedKey::ArrowDown) => self.scroll_to(self.scroll + 48.0),
                     Key::Named(NamedKey::ArrowUp) => self.scroll_to(self.scroll - 48.0),
                     Key::Named(NamedKey::PageDown | NamedKey::Space) => self.scroll_to(self.scroll + page_step),
@@ -468,7 +603,8 @@ fn run() -> Result<(), String> {
     }
     let event_loop = EventLoop::new().map_err(|e| format!("cannot start the event loop: {e}"))?;
     let proxy = event_loop.create_proxy();
-    let mut page = Page::load_deferred(&args.path).map_err(io)?;
+    let blank = args.path.as_os_str().is_empty();
+    let mut page = if blank { Page::from_html("", None) } else { Page::load_deferred(&args.path).map_err(io)? };
     decode_in_background(&mut page, &proxy);
     if args.stats {
         if let Some(start) = PROCESS_START.get() {
@@ -488,6 +624,11 @@ fn run() -> Result<(), String> {
         pointer: false,
         stats: args.stats,
         proxy,
+        address: blank.then(String::new),
+        replace: false,
+        loading: None,
+        notice: None,
+        bar: (String::new(), 0, Vec::new()),
     };
     event_loop.set_control_flow(ControlFlow::Wait);
     event_loop.run_app(&mut app).map_err(|e| format!("event loop failed: {e}"))
