@@ -1295,7 +1295,9 @@ fn finish(st: &mut Style, parent: &Style, root: bool, replaced: bool) {
 /// Computes a style for every node. Nodes are stored in document order, so a
 /// single forward pass always sees the parent's style first.
 pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId) -> Vec<Style> {
-    let mut styles = vec![Style::initial(); dom.nodes.len()];
+    // Built from constants, which costs less than cloning one style for every node.
+    let mut styles = Vec::with_capacity(dom.nodes.len());
+    styles.resize_with(dom.nodes.len(), Style::initial);
     let chain = hover_chain(dom, hover);
     let mut s = Styler::new(dom, sheet, vw, vh, &chain);
     let mut i = dom.nodes[0].first_child;
