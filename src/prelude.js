@@ -68,10 +68,19 @@
   }).join(' ');
   const log = (prefix) => (...a) => __log(prefix + fmt(a));
   const noop = () => {};
+  // Describing an exception can run the page's getters and toString, which a browser
+  // does not run: when they throw too, the report goes on without what they would say.
+  const described = (f, otherwise) => {
+    try {
+      return f();
+    } catch (_) {
+      return otherwise;
+    }
+  };
   // An exception from a callback the page gave us: reported like an uncaught one, with where it came from.
   const reportError = (e) => {
-    const stack = e instanceof Error && typeof e.stack === 'string' ? e.stack.split('\n').filter((l) => /^\s+at /.test(l)).slice(0, 6) : [];
-    __log('error: ' + fmt([e]) + (stack.length ? '\n' + stack.join('\n') : ''));
+    const stack = described(() => (e instanceof Error && typeof e.stack === 'string' ? e.stack.split('\n').filter((l) => /^\s+at /.test(l)).slice(0, 6) : []), []);
+    __log('error: ' + described(() => fmt([e]), 'an exception that throws when described') + (stack.length ? '\n' + stack.join('\n') : ''));
     fireError(e);
   };
   $.reportError = reportError;
@@ -312,7 +321,7 @@
     if (inError) return false;
     inError = true;
     try {
-      const message = 'Uncaught ' + (e instanceof Error ? e.name + ': ' + e.message : String(e));
+      const message = 'Uncaught ' + described(() => (e instanceof Error ? e.name + ': ' + e.message : String(e)), 'exception');
       return !dispatch(g, new events.ErrorEvent('error', { message, filename, error: e, cancelable: true }));
     } finally {
       inError = false;
@@ -1832,9 +1841,15 @@
   // timers they set keep coming due. A turn that has been busy for 250 ms hands
   // control back to the host, so its limit on the page's time holds in a turn too.
   let busySince = -1;
+  // An exception a task threw that could not be reported then.
+  let unreported = false, unreportedError;
   // Runs the earliest due task. Returns 0 after running one, else milliseconds
   // until the next, or -1 when there is none.
   const tick = () => {
+    if (unreported) {
+      unreported = false;
+      reportError(unreportedError);
+    }
     if ($.intersections) $.intersections();
     for (const [img, src] of loadingImages) {
       if (__image(src) === 0) continue;
@@ -1870,7 +1885,15 @@
       else if (t.kind === 'idle') t.fn.call(g, idleDeadline(now));
       else t.fn.apply(g, t.args);
     } catch (e) {
-      reportError(e);
+      // Right after a stack overflow the engine can be left without room for the calls
+      // a report makes until this call returns; the next call reports it then, so that
+      // the exception does not escape and stop the tasks after this one.
+      try {
+        reportError(e);
+      } catch (_) {
+        unreportedError = e;
+        unreported = true;
+      }
     } finally {
       nesting = 0;
     }
