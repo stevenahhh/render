@@ -1,6 +1,7 @@
 use render::font::Fonts;
 use render::page::{Download, Page};
 use render::paint::{paint, scrollbar, Target};
+use render::present::{frames_run, timer_wake, FrameClock};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -10,7 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, StartCause, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
@@ -218,6 +219,12 @@ struct App {
     fonts: Fonts,
     window: Option<Rc<Window>>,
     surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    /// The display refreshes that animation frames follow, where the system has them.
+    clock: Option<FrameClock>,
+    /// Since when the window has been covered or minimized, while it is.
+    hidden: Option<Instant>,
+    /// A frame was asked for while the window was hidden; it is painted once it is seen.
+    redraw_hidden: bool,
     scroll: f32,
     mouse: (f32, f32),
     mods: ModifiersState,
@@ -245,6 +252,65 @@ struct App {
     notice: Option<String>,
     /// The address bar as last drawn: its markup, width in pixels and pixels.
     bar: (String, u32, Vec<u32>),
+    /// What `--stats` reports for each second the event loop was awake in.
+    meter: Meter,
+}
+
+/// Counts of one second of event loop work for `--stats`. The line for a second is
+/// printed at the first wake-up after it, so a second slept through prints nothing
+/// and counting adds no wake-up of its own.
+#[derive(Default)]
+struct Meter {
+    since: Option<Instant>,
+    /// Wake-ups for a timer deadline, for an event, and while polling.
+    wakes: [u32; 3],
+    events: u32,
+    cursor: u32,
+    /// Raw input the system sends the active app, such as mouse motion anywhere on screen.
+    device: u32,
+    /// Display refreshes that ran animation frame callbacks.
+    refreshes: u32,
+    frames: u32,
+    pixels: u64,
+    script: Duration,
+    update: Duration,
+    paint: Duration,
+    present: Duration,
+}
+
+impl Meter {
+    /// Starts a new second, printing the one before it when `print` is set.
+    fn wake(&mut self, cause: StartCause, print: bool) {
+        let now = Instant::now();
+        let since = *self.since.get_or_insert(now);
+        if now - since >= Duration::from_secs(1) {
+            if print {
+                let [timer, event, poll] = self.wakes;
+                eprintln!(
+                    "stats {:.1}s: wake-ups {} (timer {timer}, event {event}, poll {poll}), events {} (cursor {}, device {}), refreshes {}, frames {}, pixels painted {}, script {:.2} ms, style+layout {:.2} ms, paint {:.2} ms, present {:.2} ms",
+                    (now - since).as_secs_f64(),
+                    timer + event + poll,
+                    self.events,
+                    self.cursor,
+                    self.device,
+                    self.refreshes,
+                    self.frames,
+                    self.pixels,
+                    millis(self.script),
+                    millis(self.update),
+                    millis(self.paint),
+                    millis(self.present)
+                );
+            }
+            *self = Meter { since: Some(now), ..Meter::default() };
+        }
+        let slot = match cause {
+            StartCause::ResumeTimeReached { .. } => 0,
+            StartCause::WaitCancelled { .. } | StartCause::Init => 1,
+            StartCause::Poll => 2,
+        };
+        self.wakes[slot] += 1;
+    }
 }
 
 /// Height of the address bar in CSS pixels.
@@ -372,9 +438,31 @@ impl App {
         }
     }
 
-    fn request_redraw(&self) {
+    /// Asks for a frame. A hidden window paints none until it is seen again, except the
+    /// page's first, which its held-back scripts wait for.
+    fn request_redraw(&mut self) {
+        if self.hidden.is_some() && self.painted {
+            self.redraw_hidden = true;
+            return;
+        }
         if let Some(w) = &self.window {
             w.request_redraw();
+        }
+    }
+
+    /// The window was covered or uncovered. The page's scripts see it, and a page seen
+    /// again paints what it missed.
+    fn set_hidden(&mut self, hidden: bool) {
+        if hidden == self.hidden.is_some() {
+            return;
+        }
+        self.hidden = hidden.then(Instant::now);
+        self.page.set_hidden(&mut self.fonts, hidden);
+        if !hidden && std::mem::take(&mut self.redraw_hidden) {
+            self.request_redraw();
+        }
+        if self.page.take_dirty() {
+            self.request_redraw();
         }
     }
 
@@ -456,6 +544,10 @@ impl App {
             }
         }
         decode_in_background(&mut page, &self.proxy);
+        if self.clock.is_some() {
+            page.frames_from_host(&mut self.fonts);
+        }
+        page.set_hidden(&mut self.fonts, self.hidden.is_some());
         if remember {
             self.history.push((self.path.clone(), self.scroll));
         }
@@ -547,6 +639,9 @@ impl App {
         buf.present().expect("present frame");
         let present = t2.elapsed();
         self.painted = true;
+        let m = &mut self.meter;
+        (m.frames, m.pixels) = (m.frames + 1, m.pixels + size.width as u64 * size.height as u64);
+        (m.update, m.paint, m.present) = (m.update + update, m.paint + (t2 - t1), m.present + present);
         // While a navigation is in flight the frame still shows the page before it.
         if self.loading.is_none() {
             if !FIRST_FRAME.swap(true, Ordering::Relaxed) && self.stats {
@@ -604,6 +699,10 @@ impl ApplicationHandler for App {
         let window = Rc::new(event_loop.create_window(attrs).expect("create window"));
         let context = softbuffer::Context::new(window.clone()).expect("create display context");
         self.surface = Some(softbuffer::Surface::new(&context, window.clone()).expect("create window surface"));
+        self.clock = FrameClock::new(&window);
+        if self.clock.is_some() {
+            self.page.frames_from_host(&mut self.fonts);
+        }
         self.window = Some(window);
         if self.stats {
             if let Some(start) = PROCESS_START.get() {
@@ -622,11 +721,21 @@ impl ApplicationHandler for App {
         }
     }
 
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+        self.meter.wake(cause, self.stats);
+    }
+
+    fn device_event(&mut self, _event_loop: &ActiveEventLoop, _id: winit::event::DeviceId, _event: winit::event::DeviceEvent) {
+        self.meter.device += 1;
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // Once a frame is on screen, run the held-back scripts one per turn of the
         // loop, so input and repaints are served in between.
+        let started = Instant::now();
         if self.painted {
             if let Some(left) = self.page.run_deferred(&mut self.fonts) {
+                self.meter.script += started.elapsed();
                 if self.page.take_dirty() {
                     self.request_redraw();
                 }
@@ -640,20 +749,50 @@ impl ApplicationHandler for App {
             }
         }
         let next = self.page.tick(&mut self.fonts);
+        // The display refreshed while animation frame callbacks waited: they run for this frame.
+        if self.clock.as_ref().is_some_and(FrameClock::take_refresh) {
+            self.meter.refreshes += 1;
+            self.page.frame(&mut self.fonts);
+        }
+        self.meter.script += started.elapsed();
+        // Painted right here: a redraw request made now would be served only on another
+        // turn of the loop, since winit hands out redraws before this point.
         if self.page.take_dirty() {
-            self.request_redraw();
+            if self.hidden.is_some() && self.painted {
+                self.redraw_hidden = true;
+            } else {
+                self.redraw();
+            }
+        }
+        if let Some(clock) = &mut self.clock {
+            clock.run(frames_run(self.page.wants_frame(&mut self.fonts), self.hidden.is_some()));
         }
         event_loop.set_control_flow(match next {
-            Some(ms) => ControlFlow::WaitUntil(Instant::now() + Duration::from_secs_f64(ms.max(4.0) / 1e3)),
+            Some(ms) => ControlFlow::WaitUntil(timer_wake(Instant::now(), ms, self.hidden)),
             None => ControlFlow::Wait,
         });
     }
 
+
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        self.meter.events += 1;
+        if matches!(event, WindowEvent::CursorMoved { .. }) {
+            self.meter.cursor += 1;
+        }
+        if let (WindowEvent::Occluded(hidden), true) = (&event, self.stats) {
+            eprintln!("occluded {hidden}");
+        }
+        self.window_event_inner(event_loop, event);
+    }
+}
+
+impl App {
+    fn window_event_inner(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => self.request_redraw(),
+            WindowEvent::Occluded(hidden) => self.set_hidden(hidden),
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
             WindowEvent::MouseWheel { delta, .. } => {
                 let dy = match delta {
@@ -749,6 +888,9 @@ fn run() -> Result<(), String> {
         fonts: Fonts::new(),
         window: None,
         surface: None,
+        clock: None,
+        hidden: None,
+        redraw_hidden: false,
         scroll: 0.0,
         mouse: (-1.0, -1.0),
         mods: ModifiersState::empty(),
@@ -766,6 +908,7 @@ fn run() -> Result<(), String> {
         late_images: 0,
         notice: None,
         bar: (String::new(), 0, Vec::new()),
+        meter: Meter::default(),
     };
     app.fonts.log = args.stats;
     if web {

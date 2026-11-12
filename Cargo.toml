@@ -21,7 +21,11 @@ flate2 = "1"
 brotli-decompressor = "6"
 
 # AVIF images are decoded by the system's ImageIO; these bind its CoreGraphics side.
+# Animation frames follow the display through a display link.
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObjCRuntime", "NSRunLoop", "NSString"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "CADisplayLink", "CAFrameRateRange"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFData", "CFDictionary", "CFCGTypes"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
 

@@ -648,6 +648,36 @@ impl Page {
         node != NONE && self.with_js(fonts, |js| js.dispatch(node, "click")).unwrap_or(false)
     }
 
+    /// From now on animation frame callbacks wait for `frame`, which the window calls
+    /// once per display refresh. A page whose scripts have not run yet only records it.
+    pub fn frames_from_host(&mut self, fonts: &mut Fonts) {
+        if self.js.as_ref().is_some_and(Js::booted) {
+            self.with_js(fonts, Js::frames_from_host);
+        } else if let Some(js) = &mut self.js {
+            js.frames_from_host();
+        }
+    }
+
+    /// Runs the animation frame callbacks queued before this frame; true when more
+    /// wait for the next one.
+    pub fn frame(&mut self, fonts: &mut Fonts) -> bool {
+        self.with_js(fonts, Js::frame).unwrap_or(false)
+    }
+
+    /// True when animation frame callbacks wait for a frame.
+    pub fn wants_frame(&mut self, fonts: &mut Fonts) -> bool {
+        self.js.as_ref().is_some_and(Js::booted) && self.with_js(fonts, Js::frames_waiting).unwrap_or(false)
+    }
+
+    /// Tells the page's scripts whether it can be seen (`document.visibilityState`).
+    pub fn set_hidden(&mut self, fonts: &mut Fonts, hidden: bool) {
+        if self.js.as_ref().is_some_and(Js::booted) {
+            self.with_js(fonts, |js| js.set_hidden(hidden));
+        } else if let Some(js) = &mut self.js {
+            js.set_hidden(hidden);
+        }
+    }
+
     /// Runs due script timers; returns milliseconds until the next one.
     pub fn tick(&mut self, fonts: &mut Fonts) -> Option<f64> {
         if !self.pending.is_empty() {

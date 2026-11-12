@@ -908,6 +908,10 @@ pub struct Js {
     url: String,
     rejected: Rc<RefCell<Vec<JsObject>>>,
     fetches: Rc<Fetches>,
+    /// Animation frame callbacks wait for `frame` instead of running as timers.
+    frames: bool,
+    /// The page is not visible: `document.hidden`.
+    hidden: bool,
 }
 
 impl Js {
@@ -928,7 +932,7 @@ impl Js {
         let fetches = Rc::new(Fetches { done: Arc::default(), aborts: RefCell::default(), referrer: url.href(), wake: RefCell::new(None) });
         ctx.insert_data(fetches.clone());
         START.with(|_| ());
-        Js { ctx, booted: false, repeatable: false, url: url.href(), rejected, fetches }
+        Js { ctx, booted: false, repeatable: false, url: url.href(), rejected, fetches, frames: false, hidden: false }
     }
 
     /// Calls `wake` from a worker thread when a request a script made has its answer.
@@ -978,6 +982,52 @@ impl Js {
             self.call("start", &[js_str(&self.url)]);
             if self.repeatable {
                 self.eval(FIXED_RANDOM, "fixed random");
+            }
+            if self.frames {
+                self.call("frames", &[]);
+            }
+            if self.hidden {
+                self.call("visibility", &[JsValue::from(true), JsValue::from(true)]);
+            }
+        }
+    }
+
+    /// True once the page's first script has started the script engine.
+    pub fn booted(&self) -> bool {
+        self.booted
+    }
+
+    /// From now on animation frame callbacks wait for `frame`, which the window calls
+    /// once per display refresh. Before the engine starts this needs no `enter`.
+    pub fn frames_from_host(&mut self) {
+        self.frames = true;
+        if self.booted {
+            self.call("frames", &[]);
+        }
+    }
+
+    /// Runs the animation frame callbacks queued before this frame, each followed by
+    /// its microtasks. True when callbacks are waiting for the next frame.
+    pub fn frame(&mut self) -> bool {
+        let mut left = self.call("frameStart", &[]).and_then(|v| v.as_number()).unwrap_or(0.0);
+        while left > 0.0 {
+            left = self.call("frameRun", &[]).and_then(|v| v.as_number()).unwrap_or(0.0);
+        }
+        self.frames_waiting()
+    }
+
+    /// True when animation frame callbacks are waiting for a frame.
+    pub fn frames_waiting(&mut self) -> bool {
+        self.booted && self.call("framesQueued", &[]).and_then(|v| v.as_number()).is_some_and(|n| n > 0.0)
+    }
+
+    /// Shows or hides the page: `document.visibilityState`, and a `visibilitychange`
+    /// event once the engine runs. Before it starts this needs no `enter`.
+    pub fn set_hidden(&mut self, hidden: bool) {
+        if self.hidden != hidden {
+            self.hidden = hidden;
+            if self.booted {
+                self.call("visibility", &[JsValue::from(hidden)]);
             }
         }
     }
@@ -1109,6 +1159,63 @@ impl Js {
 #[cfg(test)]
 mod tests {
     use super::{base64_decode, base64_encode};
+    use crate::font::Fonts;
+    use crate::page::Page;
+
+    fn text(page: &Page, id: &str) -> String {
+        let mut out = String::new();
+        page.dom.text_content(page.dom.by_id(0, id), &mut out);
+        out
+    }
+
+    #[test]
+    fn in_a_window_animation_frames_wait_for_the_host_and_share_one_time() {
+        // Loaded as the window loads a page: its scripts wait until it has been shown.
+        let file = std::env::temp_dir().join(format!("js-frames-test-{}.html", std::process::id()));
+        std::fs::write(
+            &file,
+            "<p id=out></p><script>
+               const out = document.getElementById('out'), seen = [];
+               const note = (s) => { seen.push(s); out.textContent = seen.join(' '); };
+               let first;
+               requestAnimationFrame((t) => { first = t; note('a'); requestAnimationFrame(() => note('c')); });
+               requestAnimationFrame((t) => note(t === first ? 'b' : 'b-at-another-time'));
+               cancelAnimationFrame(requestAnimationFrame(() => note('cancelled')));
+             </script>",
+        )
+        .expect("write the test page");
+        let page = Page::load_deferred(&file);
+        std::fs::remove_file(&file).expect("remove the test page");
+        let (mut page, mut fonts) = (page.expect("load the test page"), Fonts::new());
+        page.frames_from_host(&mut fonts);
+        while page.run_deferred(&mut fonts).is_some() {}
+        assert!(page.wants_frame(&mut fonts));
+        assert_eq!(page.tick(&mut fonts), None, "frame callbacks are no timers");
+        assert_eq!(text(&page, "out"), "");
+        assert!(page.frame(&mut fonts), "the callback requested during the frame waits for the next");
+        assert_eq!(text(&page, "out"), "a b");
+        assert!(!page.frame(&mut fonts));
+        assert_eq!(text(&page, "out"), "a b c");
+        assert!(!page.wants_frame(&mut fonts));
+    }
+
+    #[test]
+    fn hiding_the_window_changes_visibility_state_and_fires_visibilitychange_once() {
+        let mut fonts = Fonts::new();
+        let mut page = Page::from_html(
+            "<p id=out></p><script>
+               document.addEventListener('visibilitychange', () => {
+                 document.getElementById('out').textContent += document.visibilityState + ':' + document.hidden + ' ';
+               });
+             </script>",
+            None,
+        );
+        page.run_pending(&mut fonts, 800.0, 600.0);
+        page.set_hidden(&mut fonts, true);
+        page.set_hidden(&mut fonts, true);
+        page.set_hidden(&mut fonts, false);
+        assert_eq!(text(&page, "out"), "hidden:true visible:false ");
+    }
 
     #[test]
     fn base64_round_trips_like_atob_and_btoa() {

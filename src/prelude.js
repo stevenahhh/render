@@ -1461,8 +1461,8 @@
     get location() { return this === document ? location : null; }
     get defaultView() { return this === document ? g : null; }
     get currentScript() { return currentScript; }
-    get visibilityState() { return 'visible'; }
-    get hidden() { return false; }
+    get visibilityState() { return pageHidden ? 'hidden' : 'visible'; }
+    get hidden() { return pageHidden; }
     get referrer() { return ''; }
     get cookie() { return ''; }
     set cookie(v) {}
@@ -1787,6 +1787,25 @@
     }
     return 0;
   };
+  // In a window the host draws frames: an animation frame callback waits for the next
+  // frame, and all of a frame's callbacks get that frame's time. One-shot output has no
+  // frames and runs them as 16 ms timers.
+  let framesFromHost = false, frameTime = 0, pageHidden = false;
+  let frameCallbacks = [], frameBatch = [];
+  const requestFrame = (fn) => {
+    if (!framesFromHost) return addTimer(fn, 16, false, [], 'raf');
+    if (typeof fn === 'string') fn = new Function(fn);
+    if (typeof fn !== 'function') return 0;
+    frameCallbacks.push({ id: nextTask, fn });
+    return nextTask++;
+  };
+  const cancelFrame = (id) => {
+    for (const list of [frameCallbacks, frameBatch]) {
+      const i = list.findIndex((c) => c.id === id);
+      if (i >= 0) return void list.splice(i, 1);
+    }
+    clearTimer(id);
+  };
   // Idle callbacks get the time left until the next task, up to 50 ms.
   const idleDeadline = (start) => {
     let until = start + 50;
@@ -2005,8 +2024,8 @@
     setInterval: (fn, ms, ...args) => addTimer(fn, ms, true, args),
     clearTimeout: (id) => clearTimer(id),
     clearInterval: (id) => clearTimer(id),
-    requestAnimationFrame: (fn) => addTimer(fn, 16, false, [], 'raf'),
-    cancelAnimationFrame: (id) => clearTimer(id),
+    requestAnimationFrame: (fn) => requestFrame(fn),
+    cancelAnimationFrame: (id) => cancelFrame(id),
     requestIdleCallback: (fn, o) => addTimer(fn, Math.min(1, o && o.timeout || 1), false, [], 'idle'),
     cancelIdleCallback: (id) => clearTimer(id),
     queueMicrotask: (fn) => __microtask(fn),
@@ -2102,6 +2121,28 @@
       if (p) def(g, { origin: p[10] });
     },
     tick,
+    frames() { framesFromHost = true; },
+    // Starts a frame: the callbacks queued until now are the ones it runs.
+    frameStart() {
+      frameBatch = frameCallbacks;
+      frameCallbacks = [];
+      frameTime = __now();
+      return frameBatch.length;
+    },
+    // Runs the frame's next callback; returns how many of its callbacks are left.
+    frameRun() {
+      const c = frameBatch.shift();
+      if (c) {
+        try { c.fn.call(g, frameTime); } catch (e) { reportError(e); }
+      }
+      return frameBatch.length;
+    },
+    framesQueued() { return frameCallbacks.length; },
+    visibility(hidden, quiet) {
+      if (pageHidden === hidden) return;
+      pageHidden = hidden;
+      if (!quiet) fire(document, 'visibilitychange', { bubbles: true });
+    },
     dispatch(id, type) {
       const ev = type === 'click'
         ? new events.MouseEvent(type, { bubbles: true, cancelable: true, composed: true, view: g, detail: 1 })
