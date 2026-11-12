@@ -1,7 +1,7 @@
 //! Cascade and inheritance: one computed `Style` per DOM node.
 
 use crate::css::*;
-use crate::dom::{atom, Dom, NodeId, NONE};
+use crate::dom::{atom, Atom, Dom, NodeId, NONE};
 use crate::FxMap;
 use std::rc::Rc;
 
@@ -494,8 +494,19 @@ fn subst(v: &str, vars: Option<&Vars>, depth: u32) -> Option<String> {
 struct Matcher<'a> {
     dom: &'a Dom,
     hover: &'a [NodeId],
-    /// 1-based index among element siblings, filled per parent on first use.
-    idx: Vec<u32>,
+    /// Position of each element among its element siblings, filled per
+    /// parent on first use.
+    idx: Vec<Sib>,
+}
+
+/// 1-based position among element siblings, and among those sharing the tag,
+/// with the count of each. `pos == 0` marks a node not filled in yet.
+#[derive(Clone, Copy, Default)]
+struct Sib {
+    pos: u32,
+    count: u32,
+    type_pos: u32,
+    type_count: u32,
 }
 
 fn nth(a: i32, b: i32, i: i32) -> bool {
@@ -507,21 +518,36 @@ fn nth(a: i32, b: i32, i: i32) -> bool {
 }
 
 impl<'a> Matcher<'a> {
-    fn index(&mut self, n: NodeId) -> u32 {
+    /// Where element `n` stands among its parent's element children. One walk
+    /// over the children fills every sibling, so structural pseudo-classes
+    /// cost O(children) per parent instead of O(children) per element.
+    fn sib(&mut self, n: NodeId) -> Sib {
         let nodes = &self.dom.nodes;
-        if nodes[n as usize].parent == NONE {
-            return 1;
+        let parent = nodes[n as usize].parent;
+        if parent == NONE {
+            return Sib { pos: 1, count: 1, type_pos: 1, type_count: 1 };
         }
         if self.idx.is_empty() {
-            self.idx = vec![0; nodes.len()];
+            self.idx = vec![Sib::default(); nodes.len()];
         }
-        if self.idx[n as usize] == 0 {
-            let mut c = nodes[nodes[n as usize].parent as usize].first_child;
-            let mut k = 0;
+        if self.idx[n as usize].pos == 0 {
+            let first = nodes[parent as usize].first_child;
+            let mut types: FxMap<Atom, u32> = FxMap::default();
+            let (mut c, mut k) = (first, 0);
             while c != NONE {
                 if self.dom.is_element(c) {
                     k += 1;
-                    self.idx[c as usize] = k;
+                    let t = types.entry(nodes[c as usize].tag).or_insert(0);
+                    *t += 1;
+                    self.idx[c as usize] = Sib { pos: k, count: 0, type_pos: *t, type_count: 0 };
+                }
+                c = nodes[c as usize].next;
+            }
+            c = first;
+            while c != NONE {
+                if self.dom.is_element(c) {
+                    let s = &mut self.idx[c as usize];
+                    (s.count, s.type_count) = (k, types[&nodes[c as usize].tag]);
                 }
                 c = nodes[c as usize].next;
             }
@@ -529,34 +555,18 @@ impl<'a> Matcher<'a> {
         self.idx[n as usize]
     }
 
-    /// Counts element siblings before (`back`) or after `n`, optionally only
-    /// those sharing its tag.
-    fn siblings(&self, n: NodeId, back: bool, same_tag: bool) -> i32 {
-        let nodes = &self.dom.nodes;
-        let tag = nodes[n as usize].tag;
-        let step = |c: NodeId| if back { nodes[c as usize].prev } else { nodes[c as usize].next };
-        let (mut c, mut k) = (step(n), 0);
-        while c != NONE {
-            if self.dom.is_element(c) && (!same_tag || nodes[c as usize].tag == tag) {
-                k += 1;
-            }
-            c = step(c);
-        }
-        k
-    }
-
     fn pseudo(&mut self, p: &Pseudo, n: NodeId) -> bool {
         let node = &self.dom.nodes[n as usize];
         match p {
             Pseudo::Root => node.parent == 0,
-            Pseudo::FirstChild => self.index(n) == 1,
-            Pseudo::LastChild => self.siblings(n, false, false) == 0,
-            Pseudo::OnlyChild => self.index(n) == 1 && self.siblings(n, false, false) == 0,
-            Pseudo::NthChild(a, b) => nth(*a, *b, self.index(n) as i32),
-            Pseudo::NthLastChild(a, b) => nth(*a, *b, self.siblings(n, false, false) + 1),
-            Pseudo::FirstOfType => self.siblings(n, true, true) == 0,
-            Pseudo::LastOfType => self.siblings(n, false, true) == 0,
-            Pseudo::NthOfType(a, b) => nth(*a, *b, self.siblings(n, true, true) + 1),
+            Pseudo::FirstChild => self.sib(n).pos == 1,
+            Pseudo::LastChild => self.sib(n).pos == self.sib(n).count,
+            Pseudo::OnlyChild => self.sib(n).count == 1,
+            Pseudo::NthChild(a, b) => nth(*a, *b, self.sib(n).pos as i32),
+            Pseudo::NthLastChild(a, b) => nth(*a, *b, (self.sib(n).count - self.sib(n).pos + 1) as i32),
+            Pseudo::FirstOfType => self.sib(n).type_pos == 1,
+            Pseudo::LastOfType => self.sib(n).type_pos == self.sib(n).type_count,
+            Pseudo::NthOfType(a, b) => nth(*a, *b, self.sib(n).type_pos as i32),
             Pseudo::Not(c) => !self.compound(c, n),
             Pseudo::Has(parts) => {
                 let mut c = node.first_child;
@@ -718,6 +728,18 @@ fn each<'s>(sheet: &'s Sheet, matched: &[(u64, u32)], inl: &'s (Vec<Decl>, Vec<D
     inl.1.iter().for_each(&mut f);
 }
 
+/// Everything a `Deferred` stylesheet declaration's expansion depends on: the
+/// declaration, the custom properties it reads, the `em` size it resolves
+/// against (`font-size` only) and the root font size. The viewport is fixed
+/// for one `compute_styles` call.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct DeferredKey {
+    decl: usize,
+    vars: usize,
+    em: Option<u32>,
+    root_fs: u32,
+}
+
 /// Computes a style for every node. Nodes are stored in document order, so a
 /// single forward pass always sees the parent's style first.
 pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId) -> Vec<Style> {
@@ -733,6 +755,12 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
     let mut m = Matcher { dom, hover: &chain, idx: Vec::new() };
     let mut matched: Vec<(u64, u32)> = Vec::new();
     let mut expanded: Vec<Decl> = Vec::new();
+    // Every `Vars` map stays alive in `styles` until this call returns, so its
+    // address identifies its contents for the whole pass.
+    let mut deferred: FxMap<DeferredKey, Vec<Decl>> = FxMap::default();
+    // Custom-property maps by (inherited map, custom-property declarations added).
+    let mut own_vars: FxMap<(usize, Vec<usize>), Rc<Vars>> = FxMap::default();
+    let mut var_decls: Vec<usize> = Vec::new();
     let mut ctx = Ctx { root_fs: 16.0, vw, vh };
     let no_inline = (Vec::new(), Vec::new(), false);
     let mut bloom = [0u8; 4096];
@@ -791,25 +819,64 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
         };
 
         if inl.2 || matched.iter().any(|&(_, r)| sheet.rules[r as usize].dynamic) {
-            let mut own: Option<Vars> = None;
+            var_decls.clear();
+            let mut inline_var = false;
             each(sheet, &matched, inl, |d| {
-                if let Decl::Var(k, v) = d {
-                    own.get_or_insert_with(|| st.vars.as_deref().cloned().unwrap_or_default())
-                        .insert(k.clone(), v.clone());
+                if let Decl::Var(..) = d {
+                    let ptr = d as *const Decl;
+                    inline_var |= inl.0.as_ptr_range().contains(&ptr) || inl.1.as_ptr_range().contains(&ptr);
+                    var_decls.push(ptr as usize);
                 }
             });
-            if let Some(v) = own {
-                st.vars = Some(Rc::new(v));
+            if !var_decls.is_empty() {
+                let build = || {
+                    let mut own = st.vars.as_deref().cloned().unwrap_or_default();
+                    each(sheet, &matched, inl, |d| {
+                        if let Decl::Var(k, v) = d {
+                            own.insert(k.clone(), v.clone());
+                        }
+                    });
+                    Rc::new(own)
+                };
+                // Elements that inherit the same map and add the same stylesheet
+                // declarations share one map, so `deferred` keys repeat.
+                st.vars = Some(if inline_var {
+                    build()
+                } else {
+                    let key = (st.vars.as_ref().map_or(0, |m| Rc::as_ptr(m) as usize), var_decls.clone());
+                    own_vars.entry(key).or_insert_with(build).clone()
+                });
             }
             expanded.clear();
             let vars = st.vars.as_deref();
             each(sheet, &matched, inl, |d| match d {
                 Decl::Var(..) => {}
                 Decl::Deferred(name, v) => {
-                    if let Some(sv) = subst(v, vars, 0) {
-                        let em = (&**name == "font-size").then_some(parent.font_size);
-                        let sv = crate::css::absolute_lengths(&sv, |u| unit_px(u, em, &ctx)).unwrap_or(sv);
-                        parse_decl(name, &sv, &mut expanded);
+                    let em = (&**name == "font-size").then_some(parent.font_size);
+                    let expand = |out: &mut Vec<Decl>| {
+                        if let Some(sv) = subst(v, vars, 0) {
+                            let sv = crate::css::absolute_lengths(&sv, |u| unit_px(u, em, &ctx)).unwrap_or(sv);
+                            parse_decl(name, &sv, out);
+                        }
+                    };
+                    // Inline declarations are freed after each element, so only
+                    // stylesheet declarations have an address that stays unique.
+                    let ptr = d as *const Decl;
+                    if inl.0.as_ptr_range().contains(&ptr) || inl.1.as_ptr_range().contains(&ptr) {
+                        expand(&mut expanded);
+                    } else {
+                        let key = DeferredKey {
+                            decl: ptr as usize,
+                            vars: vars.map_or(0, |m| m as *const Vars as usize),
+                            em: em.map(f32::to_bits),
+                            root_fs: ctx.root_fs.to_bits(),
+                        };
+                        let out = deferred.entry(key).or_insert_with(|| {
+                            let mut out = Vec::new();
+                            expand(&mut out);
+                            out
+                        });
+                        expanded.extend(out.iter().cloned());
                     }
                 }
                 d => expanded.push(d.clone()),
@@ -905,4 +972,71 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
         i = dfs_next(dom, i, 0, descend);
     }
     styles
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_styles, query, Style};
+    use crate::css::Len;
+    use crate::page::Page;
+
+    /// Computed styles of the elements matching `sel`, in document order.
+    fn styles_of(html: &str, sel: &str) -> Vec<Style> {
+        let mut page = Page::from_html(html, None);
+        let styles = compute_styles(&page.dom, &page.sheet, 800.0, 600.0, u32::MAX);
+        query(&mut page.dom, 0, sel, false).into_iter().map(|n| styles[n as usize].clone()).collect()
+    }
+
+    fn widths(styles: &[Style]) -> Vec<Len> {
+        styles.iter().map(|s| s.width).collect()
+    }
+
+    #[test]
+    fn same_rules_under_different_custom_properties_do_not_share_an_expansion() {
+        let html = "<style>.a{--w:10px} .b{--w:20px} .x{width:var(--w)}</style>\
+                    <div class=a><p class=x></p></div><div class=b><p class=x></p></div>\
+                    <div class=a><p class=x></p></div><div class=a><p class=x style=\"--w:5px\"></p><p class=x></p></div>";
+        assert_eq!(widths(&styles_of(html, "p")), [Len::Px(10.0), Len::Px(20.0), Len::Px(10.0), Len::Px(5.0), Len::Px(10.0)]);
+    }
+
+    #[test]
+    fn the_same_custom_property_rule_under_different_inherited_maps_does_not_share_a_map() {
+        let html = "<style>:root{--w:1px} .a{--w:10px} .in{--h:3px} .x{width:var(--w);height:var(--h,7px)}</style>\
+                    <div class=a><div class=in><p class=x></p></div></div><div class=in><p class=x></p></div><p class=x></p>";
+        let s = styles_of(html, "p");
+        assert_eq!(widths(&s), [Len::Px(10.0), Len::Px(1.0), Len::Px(1.0)]);
+        assert_eq!(s.iter().map(|s| s.height).collect::<Vec<_>>(), [Len::Px(3.0), Len::Px(3.0), Len::Px(7.0)]);
+    }
+
+    #[test]
+    fn structural_pseudo_classes_count_element_siblings_per_parent_and_tag() {
+        let html = "<div id=a><p id=p1></p>text<span id=s1></span><p id=p2></p><!-- c --><span id=s2></span><p id=p3></p></div>\
+                    <div id=b><em id=e1></em></div><div id=c><p id=q1></p><span id=t1></span></div>";
+        let mut page = Page::from_html(html, None);
+        let ids = |page: &mut Page, sel: &str| {
+            let found = query(&mut page.dom, 0, sel, false);
+            found.iter().map(|&n| page.dom.attr(n, crate::dom::atom::ID).unwrap_or("").to_string()).collect::<Vec<_>>()
+        };
+        let cases: [(&str, &[&str]); 9] = [
+            ("div > :last-child", &["p3", "e1", "t1"]),
+            ("div > :only-child", &["e1"]),
+            ("div > :nth-child(2n)", &["s1", "s2", "t1"]),
+            ("div > :nth-last-child(2)", &["s2", "q1"]),
+            ("div > :first-of-type", &["p1", "s1", "e1", "q1", "t1"]),
+            ("div > p:last-of-type", &["p3", "q1"]),
+            ("div > span:last-of-type", &["s2", "t1"]),
+            ("div > :nth-of-type(2)", &["p2", "s2"]),
+            ("div > p:nth-of-type(3)", &["p3"]),
+        ];
+        for (sel, want) in cases {
+            assert_eq!(ids(&mut page, sel), want, "{sel}");
+        }
+    }
+
+    #[test]
+    fn a_deferred_font_size_resolves_against_each_parent() {
+        let html = "<style>.big{font-size:20px} .small{font-size:10px} .f{font-size:calc(1em + 1px)}</style>\
+                    <div class=big><p class=f></p></div><div class=small><p class=f></p></div><div class=big><p class=f></p></div>";
+        assert_eq!(styles_of(html, "p").iter().map(|s| s.font_size).collect::<Vec<_>>(), [21.0, 11.0, 21.0]);
+    }
 }
