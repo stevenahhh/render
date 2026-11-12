@@ -199,7 +199,7 @@ fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bo
     let mut owners = Vec::new();
     let mut n = 0;
     while n != NONE {
-        if dom.kind_of(n) == HAS_SHEET {
+        if matches!(dom.nodes[n as usize].tag, atom::STYLE | atom::LINK) && dom.kind_of(n) == HAS_SHEET {
             owners.push(n);
         }
         n = dom.next_in(n, 0);
