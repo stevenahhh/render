@@ -10,7 +10,7 @@
 use std::time::{Duration, Instant};
 
 pub use crate::paint::Rect;
-pub use imp::{FrameClock, Presenter};
+pub use imp::{Alarm, FrameClock, Presenter};
 
 /// When the event loop wakes for the page's next timer, due in `ms`: at least 4 ms
 /// ahead, as browsers space timer tasks. While the window has been hidden since
@@ -35,7 +35,10 @@ mod imp {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
     use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
-    use objc2_core_foundation::{CFDictionary, CFNumber, CFNumberType, CFRetained, CFString, CFType, CGPoint, CGRect};
+    use objc2_core_foundation::{
+        kCFRunLoopCommonModes, CFAbsoluteTimeGetCurrent, CFDictionary, CFNumber, CFNumberType, CFRetained, CFRunLoop, CFRunLoopTimer, CFString, CFType,
+        CGPoint, CGRect,
+    };
     use objc2_core_graphics::{kCGColorSpaceSRGB, CGColorSpace};
     use objc2_foundation::{NSRunLoop, NSRunLoopCommonModes};
     use objc2_io_surface::{
@@ -45,7 +48,10 @@ mod imp {
     use objc2_quartz_core::{kCAGravityTopLeft, CADisplayLink, CAFrameRateRange, CALayer, CATransaction};
     use super::Rect;
     use std::cell::Cell;
+    use std::ffi::c_void;
     use std::rc::Rc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Instant;
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use winit::window::Window;
 
@@ -127,6 +133,58 @@ mod imp {
     impl Drop for FrameClock {
         fn drop(&mut self) {
             self.link.invalidate();
+        }
+    }
+
+    /// Set by the alarm's timer when it fires, until `Alarm::take_fired`.
+    static FIRED: AtomicBool = AtomicBool::new(false);
+
+    unsafe extern "C-unwind" fn ring(_timer: *mut CFRunLoopTimer, _info: *mut c_void) {
+        FIRED.store(true, Ordering::Relaxed);
+    }
+
+    /// Wakes the event loop at a set time, through a run loop timer of its own. winit's
+    /// `ControlFlow::WaitUntil` arms a timer that repeats every 0.1 us, and when the system
+    /// fires it late, as it does for a process that idles, Core Foundation steps its next
+    /// fire date past the present one interval at a time: millions of instructions for each
+    /// wake-up. This timer repeats once in 30 years, which no wait reaches.
+    pub struct Alarm {
+        timer: CFRetained<CFRunLoopTimer>,
+        at: Option<Instant>,
+    }
+
+    impl Alarm {
+        pub fn new() -> Option<Alarm> {
+            // SAFETY: `ring` has the callout signature and reads no context, so none is passed.
+            let timer = unsafe { CFRunLoopTimer::new(None, f64::MAX, 1e9, 0, 0, Some(ring), std::ptr::null_mut()) }?;
+            // SAFETY: `kCFRunLoopCommonModes` is an immutable framework constant.
+            CFRunLoop::main()?.add_timer(Some(&timer), unsafe { kCFRunLoopCommonModes });
+            Some(Alarm { timer, at: None })
+        }
+
+        /// Rings at `at`, at once when that has passed, or never for `None`.
+        pub fn set(&mut self, at: Option<Instant>) {
+            if at == self.at {
+                return;
+            }
+            self.at = at;
+            let fire = at.map_or(f64::MAX, |at| CFAbsoluteTimeGetCurrent() + at.saturating_duration_since(Instant::now()).as_secs_f64());
+            self.timer.set_next_fire_date(fire);
+        }
+
+        /// True once after the alarm rang.
+        pub fn take_fired(&mut self) -> bool {
+            let fired = FIRED.swap(false, Ordering::Relaxed);
+            if fired {
+                self.at = None;
+            }
+            fired
+        }
+    }
+
+    impl Drop for Alarm {
+        fn drop(&mut self) {
+            self.timer.invalidate();
         }
     }
 
@@ -370,6 +428,21 @@ mod imp {
     use std::num::NonZeroU32;
     use std::rc::Rc;
     use winit::window::Window;
+
+    /// No run loop timer here: the event loop waits with `ControlFlow::WaitUntil`.
+    pub struct Alarm;
+
+    impl Alarm {
+        pub fn new() -> Option<Alarm> {
+            None
+        }
+
+        pub fn set(&mut self, _at: Option<std::time::Instant>) {}
+
+        pub fn take_fired(&mut self) -> bool {
+            false
+        }
+    }
 
     /// No display link here: animation frames stay 16 ms timers.
     pub struct FrameClock;

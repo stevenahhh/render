@@ -2,7 +2,7 @@ use render::font::Fonts;
 use render::page::{Download, Page};
 use render::layout::Layout;
 use render::paint::{self, paint, scrollbar, Target};
-use render::present::{frames_run, timer_wake, FrameClock, Presenter, Rect};
+use render::present::{frames_run, timer_wake, Alarm, FrameClock, Presenter, Rect};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -228,6 +228,8 @@ struct App {
     surface: Option<Presenter>,
     /// The display refreshes that animation frames follow, where the system has them.
     clock: Option<FrameClock>,
+    /// Wakes the event loop for the page's next timer, where the system has a run loop timer.
+    alarm: Option<Alarm>,
     /// Since when the window has been covered or minimized, while it is.
     hidden: Option<Instant>,
     /// A frame was asked for while the window was hidden; it is painted once it is seen.
@@ -291,8 +293,9 @@ struct Meter {
 }
 
 impl Meter {
-    /// Starts a new second, printing the one before it when `print` is set.
-    fn wake(&mut self, cause: StartCause, print: bool) {
+    /// Starts a new second, printing the one before it when `print` is set. `rang`: the
+    /// alarm for a timer woke the loop.
+    fn wake(&mut self, cause: StartCause, rang: bool, print: bool) {
         let now = Instant::now();
         let since = *self.since.get_or_insert(now);
         if now - since >= Duration::from_secs(1) {
@@ -317,6 +320,7 @@ impl Meter {
             *self = Meter { since: Some(now), ..Meter::default() };
         }
         let slot = match cause {
+            _ if rang => 0,
             StartCause::ResumeTimeReached { .. } => 0,
             StartCause::WaitCancelled { .. } | StartCause::Init => 1,
             StartCause::Poll => 2,
@@ -822,7 +826,8 @@ impl ApplicationHandler for App {
     }
 
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
-        self.meter.wake(cause, self.stats);
+        let rang = self.alarm.as_mut().is_some_and(Alarm::take_fired);
+        self.meter.wake(cause, rang, self.stats);
     }
 
     fn device_event(&mut self, _event_loop: &ActiveEventLoop, _id: winit::event::DeviceId, _event: winit::event::DeviceEvent) {
@@ -843,6 +848,9 @@ impl ApplicationHandler for App {
                     if let Some(start) = PROCESS_START.get() {
                         eprintln!("deferred scripts done: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
                     }
+                }
+                if let Some(alarm) = &mut self.alarm {
+                    alarm.set(None);
                 }
                 event_loop.set_control_flow(ControlFlow::Poll);
                 return;
@@ -867,9 +875,13 @@ impl ApplicationHandler for App {
         if let Some(clock) = &mut self.clock {
             clock.run(frames_run(self.page.wants_frame(&mut self.fonts), self.hidden.is_some()));
         }
-        event_loop.set_control_flow(match next {
-            Some(ms) => ControlFlow::WaitUntil(timer_wake(Instant::now(), ms, self.hidden)),
-            None => ControlFlow::Wait,
+        let wake = next.map(|ms| timer_wake(Instant::now(), ms, self.hidden));
+        event_loop.set_control_flow(match &mut self.alarm {
+            Some(alarm) => {
+                alarm.set(wake);
+                ControlFlow::Wait
+            }
+            None => wake.map_or(ControlFlow::Wait, ControlFlow::WaitUntil),
         });
     }
 
@@ -989,6 +1001,7 @@ fn run() -> Result<(), String> {
         window: None,
         surface: None,
         clock: None,
+        alarm: Alarm::new(),
         hidden: None,
         redraw_hidden: false,
         last: None,
