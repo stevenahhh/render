@@ -8,7 +8,9 @@ use crate::js::{Host, Js};
 use crate::FxMap;
 use crate::layout::{layout, Kind, Layout};
 use crate::style::{compute_styles, Style};
+use crate::net::Site;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Built-in defaults, applied below every author rule.
 const UA_CSS: &str = "
@@ -67,6 +69,30 @@ option:first-child { display: inline }
 
 type Script = (String, String, Option<std::path::PathBuf>);
 
+/// The stylesheet, image and (when asked) script references in a document, so they
+/// can be downloaded together before the page is built.
+fn resource_srcs(html: &str, scripts: bool) -> Vec<String> {
+    let dom = parse_html(html);
+    let first = |set: &str| set.split(',').next().and_then(|c| c.split_ascii_whitespace().next()).map(str::to_string);
+    let mut out = Vec::new();
+    for n in 0..dom.nodes.len() as NodeId {
+        match dom.nodes[n as usize].tag {
+            atom::LINK if dom.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet")) => {
+                out.extend(dom.attr(n, atom::HREF).map(str::to_string));
+            }
+            atom::SCRIPT if scripts => out.extend(dom.attr(n, atom::SRC).map(str::to_string)),
+            atom::IMG => {
+                out.extend(dom.attr(n, atom::SRC).map(str::to_string));
+                out.extend(dom.attr(n, atom::SRCSET).and_then(first));
+            }
+            // A <source> names an image with srcset; src is for video and audio.
+            atom::SOURCE => out.extend(dom.attr(n, atom::SRCSET).and_then(first)),
+            _ => {}
+        }
+    }
+    out
+}
+
 pub struct Page {
     pub dom: Dom,
     pub sheet: Sheet,
@@ -86,6 +112,8 @@ pub struct Page {
     dirty: bool,
     /// Scripts still to run, in document order: `(name, code, module path)`.
     deferred: Vec<Script>,
+    /// Set for a page opened from the web: its URL and downloaded resources.
+    site: Option<Arc<Site>>,
     /// Keep every element's box in the layout. Set before the first `update`.
     pub record_boxes: bool,
 }
@@ -94,13 +122,15 @@ impl Page {
     /// Parses HTML and every stylesheet it references. `base` is the
     /// directory that relative `<link href>` paths resolve against.
     pub fn from_html(html: &str, base: Option<&Path>) -> Page {
-        Page::parse(html, base, false)
+        Page::parse(html, base, false, None)
     }
 
     /// With `defer`, every script is kept for `run_deferred`, so the time to the
     /// first frame does not depend on how much script a page carries. The scripts
     /// still run in document order.
-    fn parse(html: &str, base: Option<&Path>, defer: bool) -> Page {
+    ///
+    /// With `site`, stylesheets, scripts and images are downloaded from the web.
+    fn parse(html: &str, base: Option<&Path>, defer: bool, site: Option<Arc<Site>>) -> Page {
         let mut dom = parse_html(html);
         let mut sheet = Sheet::default();
         sheet.add(UA_CSS, &mut dom.atoms, 0);
@@ -117,7 +147,15 @@ impl Page {
                     let module = ty == "module";
                     match dom.attr(n, atom::SRC) {
                         Some(src) => {
-                            let file = base.map(|b| b.join(src));
+                            if site.is_some() && defer {
+                                // Downloaded when it is about to run. An empty path marks a module.
+                                scripts.push((src.to_string(), String::new(), module.then(std::path::PathBuf::new)));
+                                continue;
+                            }
+                            let file = match &site {
+                                Some(site) => site.file(src),
+                                None => base.map(|b| b.join(src)),
+                            };
                             let code = file.as_ref().and_then(|f| std::fs::read(f).ok());
                             let module = file.filter(|_| module).and_then(|f| std::fs::canonicalize(f).ok());
                             match code {
@@ -140,7 +178,11 @@ impl Page {
                 }
                 atom::LINK => {
                     let is_css = dom.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet"));
-                    let path = dom.attr(n, atom::HREF).filter(|_| is_css).zip(base).map(|(h, b)| b.join(h));
+                    let href = dom.attr(n, atom::HREF).filter(|_| is_css);
+                    let path = match &site {
+                        Some(site) => href.and_then(|h| site.file(h)),
+                        None => href.zip(base).map(|(h, b)| b.join(h)),
+                    };
                     if let Some(css) = path.and_then(|p| std::fs::read(p).ok()) {
                         let css = String::from_utf8_lossy(&css);
                         viewport_units |= css.contains("vw") || css.contains("vh");
@@ -169,8 +211,16 @@ impl Page {
             scroll: 0.0,
             dirty: false,
             deferred: Vec::new(),
+            site: site.clone(),
             record_boxes: false,
         };
+        if let Some(site) = site {
+            if defer {
+                let later = scripts.iter().filter(|s| s.1.is_empty() && s.0 != "inline script").map(|s| s.0.clone());
+                site.prefetch_later(later.collect());
+            }
+            page.images.fetch_from(site);
+        }
         if !scripts.is_empty() {
             page.js = Some(Js::new(base));
             if defer {
@@ -184,8 +234,22 @@ impl Page {
 
     /// Runs scripts in order; `last` also fires the load event.
     fn run_scripts(&mut self, scripts: &[Script], last: bool) {
+        let site = self.site.clone();
         self.with_js(|js| {
             for (name, code, module) in scripts {
+                let fetched;
+                let (code, module) = match &site {
+                    Some(site) if code.is_empty() && name != "inline script" => {
+                        let Some(file) = site.file(name) else {
+                            eprintln!("[js] cannot read script {name}");
+                            continue;
+                        };
+                        let text = String::from_utf8_lossy(&std::fs::read(&file).unwrap_or_default()).into_owned();
+                        fetched = (text, module.as_ref().and_then(|_| std::fs::canonicalize(&file).ok()));
+                        (&fetched.0, &fetched.1)
+                    }
+                    _ => (code, module),
+                };
                 match module {
                     Some(path) => js.eval_module(code, name, path),
                     None => drop(js.eval(code, name)),
@@ -294,11 +358,36 @@ impl Page {
 
     /// Like `load`, but holds deferred scripts back until `run_deferred`.
     pub fn load_deferred(path: &Path) -> std::io::Result<Page> {
+        if let Some(page) = Page::from_web(path, true) {
+            return page;
+        }
         let bytes = std::fs::read(path)?;
-        Ok(Page::parse(&String::from_utf8_lossy(&bytes), path.parent(), true))
+        Ok(Page::parse(&String::from_utf8_lossy(&bytes), path.parent(), true, None))
+    }
+
+    /// The page behind an `http://` or `https://` location, or `None` for a file path.
+    fn from_web(path: &Path, defer: bool) -> Option<std::io::Result<Page>> {
+        let location = path.to_str().filter(|l| crate::net::is_url(l))?;
+        Some(Page::load_url(location, defer).map_err(std::io::Error::other))
+    }
+
+    /// Downloads a page and the stylesheets, scripts and images it names, the
+    /// resources in parallel. With `defer` scripts are fetched in the background.
+    pub fn load_url(location: &str, defer: bool) -> Result<Page, String> {
+        let (site, html) = Site::open(location)?;
+        site.prefetch(&resource_srcs(&html, !defer));
+        Ok(Page::parse(&html, None, defer, Some(site)))
+    }
+
+    /// The URL of a page opened from the web.
+    pub fn url(&self) -> Option<&crate::net::Url> {
+        self.site.as_ref().map(|s| &s.url)
     }
 
     pub fn load(path: &Path) -> std::io::Result<Page> {
+        if let Some(page) = Page::from_web(path, false) {
+            return page;
+        }
         let bytes = std::fs::read(path)?;
         Ok(Page::from_html(&String::from_utf8_lossy(&bytes), path.parent()))
     }

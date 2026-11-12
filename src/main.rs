@@ -17,7 +17,7 @@ use winit::window::{CursorIcon, Window, WindowId};
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-const USAGE: &str = "usage: render <file.html> [options]
+const USAGE: &str = "usage: render <file.html | http(s) URL> [options]
 
   (no option)            open the page in a window
   --screenshot <out.bmp> render one frame to a BMP file and exit
@@ -264,7 +264,15 @@ impl App {
             }
             return;
         }
-        if href.contains("://") || href.starts_with("mailto:") {
+        let target = match self.page.url() {
+            Some(url) => url.join(href).map(|u| u.to_string()),
+            None => Some(href.to_string()).filter(|h| render::net::is_url(h)),
+        };
+        if let Some(target) = target {
+            self.open(PathBuf::from(target), 0.0, true);
+            return;
+        }
+        if self.page.url().is_some() || href.contains("://") || href.starts_with("mailto:") {
             eprintln!("only local files can be opened: {href}");
             return;
         }

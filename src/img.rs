@@ -42,6 +42,8 @@ pub struct Images {
     background: Option<(Sender<Decoded>, Receiver<Decoded>, Wake)>,
     /// Images a worker thread is decoding right now.
     pending: Vec<u32>,
+    /// For a page opened from the web: where its images are downloaded from.
+    site: Option<Arc<crate::net::Site>>,
 }
 
 type Decoded = (u32, Option<Picture>, [u32; 4]);
@@ -62,6 +64,11 @@ impl Images {
         Images { base, ..Images::default() }
     }
 
+    /// Image URLs are from now on resolved against `site` and downloaded.
+    pub fn fetch_from(&mut self, site: Arc<crate::net::Site>) {
+        self.site = Some(site);
+    }
+
     fn add(&mut self, key: &str, source: Option<(Source, f32, f32)>) -> Option<u32> {
         let id = source.map(|(source, w, h)| {
             self.list.push(Entry { source, w, h, drawn: None, at: [0; 4], failed: false });
@@ -79,7 +86,10 @@ impl Images {
         }
         let local = !src.is_empty() && !src.starts_with("data:") && !src.contains("://");
         let file = src.split(['?', '#']).next().unwrap_or(src).trim_start_matches('/');
-        let path = self.base.as_ref().filter(|_| local).map(|b| b.join(file));
+        let path = match &self.site {
+            Some(site) => Some(src).filter(|s| !s.is_empty() && !s.starts_with("data:")).and_then(|s| site.file(s)),
+            None => self.base.as_ref().filter(|_| local).map(|b| b.join(file)),
+        };
         let source = path.and_then(|path| {
             if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("svg")) {
                 let tree = parse_svg(&std::fs::read_to_string(&path).ok()?)?;
