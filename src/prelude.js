@@ -9,7 +9,7 @@
   const TAG = Symbol('tag');
   const nodes = new Map();
   const geval = eval;
-  const $ = { g, ID, TAG, nodes, mo: null, ce: null, version: 0, attrVersion: 0 };
+  const $ = { g, ID, TAG, nodes, mo: null, ce: null, version: 0, attrVersion: 0, dataVersion: 0, intersections: null };
 
   const illegal = () => { throw new TypeError('Illegal constructor'); };
   const def = (o, props) => {
@@ -680,6 +680,7 @@
   $.setAttr = setAttr;
 
   const setData = (n, value) => {
+    $.dataVersion++;
     if ($.mo) {
       const old = __text(n[ID]);
       __set_text(n[ID], value);
@@ -1788,6 +1789,7 @@
   // Runs the earliest due task. Returns 0 after running one, else milliseconds
   // until the next, or -1 when there is none.
   const tick = () => {
+    if ($.intersections) $.intersections();
     for (const [img, src] of loadingImages) {
       if (__image(src) === 0) continue;
       loadingImages.delete(img);

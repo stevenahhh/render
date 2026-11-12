@@ -111,11 +111,30 @@
     }
   }
 
-  // The first notification of each observed element, from the current layout.
+  // Each observer looks at its targets when it starts observing one, and again a
+  // frame after the document changed, and hears about the targets whose
+  // intersection with its root changed since it last looked, as in browsers.
   const viewport = () => new g.DOMRect(0, 0, g.innerWidth, g.innerHeight);
-  const margins = (s) => {
-    const p = String(s || '0px').trim().split(/\s+/).map((v) => parseFloat(v) || 0);
-    return [p[0], p[1] ?? p[0], p[2] ?? p[0], p[3] ?? p[1] ?? p[0]];
+  // `rootMargin` as pixels [top, right, bottom, left]; percentages are of the root's size.
+  const margins = (s, root) => {
+    const p = String(s || '0px').trim().split(/\s+/);
+    const [t, r = t, b = t, l = r] = p;
+    const px = (v, size) => (parseFloat(v) || 0) * (v.endsWith('%') ? size / 100 : 1);
+    return [px(t, root.height), px(r, root.width), px(b, root.height), px(l, root.width)];
+  };
+  const watching = new Set();
+  let looked = '', looking = false;
+  const stamp = () => $.version + ' ' + $.attrVersion + ' ' + $.dataVersion;
+  const look = () => {
+    looking = false;
+    looked = stamp();
+    for (const o of [...watching]) o._look();
+  };
+  // Called before each task: once the document changed, a look is due next frame.
+  $.intersections = () => {
+    if (looking || !watching.size || looked === stamp()) return;
+    looking = true;
+    addTimer(look, 16, false, [], 'raf');
   };
   class IntersectionObserverEntry {
     constructor(o) { Object.assign(this, o); }
@@ -125,35 +144,56 @@
       if (typeof callback !== 'function') throw new TypeError("Failed to construct 'IntersectionObserver': The callback provided as parameter 1 is not a function.");
       this._callback = callback;
       this._targets = [];
-      this._pending = [];
+      // Per target: [threshold index, intersecting] when last looked at.
+      this._seen = new Map();
+      this._first = false;
       def(this, { root: options.root || null, rootMargin: options.rootMargin || '0px 0px 0px 0px', scrollMargin: '0px 0px 0px 0px', thresholds: [].concat(options.threshold ?? 0) });
     }
     observe(el) {
       if (this._targets.includes(el)) return;
       this._targets.push(el);
-      this._pending.push(el);
-      if (this._pending.length === 1) addTimer(() => this._notify(), 0, false, []);
+      watching.add(this);
+      if (this._first) return;
+      this._first = true;
+      addTimer(() => {
+        this._first = false;
+        this._look();
+      }, 0, false, []);
     }
-    _notify() {
-      const pending = this._pending.filter((el) => this._targets.includes(el));
-      this._pending = [];
-      if (!pending.length) return;
-      const [t, r, b, l] = margins(this.rootMargin);
+    _look() {
+      if (!this._targets.length) return;
       const base = this.root ? this.root.getBoundingClientRect() : viewport();
+      const [t, r, b, l] = margins(this.rootMargin, base);
       const root = new g.DOMRect(base.x - l, base.y - t, base.width + l + r, base.height + t + b);
-      const entries = pending.map((el) => {
+      const entries = [];
+      for (const el of this._targets) {
         const box = el.getBoundingClientRect();
         const x = Math.max(box.left, root.left), y = Math.max(box.top, root.top);
         const w = Math.min(box.right, root.right) - x, h = Math.min(box.bottom, root.bottom) - y;
         const hit = el.isConnected && w >= 0 && h >= 0;
-        const inter = hit ? new g.DOMRect(x, y, w, h) : new g.DOMRect(0, 0, 0, 0);
         const area = box.width * box.height;
-        return new IntersectionObserverEntry({ target: el, time: performance.now(), rootBounds: root, boundingClientRect: box, intersectionRect: inter, isIntersecting: hit, isVisible: false, intersectionRatio: hit ? (area ? (w * h) / area : 1) : 0 });
-      });
+        const ratio = hit ? (area ? (w * h) / area : 1) : 0;
+        let index = this.thresholds.findIndex((v) => v > ratio);
+        if (index < 0) index = this.thresholds.length;
+        const seen = this._seen.get(el);
+        if (seen && seen[0] === index && seen[1] === hit) continue;
+        this._seen.set(el, [index, hit]);
+        const inter = hit ? new g.DOMRect(x, y, w, h) : new g.DOMRect(0, 0, 0, 0);
+        entries.push(new IntersectionObserverEntry({ target: el, time: performance.now(), rootBounds: root, boundingClientRect: box, intersectionRect: inter, isIntersecting: hit, isVisible: false, intersectionRatio: ratio }));
+      }
+      if (!entries.length) return;
       try { this._callback.call(this, entries, this); } catch (e) { reportError(e); }
     }
-    unobserve(el) { this._targets = this._targets.filter((x) => x !== el); }
-    disconnect() { this._targets = []; this._pending = []; }
+    unobserve(el) {
+      this._targets = this._targets.filter((x) => x !== el);
+      this._seen.delete(el);
+      if (!this._targets.length) watching.delete(this);
+    }
+    disconnect() {
+      this._targets = [];
+      this._seen.clear();
+      watching.delete(this);
+    }
     takeRecords() { return []; }
   }
 
