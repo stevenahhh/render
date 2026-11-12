@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: CSS-wide keywords on grid tracks</title>
+<style>body{font-family:Arial,sans-serif;margin:16px;width:600px} .m{font:13px monospace;margin:2px 0}
+.t{display:grid;width:400px;grid-template-columns:repeat(4,100px)}
+.u{grid-template-columns:unset;grid-auto-flow:column;grid-auto-columns:1fr;column-gap:20px;overflow:hidden}
+.u i{display:block;width:300px;height:10px;background:#ccc}
+.n{grid-template-columns:initial}
+.n i{display:block;height:10px;background:#9c9}
+</style>
+</head>
+<body>
+<h1 data-m="STATIC css-wide-grid">STATIC css-wide-grid</h1>
+<div id="out"></div>
+<div class="t u" id="u"><i id="u1"></i><i id="u2"></i></div>
+<div class="t n" id="n"><i id="n1"></i><i id="n2"></i></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+function left(id, from){return Math.round(document.getElementById(id).getBoundingClientRect().left-document.getElementById(from).getBoundingClientRect().left);}
+function width(id){return Math.round(document.getElementById(id).getBoundingClientRect().width);}
+check('unset', function(){
+  mark('GW unset 1fr columns second:'+left('u2','u')+' width:'+width('u2'));
+});
+check('initial', function(){
+  mark('GW initial one column second-left:'+left('n2','n')+' width:'+width('n2'));
+});
+</script>
+</body>
+</html>

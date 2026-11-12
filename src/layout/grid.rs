@@ -6,7 +6,7 @@
 //! overflow the grid they shrink in proportion, in place of the min-content sizes
 //! a browser would fall back to.
 
-use super::{clamp_w, definite, is_abs, is_ws, sides, spec_w, Engine, Sides, FIT, NAN};
+use super::{clamp_w, definite, hextra, is_abs, is_ws, sides, spec_w, Engine, Sides, FIT, NAN};
 use crate::css::{Align, Areas, Breadth, GridPos, Justify, Len, Track, TrackList};
 use crate::dom::{NodeId, NONE};
 
@@ -189,10 +189,11 @@ fn auto_place(places: &[[(Option<usize>, usize); 2]], minor_explicit: usize, den
 }
 
 /// Sizes the tracks of an axis in `avail` space (NaN when indefinite) from the
-/// items' `(start, span, size)` contributions (CSS Grid 11.3 to 11.8, with
-/// max-content sizes for intrinsic ones). `stretch` grows `auto` tracks into
+/// items' `(start, span, size, least)` contributions (CSS Grid 11.3 to 11.8, with
+/// max-content sizes for intrinsic ones, and `least` as the minimum an `auto`
+/// minimum of a flexible track keeps). `stretch` grows `auto` tracks into
 /// leftover space; `collapsed` tracks are 0.
-fn size_tracks(tracks: &[Track], avail: f32, gap: f32, items: &[(usize, usize, f32)], collapsed: &[bool], stretch: bool) -> Vec<f32> {
+fn size_tracks(tracks: &[Track], avail: f32, gap: f32, items: &[(usize, usize, f32, f32)], collapsed: &[bool], stretch: bool) -> Vec<f32> {
     let n = tracks.len();
     let fixed = |b: Breadth| match b {
         Breadth::Len(l) => definite(l, avail),
@@ -203,9 +204,11 @@ fn size_tracks(tracks: &[Track], avail: f32, gap: f32, items: &[(usize, usize, f
     let mut base = vec![0.0f32; n];
     let mut limit = vec![f32::INFINITY; n];
     let mut most = vec![0.0f32; n];
-    for &(s, span, size) in items {
+    let mut least = vec![0.0f32; n];
+    for &(s, span, size, min) in items {
         if span == 1 && s < n {
             most[s] = most[s].max(size);
+            least[s] = least[s].max(min);
         }
     }
     for (i, t) in tracks.iter().enumerate() {
@@ -214,7 +217,7 @@ fn size_tracks(tracks: &[Track], avail: f32, gap: f32, items: &[(usize, usize, f
             continue;
         }
         base[i] = match t.min {
-            _ if flex(t).is_some() => 0.0,
+            _ if flex(t).is_some() => if t.min == Breadth::Auto { least[i] } else { 0.0 },
             b => fixed(b).unwrap_or(if intrinsic(b) { most[i] } else { 0.0 }),
         };
         limit[i] = match t.max {
@@ -225,7 +228,7 @@ fn size_tracks(tracks: &[Track], avail: f32, gap: f32, items: &[(usize, usize, f
     }
     // Items spanning several tracks add what they need beyond them to the
     // intrinsic tracks they span, when none of those is flexible.
-    for &(s, span, size) in items.iter().filter(|it| it.1 > 1) {
+    for &(s, span, size, _) in items.iter().filter(|it| it.1 > 1) {
         let range = s.min(n)..(s + span).min(n);
         if range.is_empty() || tracks[range.clone()].iter().any(|t| flex(t).is_some()) {
             continue;
@@ -446,6 +449,28 @@ impl Engine<'_> {
         it.end = self.mark();
     }
 
+    /// Column contributions of grid items: where they start, how many columns they
+    /// span, their max-content width, and the width they cannot go below (a fixed
+    /// `width` or `min-width`, standing in for the min-content size).
+    fn col_contrib(&mut self, items: &[GItem]) -> Vec<(usize, usize, f32, f32)> {
+        let st = self.st;
+        items
+            .iter()
+            .map(|it| {
+                let (size, least) = if it.text {
+                    (self.text_intrinsic(it.node), 0.0)
+                } else {
+                    let cs = &st[it.node as usize];
+                    let px = |l: Len| if let Len::Px(v) = l { Some(v) } else { None };
+                    let extra = if cs.border_box { 0.0 } else { hextra(cs, &it.sd) };
+                    let least = px(cs.width).or(px(cs.min_w)).map_or(0.0, |v| v + extra + it.sd.ml + it.sd.mr);
+                    (self.intrinsic(it.node), least)
+                };
+                (it.area[1], it.area[3] - it.area[1], size, least)
+            })
+            .collect()
+    }
+
     /// Max-content width of grid `n`'s content: its columns at their max-content sizes.
     pub(super) fn grid_intrinsic(&mut self, n: NodeId) -> f32 {
         let s = &self.st[n as usize];
@@ -453,10 +478,7 @@ impl Engine<'_> {
         let mark = self.abs.len();
         let (items, [_, cols], [_, collapsed]) = self.grid_items(n, NAN, NAN, 0.0, 0.0);
         self.abs.truncate(mark);
-        let contrib: Vec<(usize, usize, f32)> = items
-            .iter()
-            .map(|it| (it.area[1], it.area[3] - it.area[1], if it.text { self.text_intrinsic(it.node) } else { self.intrinsic(it.node) }))
-            .collect();
+        let contrib = self.col_contrib(&items);
         let sizes = size_tracks(&cols, NAN, gap, &contrib, &collapsed, false);
         positions(&sizes, &collapsed, gap, 0.0, NAN, Justify::Start).1
     }
@@ -467,10 +489,7 @@ impl Engine<'_> {
         let st = self.st;
         let s = &st[n as usize];
         let (mut items, [rows, cols], [row_gone, col_gone]) = self.grid_items(n, cw, inner_h, y, cx);
-        let col_contrib: Vec<(usize, usize, f32)> = items
-            .iter()
-            .map(|it| (it.area[1], it.area[3] - it.area[1], if it.text { self.text_intrinsic(it.node) } else { self.intrinsic(it.node) }))
-            .collect();
+        let col_contrib = self.col_contrib(&items);
         let col_w = size_tracks(&cols, cw, s.gap_col, &col_contrib, &col_gone, matches!(s.justify, Justify::Start));
         let (col_x, _) = positions(&col_w, &col_gone, s.gap_col, cx, cw, s.justify);
         // Rows of a fixed size give the items in them a definite height to resolve percentages against.
@@ -486,7 +505,7 @@ impl Engine<'_> {
         for (it, &area_h) in items.iter_mut().zip(&fixed_h) {
             self.grid_item(n, it, (&col_x[..], &col_w[..]), y, (area_h, NAN));
         }
-        let row_contrib: Vec<(usize, usize, f32)> = items.iter().map(|it| (it.area[0], it.area[2] - it.area[0], it.h + it.sd.mt + it.sd.mb)).collect();
+        let row_contrib: Vec<(usize, usize, f32, f32)> = items.iter().map(|it| (it.area[0], it.area[2] - it.area[0], it.h + it.sd.mt + it.sd.mb, 0.0)).collect();
         let row_h = size_tracks(&rows, inner_h, s.gap_row, &row_contrib, &row_gone, true);
         let (row_y, bottom) = positions(&row_h, &row_gone, s.gap_row, y, inner_h, Justify::Start);
         let area_h = |it: &GItem| (row_y[it.area[2] - 1] + row_h[it.area[2] - 1] - row_y[it.area[0]]).max(0.0);

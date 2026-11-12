@@ -1271,6 +1271,72 @@ fn side_of(name: &str) -> Option<u8> {
     SIDE_NAMES.iter().position(|s| *s == name).map(|i| i as u8)
 }
 
+/// Initial values of properties that are not inherited, which `initial`, `unset`
+/// and `revert` (with no author origin below to fall back to) set them to.
+const INITIAL: &[(&str, &str)] = &[
+    ("display", "inline"),
+    ("position", "static"),
+    ("float", "none"),
+    ("clear", "none"),
+    ("top", "auto"),
+    ("right", "auto"),
+    ("bottom", "auto"),
+    ("left", "auto"),
+    ("inset", "auto"),
+    ("width", "auto"),
+    ("height", "auto"),
+    ("min-width", "auto"),
+    ("min-height", "auto"),
+    ("max-width", "none"),
+    ("max-height", "none"),
+    ("margin", "0"),
+    ("margin-top", "0"),
+    ("margin-right", "0"),
+    ("margin-bottom", "0"),
+    ("margin-left", "0"),
+    ("padding", "0"),
+    ("padding-top", "0"),
+    ("padding-right", "0"),
+    ("padding-bottom", "0"),
+    ("padding-left", "0"),
+    ("box-sizing", "content-box"),
+    ("flex", "0 1 auto"),
+    ("flex-grow", "0"),
+    ("flex-shrink", "1"),
+    ("flex-basis", "auto"),
+    ("flex-direction", "row"),
+    ("flex-wrap", "nowrap"),
+    ("order", "0"),
+    ("align-self", "auto"),
+    ("justify-self", "auto"),
+    ("overflow", "visible"),
+    ("overflow-x", "visible"),
+    ("overflow-y", "visible"),
+    ("z-index", "auto"),
+    ("opacity", "1"),
+    ("transform", "none"),
+    ("background", "none"),
+    ("background-color", "transparent"),
+    ("background-image", "none"),
+    ("clip-path", "none"),
+    ("vertical-align", "baseline"),
+    ("grid", "none"),
+    ("grid-template", "none"),
+    ("grid-template-columns", "none"),
+    ("grid-template-rows", "none"),
+    ("grid-template-areas", "none"),
+    ("grid-auto-columns", "auto"),
+    ("grid-auto-rows", "auto"),
+    ("grid-auto-flow", "row"),
+    ("grid-area", "auto"),
+    ("grid-row", "auto"),
+    ("grid-column", "auto"),
+    ("grid-row-start", "auto"),
+    ("grid-row-end", "auto"),
+    ("grid-column-start", "auto"),
+    ("grid-column-end", "auto"),
+];
+
 /// Parses one declaration and appends the longhands it expands to.
 /// Unknown properties and invalid values are dropped, as CSS requires.
 pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
@@ -1307,6 +1373,12 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "border-block-end" => "border-bottom",
         n => n,
     };
+    // A CSS-wide keyword resets a property that is not inherited to its initial value.
+    if matches!(v, "initial" | "unset" | "revert" | "revert-layer") {
+        if let Some(&(_, initial)) = INITIAL.iter().find(|(n, _)| *n == name) {
+            return parse_decl(name, initial, out);
+        }
+    }
     let mut push = |d: Option<Decl>| {
         if let Some(d) = d {
             out.push(d)

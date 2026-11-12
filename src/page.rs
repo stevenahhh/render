@@ -1614,4 +1614,15 @@ mod tests {
         ];
         assert_eq!(got, want);
     }
+
+    #[test]
+    fn css_wide_keywords_reset_grid_tracks_and_flexible_tracks_hold_fixed_width_items() {
+        let css = "body{margin:0} i{display:block;height:10px} .t{display:grid;width:400px;grid-template-columns:repeat(4,100px)}\
+                   .u{grid-template-columns:unset;grid-auto-flow:column;grid-auto-columns:1fr;column-gap:20px} .u i{width:300px}\
+                   .n{grid-template-columns:initial}";
+        let body = "<div class='t u'><i id=u1></i><i id=u2></i></div><div class='t n'><i id=n1></i><i id=n2></i></div>";
+        let (mut page, _) = after_script(css, body, "$('u1').title='x';");
+        let got = rects(&mut page, &["u1", "u2", "n1", "n2"]);
+        assert_eq!(got, [[0.0, 0.0, 300.0, 10.0], [320.0, 0.0, 300.0, 10.0], [0.0, 10.0, 400.0, 10.0], [0.0, 20.0, 400.0, 10.0]]);
+    }
 }
