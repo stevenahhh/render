@@ -19,6 +19,8 @@ struct Face {
     hscale: f32,
     /// (glyph id, advance) for ASCII, so Latin text never touches the cmap.
     ascii: [(u16, f32); 128],
+    /// Every printable ASCII character has a glyph in `ascii`.
+    ascii_full: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -91,6 +93,37 @@ enum WebFile {
 /// Containers `webfont::decode` reads, as `format()` hints name them.
 const FORMATS: [&str; 4] = ["woff2", "woff", "truetype", "opentype"];
 
+/// A font that CSS font matching tries for a character: a web font, for the
+/// characters in the `unicode-range` of its `@font-face` rule, or a system face.
+#[derive(PartialEq, Eq, Hash)]
+enum Member {
+    Web { srcs: Vec<(Box<str>, Option<Box<str>>)>, weight: (u16, u16), ranges: Vec<(u32, u32)> },
+    System(u8),
+}
+
+impl Member {
+    fn covers(&self, c: u32) -> bool {
+        match self {
+            Member::Web { ranges, .. } => ranges.is_empty() || ranges.iter().any(|&(lo, hi)| lo <= c && c <= hi),
+            Member::System(_) => true,
+        }
+    }
+}
+
+/// The fonts of a `font-family` list at one weight and style, in the order CSS
+/// font matching tries them for each character, for lists with web fonts that
+/// each cover part of Unicode, as Google Fonts serves them. The chain's face is
+/// that of `members[base]`, its first available font: the first member that
+/// covers a space and has arrived, whose metrics the lines of its text use.
+#[derive(PartialEq, Eq, Hash)]
+struct Chain {
+    members: Vec<Member>,
+    weight: u16,
+    base: usize,
+    /// The face `members[base]` stands for.
+    face: u8,
+}
+
 /// Most faces: ids are a byte, and the last value is never handed out.
 const MAX_FACES: usize = 255;
 
@@ -106,6 +139,9 @@ pub struct Fonts {
     instances: FxMap<(Box<str>, u16), u8>,
     /// Face chosen for a family list, weight, style and generic family.
     chosen: FxMap<u64, u8>,
+    /// Chains by face id, and their face ids.
+    chains: FxMap<u8, Rc<Chain>>,
+    chain_ids: FxMap<Rc<Chain>, u8>,
     /// Web font URLs layout asked for since `take_wanted`.
     wanted: Vec<Box<str>>,
     /// Print a line for every web font file taken in.
@@ -134,6 +170,8 @@ impl Fonts {
             web_files: FxMap::default(),
             instances: FxMap::default(),
             chosen: FxMap::default(),
+            chains: FxMap::default(),
+            chain_ids: FxMap::default(),
             wanted: Vec::new(),
             log: false,
             cmap: FxMap::default(),
@@ -180,7 +218,9 @@ impl Fonts {
     /// The face for text in a `font-family` list at a weight and style: the
     /// first family with an `@font-face` whose file has arrived, or a system
     /// family the name stands for. A web font still downloading is asked for
-    /// (see `take_wanted`) and the next family is used meanwhile.
+    /// (see `take_wanted`) and the next family is used meanwhile. When the list's
+    /// web fonts each cover part of Unicode, the face is that of a chain, which
+    /// picks one per character.
     pub fn face(&mut self, families: Option<&str>, generic: Family, weight: u16, italic: bool) -> u8 {
         let builtin = Fonts::face_id(generic, weight >= 600, italic);
         let Some(list) = families.filter(|_| !self.web.is_empty()) else { return builtin };
@@ -198,11 +238,16 @@ impl Fonts {
 
     fn choose(&mut self, list: &str, weight: u16, italic: bool) -> Option<u8> {
         let web = self.web.clone();
+        if web.iter().any(|f| !f.ranges.is_empty()) {
+            if let Some(members) = members(&web, list, weight, italic) {
+                return self.chain(members, weight);
+            }
+        }
         for name in family_names(list) {
             let candidates = web.iter().filter(|f| *f.family == *name);
             match best_face(candidates, weight, italic) {
                 Some(face) => {
-                    if let Some(id) = self.instance(face, weight) {
+                    if let Some(id) = self.instance(&face.srcs, face.weight, weight) {
                         return Some(id);
                     }
                 }
@@ -216,10 +261,11 @@ impl Fonts {
         None
     }
 
-    /// The face of an `@font-face` rule at a weight, from the first of its
-    /// sources that loads. `None` while that one is downloading, or when none loads.
-    fn instance(&mut self, rule: &FontFace, weight: u16) -> Option<u8> {
-        let usable = rule.srcs.iter().filter(|(_, f)| f.as_deref().is_none_or(|f| FORMATS.iter().any(|k| f.starts_with(k))));
+    /// The face of an `@font-face` rule, given by its sources and the weights it
+    /// covers, at a weight: from the first of its sources that loads. `None` while
+    /// that one is downloading, or when none loads.
+    fn instance(&mut self, srcs: &[(Box<str>, Option<Box<str>>)], range: (u16, u16), weight: u16) -> Option<u8> {
+        let usable = srcs.iter().filter(|(_, f)| f.as_deref().is_none_or(|f| FORMATS.iter().any(|k| f.starts_with(k))));
         for (url, _) in usable {
             let data = match self.web_files.get(url) {
                 Some(WebFile::Ready(data)) => *data,
@@ -233,7 +279,7 @@ impl Fonts {
             };
             let mut font = FontRef::try_from_slice(data).ok()?;
             let axis = font.variations().into_iter().find(|a| &a.tag == b"wght");
-            let wght = axis.map_or(0, |a| (weight.clamp(rule.weight.0, rule.weight.1) as f32).clamp(a.min_value, a.max_value) as u16);
+            let wght = axis.map_or(0, |a| (weight.clamp(range.0, range.1) as f32).clamp(a.min_value, a.max_value) as u16);
             let key = (url.clone(), wght);
             if let Some(&id) = self.instances.get(&key) {
                 return Some(id);
@@ -249,6 +295,72 @@ impl Fonts {
             self.tried.push(true);
             self.instances.insert(key, id);
             return Some(id);
+        }
+        None
+    }
+
+    /// The face id of the chain of `members` at a weight; `None` while no member
+    /// that covers a space has arrived.
+    fn chain(&mut self, members: Vec<Member>, weight: u16) -> Option<u8> {
+        let mut found = None;
+        for (i, m) in members.iter().enumerate() {
+            let id = match m {
+                _ if !m.covers(' ' as u32) => continue,
+                Member::Web { srcs, weight: range, .. } => self.instance(srcs, *range, weight),
+                Member::System(id) => Some(*id),
+            };
+            if let Some(id) = id {
+                found = Some((i, id));
+                break;
+            }
+        }
+        let (base, face) = found?;
+        let chain = Chain { members, weight, base, face };
+        if let Some(&id) = self.chain_ids.get(&chain) {
+            return Some(id);
+        }
+        if self.faces.len() >= MAX_FACES {
+            return Some(face);
+        }
+        self.prime(face);
+        let mut f = self.faces[face as usize].clone()?;
+        // ASCII is drawn from the base where no member before it takes the character.
+        for c in 0x20..0x7f {
+            if chain.members.iter().position(|m| m.covers(c)) != Some(base) {
+                f.ascii[c as usize] = (0, 0.0);
+            }
+        }
+        f.ascii_full = f.ascii[0x20..0x7f].iter().all(|a| a.0 != 0);
+        let id = self.faces.len() as u8;
+        self.faces.push(Some(f));
+        self.tried.push(true);
+        let chain = Rc::new(chain);
+        self.chains.insert(id, chain.clone());
+        self.chain_ids.insert(chain, id);
+        Some(id)
+    }
+
+    /// The glyph of the first member of a chain that covers `c` and has it. A web
+    /// font still to come is asked for and passed over meanwhile.
+    fn chain_lookup(&mut self, chain: &Chain, primary: u8, c: char) -> Option<(u8, u16, f32)> {
+        for (i, m) in chain.members.iter().enumerate() {
+            let id = match m {
+                _ if !m.covers(c as u32) => continue,
+                Member::Web { srcs, weight, .. } => match self.instance(srcs, *weight, chain.weight) {
+                    Some(id) => id,
+                    None => continue,
+                },
+                Member::System(id) => {
+                    self.prime(*id);
+                    *id
+                }
+            };
+            let f = self.faces[id as usize].as_ref().unwrap();
+            let g = f.font.glyph_id(c);
+            if g.0 != 0 {
+                // The base's characters keep the chain's face, so their words stay in one run.
+                return Some((if i == chain.base { primary } else { id }, g.0, f.font.h_advance_unscaled(g) / f.upem));
+            }
         }
         None
     }
@@ -281,6 +393,8 @@ impl Fonts {
         };
         self.web_files.insert(url.into(), state);
         self.chosen.clear();
+        // Characters that fell back while it was on its way are looked up again.
+        self.cmap.clear();
     }
 
     fn ensure(&mut self, id: usize) -> bool {
@@ -330,7 +444,10 @@ impl Fonts {
         }
         if (c as u32) < 128 {
             let (g, a) = self.faces[primary as usize].as_ref().unwrap().ascii[c as usize];
-            return (primary, g, a);
+            // A printable character the face lacks falls back like any other.
+            if g != 0 || !(' '..='~').contains(&c) {
+                return (primary, g, a);
+            }
         }
         let key = (primary as u64) << 32 | c as u64;
         if let Some(&v) = self.cmap.get(&key) {
@@ -347,8 +464,14 @@ impl Fonts {
             let g = f.font.glyph_id(c);
             (primary, g.0, f.font.h_advance_unscaled(g) / f.upem)
         };
-        if own.1 != 0 {
-            return own;
+        match self.chains.get(&primary).cloned() {
+            Some(chain) => {
+                if let Some(found) = self.chain_lookup(&chain, primary, c) {
+                    return found;
+                }
+            }
+            None if own.1 != 0 => return own,
+            None => {}
         }
         for id in PRIMARY.len()..PRIMARY.len() + FALLBACK.len() {
             if !self.ensure(id) {
@@ -366,8 +489,8 @@ impl Fonts {
     /// Splits a word into runs of a single face and measures each.
     pub fn segments(&mut self, primary: u8, s: &str, size: f32, spacing: f32, out: &mut Vec<Seg>) {
         self.prime(primary);
-        if s.is_ascii() {
-            let f = self.faces[primary as usize].as_ref().unwrap();
+        let f = self.faces[primary as usize].as_ref().unwrap();
+        if f.ascii_full && s.is_ascii() {
             let w: f32 = s.bytes().map(|c| f.ascii[c as usize].1).sum();
             out.push(Seg { face: primary, start: 0, end: s.len() as u32, w: w * size + spacing * s.len() as f32 });
             return;
@@ -388,8 +511,8 @@ impl Fonts {
 
     pub fn measure(&mut self, primary: u8, s: &str, size: f32, spacing: f32) -> f32 {
         self.prime(primary);
-        if s.is_ascii() {
-            let f = self.faces[primary as usize].as_ref().unwrap();
+        let f = self.faces[primary as usize].as_ref().unwrap();
+        if f.ascii_full && s.is_ascii() {
             let w: f32 = s.bytes().map(|c| f.ascii[c as usize].1).sum();
             return w * size + spacing * s.len() as f32;
         }
@@ -457,6 +580,28 @@ fn best_face<'a>(rules: impl Iterator<Item = &'a FontFace>, weight: u16, italic:
     rules.min_by_key(|r| rank(r))
 }
 
+/// The fonts CSS font matching tries for a family list, if one of its families
+/// has faces that each cover part of Unicode; `None` if none has.
+fn members(web: &[FontFace], list: &str, weight: u16, italic: bool) -> Option<Vec<Member>> {
+    let (mut out, mut ranged) = (Vec::new(), false);
+    for name in family_names(list) {
+        let family = || web.iter().filter(|f| *f.family == *name);
+        match best_face(family(), weight, italic) {
+            // The family's faces that differ from the best match only in the characters
+            // they cover; where those overlap, the face defined last is tried first.
+            Some(best) => {
+                let set: Vec<&FontFace> = family().filter(|f| f.italic == best.italic && f.weight == best.weight).collect();
+                for f in set.into_iter().rev() {
+                    ranged |= !f.ranges.is_empty();
+                    out.push(Member::Web { srcs: f.srcs.clone(), weight: f.weight, ranges: f.ranges.clone() });
+                }
+            }
+            None => out.extend(builtin_family(&name).map(|f| Member::System(Fonts::face_id(f, weight >= 600, italic)))),
+        }
+    }
+    ranged.then_some(out)
+}
+
 /// Metrics and ASCII advances of a parsed font.
 fn face(font: FontRef<'static>) -> Option<Face> {
     let upem = font.units_per_em()?;
@@ -465,7 +610,9 @@ fn face(font: FontRef<'static>) -> Option<Face> {
         let g = font.glyph_id(c as u8 as char);
         *slot = (g.0, font.h_advance_unscaled(g) / upem);
     }
+    let ascii_full = ascii[0x20..0x7f].iter().all(|a| a.0 != 0);
     Some(Face {
+        ascii_full,
         ascent: font.ascent_unscaled() / upem,
         descent: -font.descent_unscaled() / upem,
         gap: font.line_gap_unscaled() / upem,
@@ -478,8 +625,13 @@ fn face(font: FontRef<'static>) -> Option<Face> {
 
 #[cfg(test)]
 mod tests {
-    use super::best_face;
-    use crate::css::FontFace;
+    use super::{best_face, Fonts};
+    use crate::css::{Family, FontFace};
+    use ab_glyph::{Font, FontRef};
+    use std::rc::Rc;
+
+    // A subset of Fira Sans Regular (SIL Open Font License 1.1, see testdata/OFL-FiraSans.txt).
+    const FIRA: &[u8] = include_bytes!("testdata/fira-subset.ttf");
 
     fn face(lo: u16, hi: u16, italic: bool) -> FontFace {
         FontFace { family: "f".into(), srcs: Vec::new(), weight: (lo, hi), italic, ranges: Vec::new() }
@@ -507,6 +659,28 @@ mod tests {
         assert_eq!(pick(&thin, 450, false), (500, false));
         // A variable face covers its whole range.
         assert_eq!(pick(&[face(100, 900, false), face(700, 700, false)], 700, false), (100, false));
+    }
+
+    #[test]
+    fn unicode_ranges_choose_a_face_for_each_character() {
+        // Google Fonts lists a family's subsets with the Latin one last.
+        let rule = |url: &str, lo, hi| FontFace { family: "f".into(), srcs: vec![(url.into(), None)], weight: (400, 400), italic: false, ranges: vec![(lo, hi)] };
+        let faces: Rc<[FontFace]> = Rc::from([rule("cyrillic", 0x400, 0x4ff), rule("latin", 0, 0xff)]);
+        let mut fonts = Fonts::new();
+        fonts.set_web_faces(&faces);
+        let list = Some("f, sans-serif");
+        let before = fonts.face(list, Family::Sans, 400, false);
+        // Only the subset with the space, whose font sets the line metrics, is fetched first.
+        assert_eq!(fonts.take_wanted(), [Box::<str>::from("latin")]);
+        fonts.provide("latin", Some(FIRA.to_vec()));
+        let face = fonts.face(list, Family::Sans, 400, false);
+        assert_ne!(face, before);
+        let fira = FontRef::try_from_slice(FIRA).unwrap();
+        let h = fira.glyph_id('H');
+        assert_eq!(fonts.lookup(face, 'H'), (face, h.0, fira.h_advance_unscaled(h) / fira.units_per_em().unwrap()));
+        // A Cyrillic letter asks for its own subset and falls back meanwhile.
+        assert_ne!(fonts.lookup(face, '\u{416}').0, face);
+        assert_eq!(fonts.take_wanted(), [Box::<str>::from("cyrillic")]);
     }
 
     #[test]
