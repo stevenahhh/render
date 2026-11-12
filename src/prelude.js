@@ -1786,6 +1786,11 @@
     const i = tasks.findIndex((t) => t.id === id);
     if (i >= 0) tasks.splice(i, 1);
   };
+  // One-shot output, which has no frames from a host, runs due tasks one after
+  // another for as long as they come due, and tasks that take longer than the
+  // timers they set keep coming due. A turn that has been busy for 250 ms hands
+  // control back to the host, so its limit on the page's time holds in a turn too.
+  let busySince = -1;
   // Runs the earliest due task. Returns 0 after running one, else milliseconds
   // until the next, or -1 when there is none.
   const tick = () => {
@@ -1795,14 +1800,28 @@
       loadingImages.delete(img);
       addTimer(() => imageLoaded(img, src), 0, false, []);
     }
-    if (!tasks.length) return -1;
+    if (!tasks.length) {
+      busySince = -1;
+      return -1;
+    }
     let best = 0;
     for (let i = 1; i < tasks.length; i++) {
       const t = tasks[i], b = tasks[best];
       if (t.at < b.at || (t.at === b.at && t.seq < b.seq)) best = i;
     }
     const t = tasks[best], now = __now();
-    if (t.at > now) return t.at - now;
+    if (t.at > now) {
+      busySince = -1;
+      return t.at - now;
+    }
+    if (!framesFromHost) {
+      if (busySince < 0) {
+        busySince = now;
+      } else if (now - busySince > 250) {
+        busySince = -1;
+        return 0.001;
+      }
+    }
     if (t.every) { t.at = now + t.every; t.seq = ++seq; } else tasks.splice(best, 1);
     nesting = t.nest;
     try {
