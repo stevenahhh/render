@@ -56,7 +56,7 @@ pub struct BoxDeco {
 
 /// `s`'s box shadows with currentColor and opacity applied.
 fn shadows(s: &Style) -> Option<Rc<[Shadow]>> {
-    s.shadow.as_ref().map(|l| l.iter().map(|sh| Shadow { color: Some(sh.color.unwrap_or(s.color).with_opacity(s.opacity)), ..*sh }).collect())
+    s.rare().shadow.as_ref().map(|l| l.iter().map(|sh| Shadow { color: Some(sh.color.unwrap_or(s.color).with_opacity(s.opacity)), ..*sh }).collect())
 }
 
 /// What an image item draws: a picture in `Images` and the opacity it is drawn at.
@@ -138,7 +138,7 @@ impl Layout {
             match it.kind {
                 Kind::Box => {
                     let d = &mut self.boxes[it.data as usize];
-                    (d.bg, d.bc, d.radius, d.grad) = (s.bg.with_opacity(o), s.bc.map(|c| c.with_opacity(o)), s.radius, s.grad.clone());
+                    (d.bg, d.bc, d.radius, d.grad) = (s.bg.with_opacity(o), s.bc.map(|c| c.with_opacity(o)), s.radius, s.rare().grad.clone());
                     d.shadow = shadows(s);
                 }
                 Kind::Text => {
@@ -287,11 +287,11 @@ fn hextra(s: &Style, sd: &Sides) -> f32 {
 fn clamp_w(s: &Style, w: f32, cbw: f32, sd: &Sides) -> f32 {
     let extra = if s.border_box { 0.0 } else { hextra(s, sd) };
     let mut w = w;
-    if s.max_w != Len::Auto {
-        w = w.min(rs(s.max_w, cbw) + extra);
+    if s.rare().max_w != Len::Auto {
+        w = w.min(rs(s.rare().max_w, cbw) + extra);
     }
-    if s.min_w != Len::Auto {
-        w = w.max(rs(s.min_w, cbw) + extra);
+    if s.rare().min_w != Len::Auto {
+        w = w.max(rs(s.rare().min_w, cbw) + extra);
     }
     w.max(0.0)
 }
@@ -544,7 +544,7 @@ impl<'a> Engine<'a> {
             bw: s.bw,
             bc: s.bc.map(|c| c.with_opacity(o)),
             radius: s.radius,
-            grad: s.grad.clone(),
+            grad: s.rare().grad.clone(),
             shadow: shadows(s),
         };
         self.push_deco(node, x, y, w, h, deco)
@@ -570,7 +570,7 @@ impl<'a> Engine<'a> {
         if !s.visible || s.opacity <= 0.0 {
             return None;
         }
-        let id = self.images.file(s.bg_image.as_deref()?)?;
+        let id = self.images.file(s.rare().bg_image.as_deref()?)?;
         let (iw, ih) = self.images.size(id);
         if iw <= 0.0 || ih <= 0.0 {
             return None;
@@ -583,7 +583,7 @@ impl<'a> Engine<'a> {
     /// `[x, y, w, h]`. One copy is drawn: repeating backgrounds are not tiled.
     fn place_background(&mut self, slot: u32, s: &Style, pad: [f32; 4], iw: f32, ih: f32) {
         let [px, py, pw, ph] = pad;
-        let (tw, th) = match s.bg_size {
+        let (tw, th) = match s.rare().bg_size {
             BgSize::Cover => (iw * (pw / iw).max(ph / ih), ih * (pw / iw).max(ph / ih)),
             BgSize::Contain => (iw * (pw / iw).min(ph / ih), ih * (pw / iw).min(ph / ih)),
             BgSize::Auto => (iw, ih),
@@ -594,7 +594,7 @@ impl<'a> Engine<'a> {
                 (None, None) => (iw, ih),
             },
         };
-        let (tx, ty) = (px + rs(s.bg_pos[0], pw - tw), py + rs(s.bg_pos[1], ph - th));
+        let (tx, ty) = (px + rs(s.rare().bg_pos[0], pw - tw), py + rs(s.rare().bg_pos[1], ph - th));
         let (x0, y0) = (tx.max(px), ty.max(py));
         let (x1, y1) = ((tx + tw).min(px + pw), (ty + th).min(py + ph));
         let it = &mut self.out.items[slot as usize];
@@ -807,8 +807,8 @@ impl<'a> Engine<'a> {
                 spec_h = cw * ih / iw + vextra;
             }
         }
-        let min_h = definite(s.min_h, ch).map_or(NAN, |v| v + hx);
-        let max_h = definite(s.max_h, ch).map_or(NAN, |v| v + hx);
+        let min_h = definite(s.rare().min_h, ch).map_or(NAN, |v| v + hx);
+        let max_h = definite(s.rare().max_h, ch).map_or(NAN, |v| v + hx);
         if !spec_h.is_nan() {
             spec_h = spec_h.min(if max_h.is_nan() { spec_h } else { max_h }).max(if min_h.is_nan() { 0.0 } else { min_h });
         }
@@ -875,9 +875,9 @@ impl<'a> Engine<'a> {
             let end = self.mark();
             self.shift(first_item, end, dx, dy);
         }
-        if s.translate != [Len::Px(0.0); 2] {
+        if s.rare().translate != [Len::Px(0.0); 2] {
             let end = self.mark();
-            self.shift(first_item, end, rs(s.translate[0], w), rs(s.translate[1], h));
+            self.shift(first_item, end, rs(s.rare().translate[0], w), rs(s.rare().translate[1], h));
         }
         if s.position != Position::Static || s.z_ctx {
             let end = self.mark();
@@ -1035,7 +1035,7 @@ impl<'a> Engine<'a> {
             brk: false,
             lx: 0.0,
             right: cw,
-            clamp: if s.webkit_box { s.line_clamp as u32 } else { 0 },
+            clamp: if s.webkit_box { s.rare().line_clamp as u32 } else { 0 },
             lines: 0,
             kept: (NONE, y, cx + cw),
             ..il
@@ -1503,8 +1503,8 @@ impl<'a> Engine<'a> {
                 }
             }
         }
-        if items.iter().any(|it| !it.text && st[it.node as usize].order != 0) {
-            items.sort_by_key(|it| if it.text { 0 } else { st[it.node as usize].order });
+        if items.iter().any(|it| !it.text && st[it.node as usize].rare().order != 0) {
+            items.sort_by_key(|it| if it.text { 0 } else { st[it.node as usize].rare().order });
         }
         self.order_grid_rows(&mut items);
         if s.flex_col {
@@ -1669,11 +1669,11 @@ impl<'a> Engine<'a> {
                 row = 0;
             } else {
                 let cs = &st[it.node as usize];
-                let shared = cs.grid_row > 0 && cs.grid_row == row;
+                let shared = cs.rare().grid_row > 0 && cs.rare().grid_row == row;
                 if shared {
                     cy = row_top;
                 } else {
-                    (row, row_top) = (cs.grid_row, cy);
+                    (row, row_top) = (cs.rare().grid_row, cy);
                 }
                 let sd = it.sd;
                 let fill = (cw - sd.ml - sd.mr).max(0.0);
@@ -1736,7 +1736,7 @@ impl<'a> Engine<'a> {
     /// one column: in document order, each on the next row no named item
     /// starts on.
     fn order_grid_rows(&self, items: &mut Vec<FItem>) {
-        let row = |it: &FItem| self.st[it.node as usize].grid_row;
+        let row = |it: &FItem| self.st[it.node as usize].rare().grid_row;
         if items.iter().any(|it| it.text) || items.iter().all(|it| row(it) == 0) {
             return;
         }
@@ -1975,10 +1975,10 @@ impl<'a> Engine<'a> {
         };
         let mut w = content + extra;
         let grow = if s.border_box { 0.0 } else { extra };
-        if let Len::Px(m) = s.max_w {
+        if let Len::Px(m) = s.rare().max_w {
             w = w.min(m + grow);
         }
-        if let Len::Px(m) = s.min_w {
+        if let Len::Px(m) = s.rare().min_w {
             w = w.max(m + grow);
         }
         let r = w + sd.ml + sd.mr;

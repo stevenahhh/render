@@ -370,7 +370,7 @@ impl Engine<'_> {
             let sd = if text { Sides::default() } else { sides(&st[c as usize], cw) };
             items.push(GItem { node: c, text, area: [0; 4], sd, first: 0, end: 0, item: NONE, h: 0.0 });
         }
-        items.sort_by_key(|it| if it.text { 0 } else { st[it.node as usize].order });
+        items.sort_by_key(|it| if it.text { 0 } else { st[it.node as usize].rare().order });
         let rare = s.rare();
         let axes = [expand(rare.tracks[0].as_deref(), inner_h, s.gap_row), expand(rare.tracks[1].as_deref(), cw, s.gap_col)];
         let areas = rare.areas.as_deref();
@@ -463,7 +463,7 @@ impl Engine<'_> {
                     let cs = &st[it.node as usize];
                     let px = |l: Len| if let Len::Px(v) = l { Some(v) } else { None };
                     let extra = if cs.border_box { 0.0 } else { hextra(cs, &it.sd) };
-                    let least = px(cs.width).or(px(cs.min_w)).map_or(0.0, |v| v + extra + it.sd.ml + it.sd.mr);
+                    let least = px(cs.width).or(px(cs.rare().min_w)).map_or(0.0, |v| v + extra + it.sd.ml + it.sd.mr);
                     (self.intrinsic(it.node), least)
                 };
                 (it.area[1], it.area[3] - it.area[1], size, least)
@@ -516,7 +516,7 @@ impl Engine<'_> {
             let pct = |l: Len| matches!(l, Len::Pct(_) | Len::Calc(..));
             let short = it.h + it.sd.mt + it.sd.mb + FIT < area_h(it);
             let container = cs.height == Len::Auto && short && matches!(cs.display, crate::css::Display::Flex | crate::css::Display::InlineFlex);
-            !it.text && fh.is_nan() && (pct(cs.height) || pct(cs.min_h) || container)
+            !it.text && fh.is_nan() && (pct(cs.height) || pct(cs.rare().min_h) || container)
         });
         if again {
             self.rewind(snap);

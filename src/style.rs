@@ -15,10 +15,6 @@ pub struct Style {
     pub position: Position,
     pub width: Len,
     pub height: Len,
-    pub min_w: Len,
-    pub max_w: Len,
-    pub min_h: Len,
-    pub max_h: Len,
     pub margin: [Len; 4],
     pub padding: [Len; 4],
     pub inset: [Len; 4],
@@ -31,17 +27,8 @@ pub struct Style {
     pub radius: [Len; 4],
     pub border_box: bool,
     pub bg: Color,
-    pub grad: Option<Rc<Gradient>>,
-    /// Outer box shadows, lengths in px.
-    pub shadow: Option<Rc<[Shadow]>>,
-    pub bg_image: Option<Rc<str>>,
-    pub bg_size: BgSize,
-    /// `background-position`; percentages refer to the free space around the image.
-    pub bg_pos: [Len; 2],
     clip_text: bool,
     pub overflow_hidden: bool,
-    /// `transform: translate()`; percentages refer to the box itself.
-    pub translate: [Len; 2],
     /// `transform` scales the element to nothing: it is drawn as with opacity 0.
     pub scaled_away: bool,
     /// `clip` (bit 0, for absolutely positioned boxes) or `clip-path` (bit 1) cuts the
@@ -58,15 +45,9 @@ pub struct Style {
     grid_cols: u8,
     grid_even: bool,
     pub grid_flow_col: bool,
-    /// Row lines of a grid container, so its items can resolve `grid-row`.
-    row_lines: Option<Rc<RowLines>>,
     /// The box is a grid container: laid out as a grid, or as flex where it
     /// takes a parent grid's tracks (`subgrid`).
     pub grid: bool,
-    /// Start row line this grid item is placed on; 0 when placed automatically.
-    pub grid_row: u16,
-    /// `order`: flex and grid items are laid out by ascending order.
-    pub order: i32,
     pub(crate) own_opacity: f32,
     pub flex_col: bool,
     pub flex_wrap: bool,
@@ -90,8 +71,6 @@ pub struct Style {
     pub line_height: LineHeight,
     pub text_align: TextAlign,
     pub white_space: WhiteSpace,
-    /// `-webkit-line-clamp`, which counts only for a `-webkit-box`.
-    pub line_clamp: u16,
     pub webkit_box: bool,
     pub transform: TextTransform,
     pub spacing: f32,
@@ -113,12 +92,48 @@ pub struct Style {
     pub flow_root: bool,
     /// What few elements have, kept out of line: a style is built, copied and
     /// dropped for every node in every pass, so each byte here costs every page.
-    rare: Option<Rc<Rare>>,
+    rare: RareRef,
+}
+
+/// The rare parts of a style, shared between the styles that have the same.
+/// None stands for the initial values, and compares equal to them.
+#[derive(Clone, Debug, Default)]
+struct RareRef(Option<Rc<Rare>>);
+
+impl PartialEq for RareRef {
+    fn eq(&self, other: &RareRef) -> bool {
+        match (&self.0, &other.0) {
+            (Some(a), Some(b)) => Rc::ptr_eq(a, b) || **a == **b,
+            (None, None) => true,
+            (Some(r), None) | (None, Some(r)) => **r == NO_RARE,
+        }
+    }
 }
 
 /// The parts of a computed style that few elements have.
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Rare {
+    pub min_w: Len,
+    pub max_w: Len,
+    pub min_h: Len,
+    pub max_h: Len,
+    pub grad: Option<Rc<Gradient>>,
+    /// Outer box shadows, lengths in px.
+    pub shadow: Option<Rc<[Shadow]>>,
+    pub bg_image: Option<Rc<str>>,
+    pub bg_size: BgSize,
+    /// `background-position`; percentages refer to the free space around the image.
+    pub bg_pos: [Len; 2],
+    /// `transform: translate()`; percentages refer to the box itself.
+    pub translate: [Len; 2],
+    /// Row lines of a grid container, so its items can resolve `grid-row`.
+    row_lines: Option<Rc<RowLines>>,
+    /// Start row line this grid item is placed on; 0 when placed automatically.
+    pub grid_row: u16,
+    /// `order`: flex and grid items are laid out by ascending order.
+    pub order: i32,
+    /// `-webkit-line-clamp`, which counts only for a `-webkit-box`.
+    pub line_clamp: u16,
     /// A grid's track lists for rows (0) and columns (1), its areas, the sizes of
     /// its implicit rows and columns, and whether it fills holes (`dense`).
     pub tracks: [Option<Rc<TrackList>>; 2],
@@ -138,7 +153,43 @@ pub struct Rare {
 }
 
 /// The rare parts of a style that has none of them.
-const NO_RARE: Rare = Rare { tracks: [None, None], areas: None, auto_tracks: [None, None], grid_dense: false, subgrid: 0, place: None, before: None, after: None, content: None };
+const NO_RARE: Rare = Rare {
+    min_w: Len::Auto,
+    max_w: Len::Auto,
+    min_h: Len::Auto,
+    max_h: Len::Auto,
+    grad: None,
+    shadow: None,
+    bg_image: None,
+    bg_size: BgSize::Auto,
+    bg_pos: [Len::Pct(0.0); 2],
+    translate: [Len::Px(0.0); 2],
+    row_lines: None,
+    grid_row: 0,
+    order: 0,
+    line_clamp: 0,
+    tracks: [None, None],
+    areas: None,
+    auto_tracks: [None, None],
+    grid_dense: false,
+    subgrid: 0,
+    place: None,
+    before: None,
+    after: None,
+    content: None,
+};
+
+/// Sets a field of the rare parts, leaving a style without them as it is
+/// when the value is the initial one.
+fn put_rare<T: PartialEq>(st: &mut Style, field: fn(&mut Rare) -> &mut T, v: T) {
+    if st.rare.0.is_none() {
+        let mut initial = NO_RARE;
+        if *field(&mut initial) == v {
+            return;
+        }
+    }
+    *field(st.rare_mut()) = v;
+}
 
 /// A `::before` or `::after` box: its style and what it shows.
 #[derive(Clone, PartialEq, Debug)]
@@ -169,10 +220,6 @@ impl Style {
             position: Position::Static,
             width: Len::Auto,
             height: Len::Auto,
-            min_w: Len::Auto,
-            max_w: Len::Auto,
-            min_h: Len::Auto,
-            max_h: Len::Auto,
             margin: [Len::Px(0.0); 4],
             padding: [Len::Px(0.0); 4],
             inset: [Len::Auto; 4],
@@ -183,14 +230,8 @@ impl Style {
             radius: [Len::Px(0.0); 4],
             border_box: false,
             bg: Color::TRANSPARENT,
-            grad: None,
-            shadow: None,
-            bg_image: None,
-            bg_size: BgSize::Auto,
-            bg_pos: [Len::Pct(0.0); 2],
             clip_text: false,
             overflow_hidden: false,
-            translate: [Len::Px(0.0); 2],
             scaled_away: false,
             cut_away: 0,
             contents: false,
@@ -200,10 +241,7 @@ impl Style {
             grid_cols: 1,
             grid_even: false,
             grid_flow_col: false,
-            row_lines: None,
             grid: false,
-            grid_row: 0,
-            order: 0,
             own_opacity: 1.0,
             flex_col: false,
             flex_wrap: false,
@@ -224,7 +262,6 @@ impl Style {
             line_height: LineHeight::Normal,
             text_align: TextAlign::Left,
             white_space: WhiteSpace::Normal,
-            line_clamp: 0,
             webkit_box: false,
             transform: TextTransform::None,
             spacing: 0.0,
@@ -240,7 +277,7 @@ impl Style {
             float: 0,
             clear: 0,
             flow_root: false,
-            rare: None,
+            rare: RareRef(None),
         }
     }
 
@@ -269,11 +306,11 @@ impl Style {
 
     /// Grid templates and placement, and generated boxes.
     pub fn rare(&self) -> &Rare {
-        self.rare.as_deref().unwrap_or(&NO_RARE)
+        self.rare.0.as_deref().unwrap_or(&NO_RARE)
     }
 
     fn rare_mut(&mut self) -> &mut Rare {
-        Rc::make_mut(self.rare.get_or_insert_with(Default::default))
+        Rc::make_mut(self.rare.0.get_or_insert_with(|| Rc::new(NO_RARE)))
     }
 
     /// Computed values under their CSS property names, `name:value;` each,
@@ -338,8 +375,8 @@ impl Style {
             if self.border_box { "border-box" } else { "content-box" },
             len(self.width),
             len(self.height),
-            len(self.min_h),
-            len(self.max_w)
+            len(self.rare().min_h),
+            len(self.rare().max_w)
         );
         for (i, side) in ["top", "right", "bottom", "left"].iter().enumerate() {
             out += &format!(
@@ -367,7 +404,7 @@ impl Style {
     }
 
     pub fn has_deco(&self) -> bool {
-        self.bg.a() > 0 || self.grad.is_some() || self.bw.iter().any(|w| *w > 0.0) || self.shadow.is_some()
+        self.bg.a() > 0 || self.rare().grad.is_some() || self.bw.iter().any(|w| *w > 0.0) || self.rare().shadow.is_some()
     }
 
     /// How the page drawn with this style changes when it becomes `new`.
@@ -376,10 +413,8 @@ impl Style {
             return Change::None;
         }
         // This style with everything that only colours what is drawn taken from `new`.
-        let recoloured = Style {
+        let mut recoloured = Style {
             bg: new.bg,
-            grad: new.grad.clone(),
-            shadow: new.shadow.clone(),
             bc: new.bc,
             bc_set: new.bc_set,
             radius: new.radius,
@@ -392,6 +427,11 @@ impl Style {
             vars: new.vars.clone(),
             ..self.clone()
         };
+        let (was, now) = (self.rare(), new.rare());
+        if was.grad != now.grad || was.shadow != now.shadow {
+            let rare = recoloured.rare_mut();
+            (rare.grad, rare.shadow) = (now.grad.clone(), now.shadow.clone());
+        }
         // A box that gains or loses its decoration, or stops or starts being fully
         // transparent, gains or loses items in the layout.
         if recoloured != *new || self.has_deco() != new.has_deco() || (self.opacity <= 0.0) != (new.opacity <= 0.0) {
@@ -440,7 +480,7 @@ fn resolve(l: Len, em: f32, c: &Ctx) -> Len {
 /// the background colour.
 fn text_from_background(st: &mut Style) {
     let middle = |s: &&(f32, Color)| ((s.0 - 0.5).abs() * 1e4) as u32;
-    let grad = st.grad.take();
+    let grad = if st.rare().grad.is_some() { st.rare_mut().grad.take() } else { None };
     let from = grad.as_ref().and_then(|g| g.stops.iter().filter(|s| s.1.a() > 0).min_by_key(middle)).map_or(st.bg, |s| s.1);
     if st.color.a() == 0 && from.a() > 0 {
         st.color = from;
@@ -489,10 +529,10 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::Position(v) => st.position = v,
         Decl::Width(l) => st.width = r(l),
         Decl::Height(l) => st.height = r(l),
-        Decl::MinWidth(l) => st.min_w = r(l),
-        Decl::MaxWidth(l) => st.max_w = r(l),
-        Decl::MinHeight(l) => st.min_h = r(l),
-        Decl::MaxHeight(l) => st.max_h = r(l),
+        Decl::MinWidth(l) => put_rare(st, |r| &mut r.min_w, r(l)),
+        Decl::MaxWidth(l) => put_rare(st, |r| &mut r.max_w, r(l)),
+        Decl::MinHeight(l) => put_rare(st, |r| &mut r.min_h, r(l)),
+        Decl::MaxHeight(l) => put_rare(st, |r| &mut r.max_h, r(l)),
         Decl::Margin(i, l) => st.margin[i as usize] = r(l),
         Decl::Padding(i, l) => st.padding[i as usize] = r(l),
         Decl::Inset(i, l) => st.inset[i as usize] = r(l),
@@ -508,10 +548,11 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::Radius(i, l) => st.radius[i as usize] = r(l),
         Decl::BoxSizing(b) => st.border_box = b,
         Decl::Background(col) => st.bg = col,
-        Decl::Gradient(ref g) => st.grad = g.clone(),
+        Decl::Gradient(ref g) => put_rare(st, |r| &mut r.grad, g.clone()),
         Decl::BoxShadow(ref s) => {
             let px = |l: Len| Len::Px(px(l, em, c));
-            st.shadow = s.as_ref().map(|l| l.iter().map(|sh| Shadow { x: px(sh.x), y: px(sh.y), blur: px(sh.blur), spread: px(sh.spread), color: sh.color }).collect());
+            let shadow = s.as_ref().map(|l| l.iter().map(|sh| Shadow { x: px(sh.x), y: px(sh.y), blur: px(sh.blur), spread: px(sh.spread), color: sh.color }).collect());
+            put_rare(st, |r| &mut r.shadow, shadow);
         }
         Decl::Color(col) => st.color = col.unwrap_or(parent.color),
         Decl::Weight(w) => st.weight = relative_weight(w, parent.weight),
@@ -527,7 +568,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::TextAlign(v) => st.text_align = v,
         Decl::TextDeco(v) => st.deco = v,
         Decl::WhiteSpace(v) => st.white_space = v,
-        Decl::LineClamp(n) => st.line_clamp = n,
+        Decl::LineClamp(n) => put_rare(st, |r| &mut r.line_clamp, n),
         Decl::WebkitBox(b) => st.webkit_box = b,
         Decl::TextTransform(v) => st.transform = v,
         Decl::LetterSpacing(l) => st.spacing = px(l, em, c),
@@ -543,14 +584,15 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::RowGap(l) => st.gap_row = px(l, em, c),
         Decl::ColGap(l) => st.gap_col = px(l, em, c),
         Decl::Overflow(v) => st.overflow_hidden = v,
-        Decl::BgImage(ref u) => st.bg_image = u.clone(),
+        Decl::BgImage(ref u) => put_rare(st, |r| &mut r.bg_image, u.clone()),
         Decl::BgSize(v) => {
-            st.bg_size = match v {
+            let size = match v {
                 BgSize::Size(w, h) => BgSize::Size(r(w), r(h)),
                 v => v,
-            }
+            };
+            put_rare(st, |r| &mut r.bg_size, size);
         }
-        Decl::BgPos(x, y) => st.bg_pos = [r(x), r(y)],
+        Decl::BgPos(x, y) => put_rare(st, |r| &mut r.bg_pos, [r(x), r(y)]),
         Decl::ClipText(v) => st.clip_text = v,
         Decl::Visible(v) => st.visible = v.unwrap_or(parent.visible),
         // The font size was settled in its own pass, `all` included; custom properties stay.
@@ -562,15 +604,15 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::Opacity(v) => st.own_opacity = v,
         Decl::Pointer(v) => st.pointer = v,
         Decl::Fill(c) => st.fill = c.unwrap_or(st.color),
-        Decl::Translate(x, y) => st.translate = [r(x), r(y)],
+        Decl::Translate(x, y) => put_rare(st, |r| &mut r.translate, [r(x), r(y)]),
         Decl::ScaledAway(b) => st.scaled_away = b,
         Decl::CutAway(i, b) => st.cut_away = st.cut_away & !(1 << i) | (b as u8) << i,
         Decl::ZIndex(z) => (st.z, st.z_set) = (z.unwrap_or(0), z.is_some()),
         Decl::GridCols(n, even) => (st.grid_cols, st.grid_even) = (n, even),
         Decl::GridFlowCol(v) => st.grid_flow_col = v,
-        Decl::GridRows(ref l) => st.row_lines = l.clone().or_else(|| parent.row_lines.clone()),
-        Decl::GridRow(ref g) => st.grid_row = g.as_ref().map_or(0, |g| row_line(parent, g)),
-        Decl::Order(v) => st.order = v,
+        Decl::GridRows(ref l) => put_rare(st, |r| &mut r.row_lines, l.clone().or_else(|| parent.rare().row_lines.clone())),
+        Decl::GridRow(ref g) => put_rare(st, |r| &mut r.grid_row, g.as_ref().map_or(0, |g| row_line(parent, g))),
+        Decl::Order(v) => put_rare(st, |r| &mut r.order, v),
         Decl::Content(ref c) => st.rare_mut().content = c.clone(),
         Decl::GridTracks(axis, ref l) => {
             st.rare_mut().tracks[axis as usize] = l.as_ref().map(|l| {
@@ -622,7 +664,7 @@ fn row_line(grid: &Style, g: &GridLine) -> u16 {
     if !grid.grid {
         return 0;
     }
-    let lines = grid.row_lines.as_deref();
+    let lines = grid.rare().row_lines.as_deref();
     match g {
         GridLine::Name(n) => lines.map_or(0, |l| {
             let find = |want: &str| l.names.iter().find(|(name, _)| &**name == want).map(|&(_, i)| i);
@@ -1194,7 +1236,7 @@ impl<'a> Styler<'a> {
         let mut gs = Style::inherit(st);
         self.cascade(&mut gs, st, &rules, &(Vec::new(), Vec::new(), false));
         finish(&mut gs, st, false, false);
-        let content = gs.rare.as_mut().and_then(|r| Rc::make_mut(r).content.take())?;
+        let content = gs.rare.0.as_mut().and_then(|r| Rc::make_mut(r).content.take())?;
         if gs.display == Display::None {
             return None;
         }
@@ -2067,7 +2109,7 @@ mod tests {
         let html = "<style>p{font-size:10px} .a{box-shadow:rgba(0,0,0,.2) 0 8px 23px 0, inset 0 0 0 4px red} .b{box-shadow:0 1em 2px currentcolor}</style><p class=a></p><p class=b></p>";
         let s = styles_of(html, "p");
         let px = |l: Len| if let Len::Px(v) = l { v } else { f32::NAN };
-        let shadows = |s: &Style| s.shadow.as_deref().unwrap_or(&[]).iter().map(|sh| (px(sh.x), px(sh.y), px(sh.blur), px(sh.spread), sh.color.map(|c| c.a()))).collect::<Vec<_>>();
+        let shadows = |s: &Style| s.rare().shadow.as_deref().unwrap_or(&[]).iter().map(|sh| (px(sh.x), px(sh.y), px(sh.blur), px(sh.spread), sh.color.map(|c| c.a()))).collect::<Vec<_>>();
         assert_eq!(shadows(&s[0]), [(0.0, 8.0, 23.0, 0.0, Some(51))]);
         assert_eq!(shadows(&s[1]), [(0.0, 10.0, 2.0, 0.0, None)]);
     }
@@ -2076,7 +2118,7 @@ mod tests {
     fn line_clamp_counts_only_on_a_webkit_box() {
         let html = "<style>p{display:-webkit-box;-webkit-line-clamp:2} p.open{display:block}</style><p></p><p class=open></p>";
         let s = styles_of(html, "p");
-        assert_eq!(s.iter().map(|s| (s.webkit_box, s.line_clamp, s.display)).collect::<Vec<_>>(), [(true, 2, Display::Block), (false, 2, Display::Block)]);
+        assert_eq!(s.iter().map(|s| (s.webkit_box, s.rare().line_clamp, s.display)).collect::<Vec<_>>(), [(true, 2, Display::Block), (false, 2, Display::Block)]);
     }
 
     #[test]

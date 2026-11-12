@@ -169,7 +169,7 @@ impl Element<'_> {
             "overflow" | "overflow-x" | "overflow-y" => (if s.overflow_hidden { "hidden" } else { "visible" }).to_string(),
             "transform" => {
                 let [w, h] = self.rect.map_or([0.0; 2], |r| [r[2], r[3]]);
-                let [x, y] = [self.resolve(s.translate[0], w), self.resolve(s.translate[1], h)];
+                let [x, y] = [self.resolve(s.rare().translate[0], w), self.resolve(s.rare().translate[1], h)];
                 if x == 0.0 && y == 0.0 { "none".to_string() } else { format!("matrix(1, 0, 0, 1, {}, {})", num(x), num(y)) }
             }
             _ if name.starts_with("--") => s.vars.as_ref().and_then(|v| v.get(name)).map_or(String::new(), |v| v.trim().to_string()),
