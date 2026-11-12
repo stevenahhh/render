@@ -49,6 +49,24 @@ pub const ACCEPT_LANGUAGE: &str = "en-US,en;q=0.9";
 /// A call that tells the owner of a page that something it waits for has arrived.
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
+/// With `RENDER_NET_TIMELINE=1` every connection, request and `mark` is reported on
+/// stderr as a `[net]` line, its times in milliseconds since the first report.
+fn timeline() -> Option<Instant> {
+    static START: std::sync::OnceLock<Option<Instant>> = std::sync::OnceLock::new();
+    *START.get_or_init(|| (std::env::var_os("RENDER_NET_TIMELINE").is_some_and(|v| v == "1")).then(Instant::now))
+}
+
+fn since(start: Instant, at: Instant) -> f64 {
+    at.saturating_duration_since(start).as_secs_f64() * 1e3
+}
+
+/// Puts a point of the page's loading on the network timeline, when it is on.
+pub fn mark(what: &str) {
+    if let Some(start) = timeline() {
+        eprintln!("[net] {:8.1} mark {what}", since(start, Instant::now()));
+    }
+}
+
 /// An absolute `http` or `https` URL. `path` starts with `/` and keeps the query.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Url {
@@ -360,6 +378,8 @@ fn fetch_file(location: &str, rest: &str, method: Method) -> Result<Fetched, Fet
 }
 
 pub struct Response {
+    /// When the status line of the final response arrived.
+    head_at: Instant,
     pub status: u16,
     /// The reason phrase of the status line, like `OK`.
     pub reason: String,
@@ -526,8 +546,10 @@ fn exchange(conn: &mut Conn, ask: &Ask, referer: Option<&str>, watch: Option<&mu
     }
     conn.get_mut().flush()?;
     let mut early_links = Vec::new();
+    let mut head_at;
     let (status, reason, mut reusable, headers) = loop {
         let status_line = read_line(conn)?;
+        head_at = Instant::now();
         let (version, rest) = status_line.split_once(' ').ok_or_else(|| bad("not an HTTP response"))?;
         if !version.starts_with("HTTP/1.") {
             return Err(bad("not an HTTP response"));
@@ -551,7 +573,7 @@ fn exchange(conn: &mut Conn, ask: &Ask, referer: Option<&str>, watch: Option<&mu
             break (status, reason.trim().to_string(), version == "HTTP/1.1", headers);
         }
     };
-    let mut response = Response { status, reason, headers, body: Vec::new() };
+    let mut response = Response { head_at, status, reason, headers, body: Vec::new() };
     let has = |name: &str, token: &str| response.header(name).is_some_and(|v| v.to_ascii_lowercase().contains(token));
     reusable &= !has("connection", "close");
     let chunked = has("transfer-encoding", "chunked");
@@ -709,7 +731,9 @@ impl Client {
 
     fn connect(&self, url: &Url) -> Result<Conn, FetchError> {
         let fail = |e: &dyn std::fmt::Display| format!("{}: {e}", url.host);
+        let started = Instant::now();
         let mut addresses: Vec<_> = (url.host.as_str(), url.port).to_socket_addrs().map_err(|e| FetchError::Dns(fail(&e)))?.collect();
+        let resolved = Instant::now();
         // IPv4 first: an IPv6 address without a working route then only costs a stagger.
         addresses.sort_by_key(SocketAddr::is_ipv6);
         let tcp = connect_any(&addresses).map_err(|e| match e.kind() {
@@ -719,22 +743,46 @@ impl Client {
         let timeout = Some(Duration::from_secs(20));
         let set = tcp.set_read_timeout(timeout).and_then(|()| tcp.set_write_timeout(timeout)).and_then(|()| tcp.set_nodelay(true));
         set.map_err(|e| FetchError::Connect(fail(&e)))?;
-        let stream: Box<dyn Stream> = if url.https {
+        let connected = Instant::now();
+        let mut stream: Box<dyn Stream> = if url.https {
             let name = rustls::pki_types::ServerName::try_from(url.host.clone()).map_err(|e| FetchError::Tls(fail(&e)))?;
             let session = rustls::ClientConnection::new(self.tls.clone(), name).map_err(|e| FetchError::Tls(fail(&e)))?;
             Box::new(rustls::StreamOwned::new(session, tcp))
         } else {
             Box::new(tcp)
         };
+        // Flushing a TLS stream completes its handshake, which the request would
+        // otherwise wait for in its first write.
+        stream.flush().map_err(|e| FetchError::Tls(fail(&e)))?;
+        if let Some(start) = timeline() {
+            let (dns, tcp, tls) = (since(started, resolved), since(resolved, connected), since(connected, Instant::now()));
+            eprintln!("[net] {:8.1} connect {}:{} dns {dns:.1} tcp {tcp:.1} tls {tls:.1}", since(start, started), url.host, url.port);
+        }
         Ok(BufReader::with_capacity(64 << 10, stream))
     }
 
-    fn send(&mut self, ask: &Ask, mut watch: Option<&mut Watcher>) -> Result<Response, FetchError> {
+    fn send(&mut self, ask: &Ask, watch: Option<&mut Watcher>) -> Result<Response, FetchError> {
         if ask.aborted() {
             return Err(FetchError::Aborted);
         }
+        let started = Instant::now();
+        let result = self.send_on_any(ask, watch);
+        if let (Some(start), Ok((response, how))) = (timeline(), &result) {
+            let (head, end) = (since(start, response.head_at), since(start, Instant::now()));
+            let bytes = response.body.len();
+            eprintln!("[net] {:8.1} {} {} {} head {head:.1} end {end:.1} bytes {bytes} conn {how}", since(start, started), ask.method.as_str(), response.status, ask.url);
+        } else if let (Some(start), Err(e)) = (timeline(), &result) {
+            eprintln!("[net] {:8.1} {} failed {} at {:.1}: {e}", since(start, started), ask.method.as_str(), ask.url, since(start, Instant::now()));
+        }
+        result.map(|(response, _)| response)
+    }
+
+    /// `send`, also telling which connection carried the request: one this client
+    /// kept, an idle one from the pool, or a new one.
+    fn send_on_any(&mut self, ask: &Ask, mut watch: Option<&mut Watcher>) -> Result<(Response, &'static str), FetchError> {
         let url = &ask.url;
         let key = (url.https, url.host.clone(), url.port);
+        let mine = self.pool.contains_key(&key);
         let kept = self.pool.remove(&key).or_else(|| {
             let mut idle = IDLE.lock().expect("idle connections");
             idle.iter().position(|c| c.0 == key).map(|i| idle.swap_remove(i).1)
@@ -747,7 +795,7 @@ impl Client {
                     if reusable {
                         self.pool.insert(key, conn);
                     }
-                    return Ok(response);
+                    return Ok((response, if mine { "kept" } else { "idle" }));
                 }
                 Err(_) if ask.aborted() => return Err(FetchError::Aborted),
                 Err(e) if !ask.may_resend(&e) => return Err(failure(url, &e)),
@@ -768,7 +816,7 @@ impl Client {
         if reusable {
             self.pool.insert(key, conn);
         }
-        Ok(response)
+        Ok((response, if fresh { "new" } else { "idle" }))
     }
 
     /// A connection to `url`'s server: a new one, or an idle one parked while the new
@@ -1287,6 +1335,7 @@ impl Site {
     /// Downloads the page at `location`. Returns the site and the page's HTML.
     /// Stylesheets the HTML links to start downloading as soon as their tag arrives.
     pub fn open(location: &str) -> Result<(Arc<Site>, String), String> {
+        mark(&format!("open {location}"));
         let started = Instant::now();
         let url = Url::parse(location).ok_or_else(|| format!("{location}: not an http or https URL"))?;
         let tls = tls_config();
@@ -1309,6 +1358,10 @@ impl Site {
             };
             let join = |hrefs: Vec<String>| hrefs.iter().filter_map(|href| at.join(href)).collect::<Vec<_>>();
             let (first, then, connect) = (join(found.first), join(found.then), join(found.connect));
+            if timeline().is_some() {
+                first.iter().for_each(|u| mark(&format!("found stylesheet {u}")));
+                then.iter().for_each(|u| mark(&format!("found {u}")));
+            }
             stylesheets.lock().expect("stylesheets").extend(first.iter().cloned());
             store.fetch_later(first);
             store.connect_ahead(connect.iter().chain(&then));

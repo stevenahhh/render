@@ -710,7 +710,9 @@ impl Page {
     /// wall-clock time ends a page that never stops. Answers to requests the page
     /// made take real time and are waited for.
     pub fn settle(&mut self, fonts: &mut Fonts, vw: f32, vh: f32, budget: Duration) {
+        crate::net::mark("scripts start");
         self.run_pending(fonts, vw, vh);
+        crate::net::mark("scripts done");
         let start = Instant::now();
         let mut idle = Duration::ZERO;
         loop {
@@ -733,6 +735,7 @@ impl Page {
             self.with_js(fonts, |js| js.skip(wait.as_secs_f64() * 1e3));
         }
         self.update(fonts, vw, vh);
+        crate::net::mark("settled");
     }
 
     /// True once after scripts changed the document.
@@ -769,9 +772,11 @@ impl Page {
     /// resources in parallel. With `defer` scripts are fetched in the background.
     pub fn load_url(location: &str, defer: bool) -> Result<Page, String> {
         let (site, html) = Site::open(location)?;
+        crate::net::mark("html done");
         let (mut srcs, rest) = resource_srcs(&html, !defer);
         srcs.extend(rest);
         site.prefetch(&srcs);
+        crate::net::mark("resources done");
         Ok(Page::parse(&html, web_url(&site), None, defer, Some(site), true))
     }
 
