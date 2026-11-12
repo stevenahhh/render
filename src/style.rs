@@ -83,6 +83,9 @@ pub struct Style {
     pub line_height: LineHeight,
     pub text_align: TextAlign,
     pub white_space: WhiteSpace,
+    /// `-webkit-line-clamp`, which counts only for a `-webkit-box`.
+    pub line_clamp: u16,
+    pub webkit_box: bool,
     pub transform: TextTransform,
     pub spacing: f32,
     pub list_style: ListStyle,
@@ -211,6 +214,8 @@ impl Style {
             line_height: LineHeight::Normal,
             text_align: TextAlign::Left,
             white_space: WhiteSpace::Normal,
+            line_clamp: 0,
+            webkit_box: false,
             transform: TextTransform::None,
             spacing: 0.0,
             list_style: ListStyle::Disc,
@@ -466,7 +471,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
     let em = st.font_size;
     let r = |l: Len| resolve(l, em, c);
     match *d {
-        Decl::Display(v) => (st.display, st.flow_root) = (v, false),
+        Decl::Display(v) => (st.display, st.flow_root, st.webkit_box) = (v, false, false),
         Decl::FlowRoot(v) => st.flow_root = v,
         Decl::Float(v) => st.float = v,
         Decl::Clear(v) => st.clear = v,
@@ -507,6 +512,8 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::TextAlign(v) => st.text_align = v,
         Decl::TextDeco(v) => st.deco = v,
         Decl::WhiteSpace(v) => st.white_space = v,
+        Decl::LineClamp(n) => st.line_clamp = n,
+        Decl::WebkitBox(b) => st.webkit_box = b,
         Decl::TextTransform(v) => st.transform = v,
         Decl::LetterSpacing(l) => st.spacing = px(l, em, c),
         Decl::ListStyle(v) => st.list_style = v,
@@ -1997,6 +2004,13 @@ mod tests {
                     <div><p class='h in'></p><p class='h init'></p><p class='h bad'></p></div>\
                     <div class=h><p class=in></p><p class=un></p><p class=init></p></div>";
         assert_eq!(styles_of(html, "p").iter().map(|s| s.visible).collect::<Vec<_>>(), [true, true, false, false, false, true]);
+    }
+
+    #[test]
+    fn line_clamp_counts_only_on_a_webkit_box() {
+        let html = "<style>p{display:-webkit-box;-webkit-line-clamp:2} p.open{display:block}</style><p></p><p class=open></p>";
+        let s = styles_of(html, "p");
+        assert_eq!(s.iter().map(|s| (s.webkit_box, s.line_clamp, s.display)).collect::<Vec<_>>(), [(true, 2, Display::Block), (false, 2, Display::Block)]);
     }
 
     #[test]

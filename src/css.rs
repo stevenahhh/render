@@ -278,6 +278,10 @@ pub enum Decl {
     TextAlign(TextAlign),
     TextDeco(u8),
     WhiteSpace(WhiteSpace),
+    /// `-webkit-line-clamp`, 0 for none.
+    LineClamp(u16),
+    /// Whether `display` is the old `-webkit-box`, which `-webkit-line-clamp` needs.
+    WebkitBox(bool),
     TextTransform(TextTransform),
     LetterSpacing(Len),
     ListStyle(ListStyle),
@@ -1215,6 +1219,11 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             out.push(D::Display(Display::Block));
             out.push(D::FlowRoot(true));
         }
+        // The old flexbox, laid out as a block: `-webkit-line-clamp` counts only on one.
+        "display" if matches!(v, "-webkit-box" | "-webkit-inline-box") => {
+            out.push(D::Display(if v == "-webkit-box" { Display::Block } else { Display::InlineBlock }));
+            out.push(D::WebkitBox(true));
+        }
         "float" => push(Some(D::Float(match v {
             "left" | "inline-start" => FLOAT_LEFT,
             "right" | "inline-end" => FLOAT_RIGHT,
@@ -1240,6 +1249,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             _ => None,
         }
         .map(D::Display)),
+        "-webkit-line-clamp" => push(if v == "none" { Some(D::LineClamp(0)) } else { v.parse().ok().map(D::LineClamp) }),
         "z-index" => {
             if v == "auto" {
                 out.push(D::ZIndex(None));

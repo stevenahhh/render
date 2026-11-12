@@ -347,6 +347,12 @@ struct Inl {
     last_text: u32,
     /// A break is allowed before the next unit even without pending whitespace.
     brk: bool,
+    /// `-webkit-line-clamp`: lines after this many add no height (0 for no limit).
+    clamp: u32,
+    lines: u32,
+    /// The last line the clamp keeps: its last text item, its bottom and its right
+    /// edge, which floats move in.
+    kept: (u32, f32, f32),
     frags: Vec<LFrag>,
     open: Vec<Open>,
     /// Where the current line starts and how far it may reach, from `cx`: floats
@@ -1019,6 +1025,9 @@ impl<'a> Engine<'a> {
             brk: false,
             lx: 0.0,
             right: cw,
+            clamp: if s.webkit_box { s.line_clamp as u32 } else { 0 },
+            lines: 0,
+            kept: (NONE, y, cx + cw),
             ..il
         };
         il.queued.clear();
@@ -1028,7 +1037,15 @@ impl<'a> Engine<'a> {
             c = self.dom.nodes[c as usize].next;
         }
         self.finish_line(&mut il);
-        let h = il.y - y;
+        let mut h = il.y - y;
+        // The lines after the clamp are laid out as usual but add no height, and the
+        // last line kept ends with an ellipsis, as in WebKit.
+        if il.clamp > 0 && il.lines > il.clamp {
+            h = il.kept.1 - y;
+            if il.kept.0 != NONE {
+                self.ellipsis(il.kept.0, il.kept.2, face);
+            }
+        }
         self.pool.push(il);
         h
     }
@@ -1099,6 +1116,10 @@ impl<'a> Engine<'a> {
         }
         self.last_bl = baseline;
         il.y += above + below;
+        il.lines += 1;
+        if il.lines == il.clamp {
+            il.kept = (il.last_text, il.y, il.cx + il.right);
+        }
         il.x = 0.0;
         il.begun = false;
         il.content = false;
@@ -1110,6 +1131,33 @@ impl<'a> Engine<'a> {
         }
         il.queued = queued;
         il.queued.clear();
+    }
+
+    /// Ends the text item `item` with an ellipsis in the face `face` that ends before
+    /// `right`, taking off as many of the item's last characters as that needs.
+    fn ellipsis(&mut self, item: u32, right: f32, face: u8) {
+        let it = self.out.items[item as usize];
+        let run = self.out.texts[it.data as usize];
+        let text = self.out.text[run.start as usize..(run.start + run.len) as usize].trim_end().to_string();
+        let mut segs = std::mem::take(&mut self.segs);
+        segs.clear();
+        self.fonts.segments(face, "\u{2026}", run.size, run.spacing, &mut segs);
+        let (dots_face, dots_w) = segs.first().map_or((run.face, 0.0), |s| (s.face, s.w));
+        self.segs = segs;
+        let mut keep = text.as_str();
+        while !keep.is_empty() && it.x + self.fonts.measure(run.face, keep, run.size, run.spacing) + dots_w > right + FIT {
+            keep = &keep[..keep.char_indices().last().map_or(0, |(i, _)| i)];
+        }
+        let w = self.fonts.measure(run.face, keep, run.size, run.spacing);
+        let start = self.out.text.len() as u32;
+        self.out.text.push_str(keep);
+        self.out.texts[it.data as usize] = TextRun { start, len: keep.len() as u32, ..run };
+        self.out.items[item as usize].w = w;
+        let start = self.out.text.len() as u32;
+        self.out.text.push('\u{2026}');
+        let data = self.out.texts.len() as u32;
+        self.out.texts.push(TextRun { start, len: '\u{2026}'.len_utf8() as u32, face: dots_face, ..run });
+        self.out.items.push(Item { x: it.x + w, w: dots_w, data, ..it });
     }
 
     fn inline_node(&mut self, il: &mut Inl, n: NodeId) {
