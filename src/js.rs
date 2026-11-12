@@ -613,13 +613,43 @@ fn now(_: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
 /// search, hash, origin]`, or null when it is not a valid URL.
 fn url(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let input = str_arg(a, 0, ctx)?;
-    let base = if a.get_or_undefined(1).is_null_or_undefined() { None } else { Url::parse(&str_arg(a, 1, ctx)?, None) };
-    if !a.get_or_undefined(1).is_null_or_undefined() && base.is_none() {
-        return Ok(JsValue::null());
-    }
-    let Some(u) = Url::parse(&input, base.as_ref()) else { return Ok(JsValue::null()) };
+    let base = if a.get_or_undefined(1).is_null_or_undefined() { None } else { Some(str_arg(a, 1, ctx)?) };
+    let key = (input, base);
+    let parts = match PARSED_URLS.with(|c| c.borrow().get(&key).cloned()) {
+        Some(parts) => parts,
+        None => {
+            let parts = url_parts(&key.0, key.1.as_deref()).map(Rc::new);
+            PARSED_URLS.with(|c| {
+                let mut c = c.borrow_mut();
+                if c.len() >= PARSED_URLS_KEPT {
+                    c.clear();
+                }
+                c.insert(key, parts.clone());
+            });
+            parts
+        }
+    };
+    Ok(parts.map_or(JsValue::null(), |p| js_array(p.iter().map(|s| js_str(s)).collect(), ctx)))
+}
+
+/// How many parsed URLs `PARSED_URLS` holds before it starts over.
+const PARSED_URLS_KEPT: usize = 1024;
+
+thread_local! {
+    /// What `__url` answered, by input and base: pages read the parts of the same
+    /// links again and again (`href`, then `pathname`, then `host`).
+    static PARSED_URLS: RefCell<FxMap<(String, Option<String>), Option<Rc<[String; 11]>>>> = RefCell::default();
+}
+
+/// The parts `__url` returns for `input` against `base`, or `None` when either fails to parse.
+fn url_parts(input: &str, base: Option<&str>) -> Option<[String; 11]> {
+    let base = match base {
+        Some(b) => Some(Url::parse(b, None)?),
+        None => None,
+    };
+    let u = Url::parse(input, base.as_ref())?;
     let opt = |s: &Option<String>, p: &str| s.as_deref().filter(|s| !s.is_empty()).map_or(String::new(), |s| format!("{p}{s}"));
-    let parts = [
+    Some([
         u.href(),
         format!("{}:", u.scheme),
         u.username.clone(),
@@ -631,8 +661,7 @@ fn url(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
         opt(&u.query, "?"),
         opt(&u.fragment, "#"),
         u.origin(),
-    ];
-    Ok(js_array(parts.iter().map(|s| js_str(s)).collect(), ctx))
+    ])
 }
 
 const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
