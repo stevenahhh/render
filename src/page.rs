@@ -44,6 +44,8 @@ fieldset, legend, table, thead, tbody, tfoot, caption, header, footer, main, nav
 article, aside, figure, figcaption, address, hr, details, summary, center { display: block }
 head, script, style, title, meta, link, base, template, noscript, datalist, area, param,
 source, track, [hidden] { display: none }
+dialog { display: block }
+dialog:not([open]) { display: none }
 body { margin: 8px }
 p, dl { margin: 1em 0 }
 h1 { font-size: 2em; margin: 0.67em 0; font-weight: bold }

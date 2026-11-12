@@ -24,7 +24,7 @@ check('modal', function(){
   var modal=d.matches(':modal')+'/'+$('plain').matches(':modal')+'/'+document.querySelectorAll(':modal').length;
   var w=Math.round($('inside').getBoundingClientRect().width);
   d.close();
-  mark('MO supports:'+gate+' matches:'+modal+' inner:'+w+' closed:'+d.matches(':modal'));
+  mark('MO supports:'+gate+' matches:'+modal+' inner:'+w+' closed:'+d.matches(':modal')+'/'+Math.round($('inside').getBoundingClientRect().width)+' plain:'+getComputedStyle($('plain')).display+'/'+getComputedStyle(d).display);
 });
 </script>
 </body>
