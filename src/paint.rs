@@ -3,7 +3,7 @@
 use crate::css::{Color, Gradient, Len, DECO_LINE_THROUGH, DECO_UNDERLINE};
 use crate::font::Fonts;
 use crate::img::{Images, Picture};
-use crate::layout::{BoxDeco, Item, Kind, Layout};
+use crate::layout::{BoxDeco, Item, Kind, Layout, TextRun};
 
 pub struct Target<'a> {
     pub buf: &'a mut [u32],
@@ -11,20 +11,30 @@ pub struct Target<'a> {
     pub h: i32,
 }
 
-#[derive(Clone, Copy)]
-struct Rect {
-    x0: i32,
-    y0: i32,
-    x1: i32,
-    y1: i32,
+/// Device pixels from `x0, y0` up to but not including `x1, y1`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Rect {
+    pub x0: i32,
+    pub y0: i32,
+    pub x1: i32,
+    pub y1: i32,
 }
 
 impl Rect {
-    fn intersect(self, o: Rect) -> Rect {
+    pub fn intersect(self, o: Rect) -> Rect {
         Rect { x0: self.x0.max(o.x0), y0: self.y0.max(o.y0), x1: self.x1.min(o.x1), y1: self.y1.min(o.y1) }
     }
-    fn is_empty(self) -> bool {
+    pub fn is_empty(self) -> bool {
         self.x1 <= self.x0 || self.y1 <= self.y0
+    }
+    fn union(self, o: Rect) -> Rect {
+        Rect { x0: self.x0.min(o.x0), y0: self.y0.min(o.y0), x1: self.x1.max(o.x1), y1: self.y1.max(o.y1) }
+    }
+    fn area(self) -> i64 {
+        if self.is_empty() { 0 } else { (self.x1 - self.x0) as i64 * (self.y1 - self.y0) as i64 }
+    }
+    fn grow(self, by: i32) -> Rect {
+        Rect { x0: self.x0 - by, y0: self.y0 - by, x1: self.x1 + by, y1: self.y1 + by }
     }
 }
 
@@ -314,9 +324,25 @@ fn draw_image(t: &mut Target, clip: Rect, pic: &Picture, r: Rect, opacity: f32) 
 /// Paints the part of the document visible at `scroll` (CSS px) into `t`,
 /// which is `scale` device pixels per CSS px.
 pub fn paint(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Target, scroll: f32, scale: f32) {
-    t.buf.fill(l.canvas.0 & 0x00FF_FFFF);
-    let sy = (scroll * scale).round() as i32;
     let full = Rect { x0: 0, y0: 0, x1: t.w, y1: t.h };
+    paint_part(l, fonts, images, t, scroll, scale, full);
+}
+
+/// Like `paint`, but only the pixels of `part`: the others keep what they had, and
+/// each pixel inside comes out exactly as `paint` makes it. Images are looked up
+/// for the whole frame's view of them, so the parts kept decoded do not depend on
+/// `part`.
+pub fn paint_part(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Target, scroll: f32, scale: f32, part: Rect) {
+    let full = Rect { x0: 0, y0: 0, x1: t.w, y1: t.h };
+    let part = part.intersect(full);
+    if part.is_empty() {
+        return;
+    }
+    let canvas = l.canvas.0 & 0x00FF_FFFF;
+    for y in part.y0..part.y1 {
+        t.buf[(y * t.w + part.x0) as usize..(y * t.w + part.x1) as usize].fill(canvas);
+    }
+    let sy = (scroll * scale).round() as i32;
     let dev = |it: &Item| Rect {
         x0: (it.x * scale).round() as i32,
         y0: (it.y * scale).round() as i32 - sy,
@@ -366,25 +392,148 @@ pub fn paint(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Target,
             }
             Kind::PopClip => clip = clips.pop().unwrap_or(full),
             Kind::Area => {}
-            _ if it.y + it.h < top || it.y > bottom || clip.is_empty() => {}
-            Kind::Box => draw_box(t, clip, &l.boxes[it.data as usize], dev(it), scale),
-            Kind::Text => draw_text(t, clip, l, fonts, it, sy, scale),
+            _ if it.y + it.h < top || it.y > bottom || clip.is_empty() || (part != full && reach(l, it, dev(it), scale).intersect(part).is_empty()) => {}
+            Kind::Box => draw_box(t, clip.intersect(part), &l.boxes[it.data as usize], dev(it), scale),
+            Kind::Text => draw_text(t, clip.intersect(part), l, fonts, it, sy, scale),
             Kind::Image => {
-                let (part, r) = (dev(it), whole(it, dev(it)));
-                if !part.is_empty() {
-                    let clip = clip.intersect(part);
+                let (item, r) = (dev(it), whole(it, dev(it)));
+                if !item.is_empty() {
+                    let clip = clip.intersect(item);
                     let v = clip.intersect(r);
-                    let part = |a: i32, origin: i32| (a - origin).max(0) as u32;
-                    let visible = [part(v.x0, r.x0), part(v.y0, r.y0), part(v.x1, r.x0), part(v.y1, r.y0)];
+                    let from = |a: i32, origin: i32| (a - origin).max(0) as u32;
+                    let visible = [from(v.x0, r.x0), from(v.y0, r.y0), from(v.x1, r.x0), from(v.y1, r.y0)];
                     let p = l.pictures[it.data as usize];
                     if let Some((pic, x, y)) = images.get(p.id, (r.x1 - r.x0) as u32, (r.y1 - r.y0) as u32, visible) {
                         let (x0, y0) = (r.x0 + x as i32, r.y0 + y as i32);
-                        draw_image(t, clip, pic, Rect { x0, y0, x1: x0 + pic.w as i32, y1: y0 + pic.h as i32 }, p.alpha);
+                        draw_image(t, clip.intersect(part), pic, Rect { x0, y0, x1: x0 + pic.w as i32, y1: y0 + pic.h as i32 }, p.alpha);
                     }
                 }
             }
         }
     }
+}
+
+/// The device pixels an item can paint: its box, and for text a margin of twice its
+/// size around it, where glyphs and decorations may reach past the line box.
+fn reach(l: &Layout, it: &Item, r: Rect, scale: f32) -> Rect {
+    match it.kind {
+        Kind::Text => r.grow((l.texts[it.data as usize].size * scale * 2.0).ceil() as i32 + 2),
+        _ => r.grow(1),
+    }
+}
+
+/// True when `a` and `b` paint the same pixels: the same kind, place and content.
+fn same_item(old: &Layout, a: &Item, new: &Layout, b: &Item) -> bool {
+    if a.kind != b.kind || (a.x, a.y, a.w, a.h) != (b.x, b.y, b.w, b.h) {
+        return false;
+    }
+    let (i, j) = (a.data as usize, b.data as usize);
+    match a.kind {
+        Kind::Box => old.boxes[i] == new.boxes[j],
+        Kind::Text => {
+            fn text(l: &Layout, t: TextRun) -> &str {
+                &l.text[t.start as usize..(t.start + t.len) as usize]
+            }
+            let (r, s) = (old.texts[i], new.texts[j]);
+            TextRun { start: 0, ..r } == TextRun { start: 0, ..s } && text(old, r) == text(new, s)
+        }
+        Kind::Image => old.pictures[i] == new.pictures[j],
+        Kind::Clip | Kind::PopClip | Kind::Area => true,
+    }
+}
+
+/// Where the frames of `old` and `new` can differ, both painted at `scroll` into `w` x `h`
+/// device pixels: the old and the new place of every item whose kind, place or content
+/// changed. `None` asks for a full repaint, when the lists do not line up item for
+/// item or the changes cover much of the frame.
+pub fn damage(old: &Layout, new: &Layout, scroll: f32, scale: f32, w: i32, h: i32) -> Option<Vec<Rect>> {
+    if old.items.len() != new.items.len() || old.canvas != new.canvas {
+        return None;
+    }
+    let sy = (scroll * scale).round() as i32;
+    let dev = |it: &Item| Rect {
+        x0: (it.x * scale).round() as i32,
+        y0: (it.y * scale).round() as i32 - sy,
+        x1: ((it.x + it.w) * scale).round() as i32,
+        y1: ((it.y + it.h) * scale).round() as i32 - sy,
+    };
+    let frame = Rect { x0: 0, y0: 0, x1: w, y1: h };
+    let mut rects: Vec<Rect> = Vec::new();
+    for (a, b) in old.items.iter().zip(&new.items) {
+        if same_item(old, a, new, b) {
+            continue;
+        }
+        for r in [reach(old, a, dev(a), scale), reach(new, b, dev(b), scale)] {
+            let r = r.intersect(frame);
+            if r.is_empty() {
+                continue;
+            }
+            // Overlapping rectangles merge, so few are left to paint.
+            merge(&mut rects, r);
+        }
+        if rects.len() > 16 || rects.iter().map(|r| r.area()).sum::<i64>() * 2 > frame.area() {
+            return None;
+        }
+    }
+    Some(rects)
+}
+
+/// Adds `r` to `rects`, merged with every rectangle it touches.
+fn merge(rects: &mut Vec<Rect>, mut r: Rect) {
+    while let Some(i) = rects.iter().position(|q| !q.intersect(r.grow(1)).is_empty()) {
+        r = r.union(rects.swap_remove(i));
+    }
+    rects.push(r);
+}
+
+/// The parts to repaint so that `rects` come out exactly as in a full repaint, in a
+/// frame `w` pixels wide: a part that meets a gradient spans the whole width, as a
+/// gradient's pixels depend on where its rows start.
+pub fn exact_parts(l: &Layout, scroll: f32, scale: f32, w: i32, rects: &[Rect]) -> Vec<Rect> {
+    let sy = (scroll * scale).round() as i32;
+    let gradients: Vec<Rect> = l
+        .items
+        .iter()
+        .filter(|it| it.kind == Kind::Box && l.boxes[it.data as usize].grad.is_some())
+        .map(|it| Rect {
+            x0: (it.x * scale).round() as i32,
+            y0: (it.y * scale).round() as i32 - sy,
+            x1: ((it.x + it.w) * scale).round() as i32,
+            y1: ((it.y + it.h) * scale).round() as i32 - sy,
+        })
+        .collect();
+    let mut parts: Vec<Rect> = rects.to_vec();
+    loop {
+        let mut next: Vec<Rect> = Vec::new();
+        for &r in &parts {
+            let wide = gradients.iter().any(|g| !g.intersect(r).is_empty());
+            merge(&mut next, if wide { Rect { x0: 0, x1: w, ..r } } else { r });
+        }
+        if next.len() == parts.len() && next.iter().all(|r| parts.contains(r)) {
+            return next;
+        }
+        parts = next;
+    }
+}
+
+/// A copy of what a layout paints, to compare the next frame's with.
+pub fn copy(l: &Layout) -> Layout {
+    Layout {
+        items: l.items.clone(),
+        boxes: l.boxes.clone(),
+        texts: l.texts.clone(),
+        pictures: l.pictures.clone(),
+        text: l.text.clone(),
+        width: l.width,
+        height: l.height,
+        canvas: l.canvas,
+        record_boxes: l.record_boxes,
+    }
+}
+
+/// Where the scrollbar can be drawn: the strip along the right edge.
+pub fn scrollbar_strip(t: &Target, scale: f32) -> Rect {
+    Rect { x0: t.w - (10.0 * scale) as i32 - 1, y0: 0, x1: t.w, y1: t.h }
 }
 
 /// Overlay scrollbar thumb, drawn only when the document overflows the view.

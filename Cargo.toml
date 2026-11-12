@@ -10,7 +10,6 @@ resvg = { version = "0.45", default-features = false }
 ab_glyph = "0.2"
 boa_engine = { version = "0.22.0", features = ["annex-b"] }
 memchr = "2"
-softbuffer = "0.4"
 winit = "0.30"
 mimalloc = { version = "0.1.52", default-features = false }
 memmap2 = "0.9"
@@ -20,14 +19,18 @@ flate2 = "1"
 # WOFF2 web fonts are Brotli-compressed; a decoder-only, pure-Rust crate.
 brotli-decompressor = "6"
 
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+softbuffer = "0.4"
+
 # AVIF images are decoded by the system's ImageIO; these bind its CoreGraphics side.
-# Animation frames follow the display through a display link.
+# Frames go to the window through IOSurfaces shown by a Core Animation layer.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObjCRuntime", "NSRunLoop", "NSString"] }
-objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "CADisplayLink", "CAFrameRateRange"] }
-objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFData", "CFDictionary", "CFCGTypes"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "objc2", "CFData", "CFDictionary", "CFCGTypes", "CFNumber", "CFString"] }
 objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGColorSpace", "CGContext", "CGImage"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSObjCRuntime", "NSRunLoop", "NSString"] }
+objc2-io-surface = { version = "0.3", default-features = false, features = ["std", "IOSurfaceRef", "IOSurfaceTypes", "libc", "objc2", "objc2-core-foundation"] }
+objc2-quartz-core = { version = "0.3", default-features = false, features = ["std", "objc2-core-foundation", "CADisplayLink", "CAFrameRateRange", "CALayer", "CATransaction"] }
 
 [profile.release]
 opt-level = 3

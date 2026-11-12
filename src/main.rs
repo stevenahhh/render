@@ -1,8 +1,9 @@
 use render::font::Fonts;
 use render::page::{Download, Page};
-use render::paint::{paint, scrollbar, Target};
-use render::present::{frames_run, timer_wake, FrameClock};
-use std::num::NonZeroU32;
+use render::layout::Layout;
+use render::paint::{self, paint, scrollbar, Target};
+use render::present::{frames_run, timer_wake, FrameClock, Presenter, Rect};
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -218,13 +219,18 @@ struct App {
     page: Page,
     fonts: Fonts,
     window: Option<Rc<Window>>,
-    surface: Option<softbuffer::Surface<Rc<Window>, Rc<Window>>>,
+    surface: Option<Presenter>,
     /// The display refreshes that animation frames follow, where the system has them.
     clock: Option<FrameClock>,
     /// Since when the window has been covered or minimized, while it is.
     hidden: Option<Instant>,
     /// A frame was asked for while the window was hidden; it is painted once it is seen.
     redraw_hidden: bool,
+    /// What the frame on screen was painted from, to repaint only what changes; `None`
+    /// when the next frame is painted whole.
+    last: Option<Shown>,
+    /// For each of the last frames, its number and the page pixels it changed (`None`: all).
+    damages: VecDeque<(u64, Option<Vec<Rect>>)>,
     scroll: f32,
     mouse: (f32, f32),
     mods: ModifiersState,
@@ -315,6 +321,21 @@ impl Meter {
 
 /// Height of the address bar in CSS pixels.
 const BAR: f32 = 34.0;
+
+/// What a presented frame was painted from.
+struct Shown {
+    layout: Layout,
+    size: (u32, u32),
+    scale: f32,
+    scroll: f32,
+}
+
+/// With `RENDER_CHECK_DAMAGE` set, every frame painted in parts is compared with a
+/// full repaint, and the program stops where they differ.
+fn check_damage() -> bool {
+    static CHECK: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *CHECK.get_or_init(|| std::env::var_os("RENDER_CHECK_DAMAGE").is_some())
+}
 
 /// A web page being downloaded on a worker thread, and how to show it once it is there.
 struct Navigation {
@@ -450,15 +471,19 @@ impl App {
         }
     }
 
-    /// The window was covered or uncovered. The page's scripts see it, and a page seen
-    /// again paints what it missed.
+    /// The window was covered or uncovered. The page's scripts see it, a hidden page
+    /// keeps only the surface on screen, and a page seen again paints what it missed.
     fn set_hidden(&mut self, hidden: bool) {
         if hidden == self.hidden.is_some() {
             return;
         }
         self.hidden = hidden.then(Instant::now);
         self.page.set_hidden(&mut self.fonts, hidden);
-        if !hidden && std::mem::take(&mut self.redraw_hidden) {
+        if hidden {
+            if let Some(surface) = &mut self.surface {
+                surface.release_spares();
+            }
+        } else if std::mem::take(&mut self.redraw_hidden) {
             self.request_redraw();
         }
         if self.page.take_dirty() {
@@ -556,6 +581,7 @@ impl App {
         self.scroll = scroll;
         self.notice = None;
         self.painted = false;
+        self.last = None;
         self.opened = Some(started);
         self.late_images = 0;
         if let Some(w) = &self.window {
@@ -580,6 +606,7 @@ impl App {
             return;
         }
         self.late_images += images;
+        self.last = None;
         if let Some(start) = PROCESS_START.get().filter(|_| self.stats) {
             let at = millis(start.elapsed());
             eprintln!("late arrivals: {css} stylesheets, {images} images ({} images so far), {fonts} fonts; relayout at {at:.1} ms after process start", self.late_images);
@@ -615,32 +642,98 @@ impl App {
         let markup = self.bar_markup();
         let (Some(window), Some(surface)) = (self.window.as_ref(), self.surface.as_mut()) else { return };
         let size = window.inner_size();
-        let (Some(w), Some(h)) = (NonZeroU32::new(size.width), NonZeroU32::new(size.height)) else { return };
+        if size.width == 0 || size.height == 0 {
+            return;
+        }
         let scale = window.scale_factor() as f32;
         // The address bar takes the top rows; the page gets the rest as its viewport.
         let bar_h = ((BAR * scale).round() as u32).min(size.height - 1);
         let (vw, vh) = (size.width as f32 / scale, (size.height - bar_h) as f32 / scale);
-        if self.bar.0 != markup || self.bar.1 != size.width || self.bar.2.len() != (size.width * bar_h) as usize {
+        let bar_changed = self.bar.0 != markup || self.bar.1 != size.width || self.bar.2.len() != (size.width * bar_h) as usize;
+        if bar_changed {
             self.bar = (markup.clone(), size.width, draw_bar(&markup, &mut self.fonts, size.width, bar_h, scale));
         }
         let t0 = Instant::now();
         self.page.update(&mut self.fonts, vw, vh);
         self.scroll = self.scroll.clamp(0.0, (self.page.layout.height - vh).max(0.0));
         let update = t0.elapsed();
-        surface.resize(w, h).expect("resize window surface");
-        let mut buf = surface.buffer_mut().expect("acquire frame buffer");
+        let (w, h) = (size.width as i32, (size.height - bar_h) as i32);
+        let strip = paint::scrollbar_strip(&Target { buf: &mut [], w, h }, scale);
+        // What changed on the page since the frame on screen; `None` when all of it may have.
+        let change = match &self.last {
+            Some(last) if last.size == (size.width, size.height) && last.scale == scale && last.scroll == self.scroll => {
+                paint::damage(&last.layout, &self.page.layout, self.scroll, scale, w, h).map(|mut d| {
+                    if last.layout.height != self.page.layout.height {
+                        d.push(strip);
+                    }
+                    d
+                })
+            }
+            _ => None,
+        };
+        if change.as_ref().is_some_and(Vec::is_empty) && !bar_changed && self.painted {
+            return;
+        }
+        surface.resize(size.width, size.height, window.scale_factor());
+        self.damages.push_back((surface.shown() + 1, change));
+        if self.damages.len() > 5 {
+            self.damages.pop_front();
+        }
+        let mut frame = surface.frame().expect("acquire frame buffer");
+        // The surface still holds frame `held`: what changed in each frame since is what it misses.
+        let held = frame.held();
+        let covered = held > 0 && self.damages.front().is_some_and(|(n, _)| *n <= held + 1);
+        let missing = covered
+            .then(|| {
+                self.damages.iter().filter(|(n, _)| *n > held).try_fold(Vec::new(), |mut all, (_, d)| {
+                    all.extend_from_slice(d.as_ref()?);
+                    Some(all)
+                })
+            })
+            .flatten();
         let t1 = Instant::now();
-        let (bar, rest) = buf.split_at_mut(self.bar.2.len());
+        let (bar, rest) = frame.pixels().split_at_mut(self.bar.2.len());
         bar.copy_from_slice(&self.bar.2);
-        let mut target = Target { buf: rest, w: size.width as i32, h: (size.height - bar_h) as i32 };
-        paint(&self.page.layout, &mut self.fonts, &mut self.page.images, &mut target, self.scroll, scale);
-        scrollbar(&mut target, self.scroll, self.page.layout.height, scale);
+        let mut target = Target { buf: rest, w, h };
+        let parts = missing.map(|rects| {
+            let mut parts = paint::exact_parts(&self.page.layout, self.scroll, scale, w, &rects);
+            if !parts.is_empty() {
+                parts.push(strip);
+            }
+            for &r in &parts {
+                paint::paint_part(&self.page.layout, &mut self.fonts, &mut self.page.images, &mut target, self.scroll, scale, r);
+            }
+            parts
+        });
+        if parts.as_ref().is_none_or(|p| !p.is_empty()) {
+            if parts.is_none() {
+                paint(&self.page.layout, &mut self.fonts, &mut self.page.images, &mut target, self.scroll, scale);
+            }
+            scrollbar(&mut target, self.scroll, self.page.layout.height, scale);
+        }
+        if let (Some(parts), true) = (&parts, check_damage()) {
+            let mut full = vec![0u32; (w * h) as usize];
+            let mut whole = Target { buf: &mut full, w, h };
+            paint(&self.page.layout, &mut self.fonts, &mut self.page.images, &mut whole, self.scroll, scale);
+            scrollbar(&mut whole, self.scroll, self.page.layout.height, scale);
+            if let Some(i) = (0..full.len()).find(|&i| (full[i] ^ target.buf[i]) & 0x00FF_FFFF != 0) {
+                panic!("repainting {parts:?} differs from a full repaint at pixel {}, {}", i % w as usize, i / w as usize);
+            }
+            eprintln!("[damage check] repainting {} parts matches a full repaint", parts.len());
+        }
+        // In the frame's own rows: the page's parts below the address bar, and the bar.
+        let painted: Option<Vec<Rect>> = parts.map(|parts| {
+            let below = |r: &Rect| Rect { y0: r.y0 + bar_h as i32, y1: r.y1 + bar_h as i32, ..*r };
+            parts.iter().map(below).chain([Rect { x0: 0, y0: 0, x1: w, y1: bar_h as i32 }]).collect()
+        });
+        let pixels = painted.as_ref().map_or(size.width as u64 * size.height as u64, |p| p.iter().map(|r| ((r.x1 - r.x0) * (r.y1 - r.y0)) as u64).sum());
         let t2 = Instant::now();
-        buf.present().expect("present frame");
+        frame.present(painted.as_deref()).expect("present frame");
         let present = t2.elapsed();
+        self.last = Some(Shown { layout: paint::copy(&self.page.layout), size: (size.width, size.height), scale, scroll: self.scroll });
         self.painted = true;
         let m = &mut self.meter;
-        (m.frames, m.pixels) = (m.frames + 1, m.pixels + size.width as u64 * size.height as u64);
+        (m.frames, m.pixels) = (m.frames + 1, m.pixels + pixels);
         (m.update, m.paint, m.present) = (m.update + update, m.paint + (t2 - t1), m.present + present);
         // While a navigation is in flight the frame still shows the page before it.
         if self.loading.is_none() {
@@ -697,8 +790,7 @@ impl ApplicationHandler for App {
         }
         let attrs = Window::default_attributes().with_title(title(&self.page, &self.path)).with_inner_size(LogicalSize::new(1024.0, 768.0));
         let window = Rc::new(event_loop.create_window(attrs).expect("create window"));
-        let context = softbuffer::Context::new(window.clone()).expect("create display context");
-        self.surface = Some(softbuffer::Surface::new(&context, window.clone()).expect("create window surface"));
+        self.surface = Some(Presenter::new(&window).expect("create window surface"));
         self.clock = FrameClock::new(&window);
         if self.clock.is_some() {
             self.page.frames_from_host(&mut self.fonts);
@@ -717,6 +809,8 @@ impl ApplicationHandler for App {
         }
         self.take_arrivals();
         if self.page.images.poll() {
+            // A picture that arrived changes pixels that no change of the layout shows.
+            self.last = None;
             self.request_redraw();
         }
     }
@@ -891,6 +985,8 @@ fn run() -> Result<(), String> {
         clock: None,
         hidden: None,
         redraw_hidden: false,
+        last: None,
+        damages: VecDeque::new(),
         scroll: 0.0,
         mouse: (-1.0, -1.0),
         mods: ModifiersState::empty(),
