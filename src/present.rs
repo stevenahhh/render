@@ -10,7 +10,7 @@
 use std::time::{Duration, Instant};
 
 pub use crate::paint::Rect;
-pub use imp::{Alarm, FrameClock, Presenter};
+pub use imp::{Alarm, DisplaySleep, FrameClock, Presenter};
 
 /// When the event loop wakes for the page's next timer, due in `ms`: at least 4 ms
 /// ahead, as browsers space timer tasks. While the window has been hidden since
@@ -25,9 +25,10 @@ pub fn timer_wake(now: Instant, ms: f64, hidden: Option<Instant>) -> Instant {
 }
 
 /// Whether nobody can see the window, from what the system reports without any input:
-/// covered by other windows or off screen (`occluded`), minimized, or with no pixels.
-pub fn window_hidden(occluded: bool, minimized: bool, size: (u32, u32)) -> bool {
-    occluded || minimized || size.0 == 0 || size.1 == 0
+/// covered by other windows or off screen (`occluded`), minimized, on a display that is
+/// asleep (`asleep`, as with the lid closed), or with no pixels.
+pub fn window_hidden(occluded: bool, minimized: bool, asleep: bool, size: (u32, u32)) -> bool {
+    occluded || minimized || asleep || size.0 == 0 || size.1 == 0
 }
 
 /// Whether the window is hidden, since when, and whether a frame was asked for meanwhile.
@@ -73,14 +74,14 @@ pub fn frames_run(wanted: bool, hidden: bool) -> bool {
 #[cfg(target_os = "macos")]
 mod imp {
     use objc2::rc::Retained;
-    use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
+    use objc2::runtime::{AnyClass, AnyObject, NSObject, NSObjectProtocol};
     use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadMarker, MainThreadOnly};
     use objc2_core_foundation::{
         kCFRunLoopCommonModes, CFAbsoluteTimeGetCurrent, CFDictionary, CFNumber, CFNumberType, CFRetained, CFRunLoop, CFRunLoopTimer, CFString, CFType,
         CGPoint, CGRect,
     };
-    use objc2_core_graphics::{kCGColorSpaceSRGB, CGColorSpace};
-    use objc2_foundation::{NSRunLoop, NSRunLoopCommonModes};
+    use objc2_core_graphics::{kCGColorSpaceSRGB, CGColorSpace, CGDisplayIsAsleep, CGMainDisplayID};
+    use objc2_foundation::{NSRunLoop, NSRunLoopCommonModes, NSString};
     use objc2_io_surface::{
         kIOSurfaceBytesPerElement, kIOSurfaceBytesPerRow, kIOSurfaceColorSpace, kIOSurfaceHeight, kIOSurfacePixelFormat, kIOSurfaceWidth,
         IOSurfaceLockOptions, IOSurfaceRef,
@@ -92,6 +93,8 @@ mod imp {
     use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Instant;
+    use winit::event_loop::EventLoopProxy;
+    use winit::platform::macos::MonitorHandleExtMacOS;
     use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use winit::window::Window;
 
@@ -173,6 +176,90 @@ mod imp {
     impl Drop for FrameClock {
         fn drop(&mut self) {
             self.link.invalidate();
+        }
+    }
+
+    #[link(name = "AppKit", kind = "framework")]
+    extern "C" {
+        static NSWorkspaceScreensDidSleepNotification: &'static NSString;
+        static NSWorkspaceScreensDidWakeNotification: &'static NSString;
+    }
+
+    define_class!(
+        // SAFETY: NSObject has no subclassing requirements, and `ScreenWatch` has no `Drop`.
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "RenderScreenWatch"]
+        #[ivars = (Rc<Cell<bool>>, EventLoopProxy<()>)]
+        struct ScreenWatch;
+
+        impl ScreenWatch {
+            #[unsafe(method(screensDidSleep:))]
+            fn did_sleep(&self, _note: &AnyObject) {
+                self.note(true);
+            }
+
+            #[unsafe(method(screensDidWake:))]
+            fn did_wake(&self, _note: &AnyObject) {
+                self.note(false);
+            }
+        }
+
+        unsafe impl NSObjectProtocol for ScreenWatch {}
+    );
+
+    impl ScreenWatch {
+        fn note(&self, asleep: bool) {
+            let (state, proxy) = self.ivars();
+            state.set(asleep);
+            // The loop is gone only while the process is exiting.
+            let _ = proxy.send_event(());
+        }
+    }
+
+    /// Whether the displays are asleep, as with the lid closed: read from the window's
+    /// display when the window opens, then followed through the workspace's notifications,
+    /// each of which wakes the event loop. No input is needed for either.
+    pub struct DisplaySleep {
+        watch: Retained<ScreenWatch>,
+        center: Retained<AnyObject>,
+        asleep: Rc<Cell<bool>>,
+    }
+
+    impl DisplaySleep {
+        pub fn new(window: &Window, proxy: EventLoopProxy<()>) -> Option<DisplaySleep> {
+            let mtm = MainThreadMarker::new()?;
+            let display = window.current_monitor().map_or_else(|| CGMainDisplayID(), |m| m.native_id());
+            let asleep = Rc::new(Cell::new(CGDisplayIsAsleep(display)));
+            let watch = ScreenWatch::alloc(mtm).set_ivars((asleep.clone(), proxy));
+            // SAFETY: `init` is NSObject's initializer.
+            let watch: Retained<ScreenWatch> = unsafe { msg_send![super(watch), init] };
+            let workspace = AnyClass::get(c"NSWorkspace")?;
+            // SAFETY: `sharedWorkspace` and `notificationCenter` take nothing and return objects.
+            let center: Retained<AnyObject> = unsafe {
+                let shared: Retained<AnyObject> = msg_send![workspace, sharedWorkspace];
+                msg_send![&shared, notificationCenter]
+            };
+            // SAFETY: the names are immutable AppKit constants. `addObserver:selector:name:object:`
+            // takes an observer that implements the selector with one NSNotification argument, as
+            // both methods of `ScreenWatch` do; the center keeps a weak reference, removed in `drop`.
+            unsafe {
+                for (selector, name) in [(sel!(screensDidSleep:), NSWorkspaceScreensDidSleepNotification), (sel!(screensDidWake:), NSWorkspaceScreensDidWakeNotification)] {
+                    let _: () = msg_send![&center, addObserver: &*watch, selector: selector, name: name, object: Option::<&AnyObject>::None];
+                }
+            }
+            Some(DisplaySleep { watch, center, asleep })
+        }
+
+        pub fn asleep(&self) -> bool {
+            self.asleep.get()
+        }
+    }
+
+    impl Drop for DisplaySleep {
+        fn drop(&mut self) {
+            // SAFETY: `removeObserver:` takes the observer added in `new`.
+            let _: () = unsafe { msg_send![&self.center, removeObserver: &*self.watch] };
         }
     }
 
@@ -484,6 +571,19 @@ mod imp {
         }
     }
 
+    /// No display sleep signal here: the window's other states decide alone.
+    pub struct DisplaySleep;
+
+    impl DisplaySleep {
+        pub fn new(_window: &Window, _proxy: winit::event_loop::EventLoopProxy<()>) -> Option<DisplaySleep> {
+            None
+        }
+
+        pub fn asleep(&self) -> bool {
+            false
+        }
+    }
+
     /// No display link here: animation frames stay 16 ms timers.
     pub struct FrameClock;
 
@@ -589,16 +689,36 @@ mod tests {
     }
 
     #[test]
-    fn a_window_is_hidden_when_occluded_minimized_or_without_pixels() {
+    fn a_window_is_hidden_when_occluded_minimized_without_pixels_or_on_a_sleeping_display() {
         for occluded in [false, true] {
             for minimized in [false, true] {
-                for size in [(800, 600), (0, 600), (800, 0), (0, 0)] {
-                    let empty = size.0 == 0 || size.1 == 0;
-                    assert_eq!(window_hidden(occluded, minimized, size), occluded || minimized || empty, "{occluded} {minimized} {size:?}");
+                for asleep in [false, true] {
+                    for size in [(800, 600), (0, 600), (800, 0), (0, 0)] {
+                        let empty = size.0 == 0 || size.1 == 0;
+                        let expected = occluded || minimized || asleep || empty;
+                        assert_eq!(window_hidden(occluded, minimized, asleep, size), expected, "{occluded} {minimized} {asleep} {size:?}");
+                    }
                 }
             }
         }
-        assert!(!window_hidden(false, false, (1, 1)));
+        assert!(!window_hidden(false, false, false, (1, 1)));
+        assert!(window_hidden(false, false, true, (1024, 768)), "a normal window on a sleeping display");
+    }
+
+    #[test]
+    fn a_display_waking_up_shows_the_window_again_and_repaints_what_it_missed_once() {
+        let (mut sight, t0) = (Sight::default(), Instant::now());
+        let size = (2048, 1536);
+        // Opened on a sleeping display: hidden from the start, first frame still painted.
+        assert_eq!(sight.set(window_hidden(false, false, true, size), t0), Some(false));
+        assert!(sight.ask(true));
+        assert!(!sight.ask(false), "a frame asked for while the display sleeps waits");
+        assert_eq!(sight.set(window_hidden(false, false, true, size), t0 + Duration::from_secs(1)), None);
+        assert_eq!(sight.set(window_hidden(false, false, false, size), t0 + Duration::from_secs(9)), Some(true), "display awake: one repaint");
+        assert_eq!(sight.hidden_since(), None);
+        // Asleep while minimized: waking the display alone does not show the window.
+        assert_eq!(sight.set(window_hidden(false, true, true, size), t0), Some(false));
+        assert_eq!(sight.set(window_hidden(false, true, false, size), t0), None);
     }
 
     #[test]

@@ -2,7 +2,7 @@ use render::font::Fonts;
 use render::page::{Download, Page};
 use render::layout::Layout;
 use render::paint::{self, paint, scrollbar, Target};
-use render::present::{frames_run, timer_wake, window_hidden, Alarm, FrameClock, Presenter, Rect, Sight};
+use render::present::{frames_run, timer_wake, window_hidden, Alarm, DisplaySleep, FrameClock, Presenter, Rect, Sight};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -237,6 +237,8 @@ struct App {
     sight: Sight,
     /// The system last reported the window covered or off screen.
     occluded: bool,
+    /// Whether the displays sleep, where the system reports it.
+    display: Option<DisplaySleep>,
     /// What the frame on screen was painted from, to repaint only what changes; `None`
     /// when the next frame is painted whole.
     last: Option<Shown>,
@@ -485,16 +487,17 @@ impl App {
         }
     }
 
-    /// Follows the window out of sight and back: covered, minimized or without pixels, as
-    /// the system reports it. The page's scripts see it, a hidden page keeps only the
+    /// Follows the window out of sight and back: covered, minimized, on a sleeping display or
+    /// without pixels, as the system reports it. The page's scripts see it, a hidden page keeps only the
     /// surface on screen, and a page seen again paints what it missed.
     fn update_sight(&mut self) {
         let Some(window) = &self.window else { return };
         let (size, minimized) = (window.inner_size(), window.is_minimized().unwrap_or(false));
-        let hidden = window_hidden(self.occluded, minimized, (size.width, size.height));
+        let asleep = self.display.as_ref().is_some_and(DisplaySleep::asleep);
+        let hidden = window_hidden(self.occluded, minimized, asleep, (size.width, size.height));
         let Some(owed) = self.sight.set(hidden, Instant::now()) else { return };
         if self.stats {
-            eprintln!("hidden {hidden}: occluded {}, minimized {minimized}, size {}x{}", self.occluded, size.width, size.height);
+            eprintln!("hidden {hidden}: occluded {}, minimized {minimized}, display asleep {asleep}, size {}x{}", self.occluded, size.width, size.height);
         }
         self.page.set_hidden(&mut self.fonts, hidden);
         if hidden {
@@ -813,6 +816,7 @@ impl ApplicationHandler for App {
         }
         self.surface = Some(Presenter::new(&window).expect("create window surface"));
         self.clock = FrameClock::new(&window);
+        self.display = DisplaySleep::new(&window, self.proxy.clone());
         if self.clock.is_some() {
             self.page.frames_from_host(&mut self.fonts);
         }
@@ -826,6 +830,8 @@ impl ApplicationHandler for App {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
+        // The displays may have gone to sleep or woken up.
+        self.update_sight();
         while let Ok(fetched) = self.fetched.1.try_recv() {
             self.arrive(fetched);
         }
@@ -1027,6 +1033,7 @@ fn run() -> Result<(), String> {
         alarm: Alarm::new(),
         sight: Sight::default(),
         occluded: false,
+        display: None,
         last: None,
         damages: VecDeque::new(),
         scroll: 0.0,
