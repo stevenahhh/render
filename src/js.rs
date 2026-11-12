@@ -1223,6 +1223,12 @@ impl Js {
         self.call("load", &[]);
     }
 
+    /// Tells the page its viewport changed size: `resize`, and `change` on the
+    /// media query lists whose match changed.
+    pub fn resized(&mut self) {
+        self.call("resized", &[]);
+    }
+
     /// Dispatches a bubbling event; true when a listener prevented the default.
     pub fn dispatch(&mut self, node: NodeId, event: &str) -> bool {
         self.call("dispatch", &[js_id(node), js_str(event)]).is_some_and(|v| v.to_boolean())

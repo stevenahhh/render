@@ -962,7 +962,12 @@ impl Page {
     /// Brings style and layout up to date for a viewport in CSS pixels.
     /// Does nothing when the viewport is unchanged and nothing changed.
     pub fn update(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
+        let resized = self.vw >= 0.0 && (vw, vh) != (self.vw, self.vh);
         self.refresh(fonts, vw, vh);
+        // Scripts hear of a new size once it is laid out; whatever they change is laid out too.
+        if resized && self.scripted && self.with_js(fonts, Js::resized).is_some() {
+            self.refresh(fonts, vw, vh);
+        }
     }
 
     /// `update`; true when styles or the layout changed.
@@ -1252,6 +1257,28 @@ mod tests {
         assert!(page.set_hover(&mut fonts, NONE));
         assert_eq!(colours(&mut page, 0, "p"), ["000000"]);
         assert_matches_full(&mut page, &mut fonts);
+    }
+
+    #[test]
+    fn a_new_viewport_size_fires_resize_then_media_query_changes() {
+        // The order and values WebKit reports for the same page resized 1024 -> 600 -> 900.
+        let script = "const log=[],mq=matchMedia('(max-width: 700px)'),note=(s)=>{log.push(s);$('out').setAttribute('title',log.join(' '))};\
+            mq.onchange=(e)=>note('onchange:'+e.matches);\
+            mq.addEventListener('change',(e)=>note('change:'+e.matches+':'+(e instanceof MediaQueryListEvent)));\
+            mq.addListener((e)=>note('listener:'+e.matches));\
+            matchMedia('(min-width: 100px)').addEventListener('change',()=>note('wide'));\
+            addEventListener('resize',()=>note('resize:'+innerWidth));";
+        let (mut page, mut fonts) = after_script("", "<p id=out></p>", script);
+        let log = |page: &Page| {
+            let out = page.dom.by_id(0, "out");
+            page.dom.attr(out, page.dom.atoms.get("title").unwrap_or(0)).unwrap_or("").to_string()
+        };
+        page.update(&mut fonts, 1024.0, 768.0);
+        assert_eq!(log(&page), "", "the same size is no resize");
+        page.update(&mut fonts, 600.0, 768.0);
+        assert_eq!(log(&page), "resize:600 onchange:true change:true:true listener:true");
+        page.update(&mut fonts, 900.0, 768.0);
+        assert!(log(&page).ends_with("listener:true resize:900 onchange:false change:false:true listener:false"), "{}", log(&page));
     }
 
     #[test]

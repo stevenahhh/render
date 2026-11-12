@@ -136,6 +136,7 @@
     ['PopStateEvent', 'Event', { state: null }],
     ['HashChangeEvent', 'Event', { oldURL: '', newURL: '' }],
     ['PageTransitionEvent', 'Event', { persisted: false }],
+    ['MediaQueryListEvent', 'Event', { matches: false, media: '' }],
     ['ProgressEvent', 'Event', { lengthComputable: false, loaded: 0, total: 0 }],
     ['AnimationEvent', 'Event', { animationName: '', elapsedTime: 0, pseudoElement: '' }],
     ['TransitionEvent', 'Event', { propertyName: '', elapsedTime: 0, pseudoElement: '' }],
@@ -1942,17 +1943,39 @@
     toString() { return 'matrix(1, 0, 0, 1, 0, 0)'; }
   }
 
+  // Lists with `change` listeners, each with whether it matched when last looked at.
+  const watchedMedia = new Map();
   class MediaQueryList extends EventTarget {
     constructor() { super(); illegal(); }
     get matches() { return __media(this.media); }
     addListener(f) { this.addEventListener('change', f); }
     removeListener(f) { this.removeEventListener('change', f); }
+    addEventListener(type, f, o) {
+      if (type === 'change' && !watchedMedia.has(this)) watchedMedia.set(this, this.matches);
+      super.addEventListener(type, f, o);
+    }
+    get onchange() { return this._onchange || null; }
+    set onchange(f) {
+      this._onchange = typeof f === 'function' ? f : null;
+      if (!watchedMedia.has(this)) watchedMedia.set(this, this.matches);
+    }
   }
   const matchMedia = (q) => {
     const m = Object.create(MediaQueryList.prototype);
     m.media = String(q);
-    m.onchange = null;
     return m;
+  };
+  // The viewport changed size: `resize` on the window, then `change` on each
+  // watched list whose match changed.
+  const resized = () => {
+    const changed = [];
+    for (const [m, was] of watchedMedia) {
+      const now = m.matches;
+      if (now !== was) changed.push(m);
+      watchedMedia.set(m, now);
+    }
+    dispatch(g, new Event('resize'));
+    for (const m of changed) dispatch(m, new events.MediaQueryListEvent('change', { matches: watchedMedia.get(m), media: m.media }));
   };
 
   const marks = [];
@@ -2247,6 +2270,7 @@
       dispatch(g, show);
     },
     error(e, filename) { fireError(e, filename === undefined ? docURL : filename); },
+    resized,
     rejected(promise, reason) {
       return !dispatch(g, new events.PromiseRejectionEvent('unhandledrejection', { promise, reason, cancelable: true }));
     },
