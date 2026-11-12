@@ -421,10 +421,18 @@ fn tagged(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     Ok(js_array(ids.unwrap_or_default(), ctx))
 }
 
-/// `[x, y, w, h]` of a node's border box from an up-to-date layout.
+/// `__rect(node, client)`: `[x, y, w, h]` of a node's border box from an
+/// up-to-date layout, with `client` relative to the viewport, not the document.
 fn rect(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
-    let n = id_arg(a, 0);
-    let r = with(|h| Some(h.page.fresh_rect(&mut h.fonts, n))).unwrap_or([0.0; 4]);
+    let (n, client) = (id_arg(a, 0), a.get_or_undefined(1).to_boolean());
+    let r = with(|h| {
+        let mut r = h.page.fresh_rect(&mut h.fonts, n);
+        if client {
+            r[1] -= h.page.script_view()[2];
+        }
+        Some(r)
+    })
+    .unwrap_or([0.0; 4]);
     Ok(js_array(r.iter().map(|v| JsValue::from(*v as f64)).collect(), ctx))
 }
 

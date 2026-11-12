@@ -895,8 +895,7 @@
       return null;
     }
     getBoundingClientRect() {
-      const r = __rect(this[ID]);
-      return new DOMRect(r[0], r[1] - __view()[2], r[2], r[3]);
+      return rectOf(__rect(this[ID], true));
     }
     getClientRects() { const r = this.getBoundingClientRect(); return r.width || r.height ? [r] : []; }
     get clientWidth() { return Math.round(__rect(this[ID])[2]); }
@@ -1819,6 +1818,8 @@
     static fromRect(r = {}) { return new this(r.x, r.y, r.width, r.height); }
   }
   class DOMRect extends DOMRectReadOnly {}
+  // The rects the platform makes, built as a literal: the class constructor costs three times as much.
+  const rectOf = (r) => ({ __proto__: DOMRect.prototype, x: r[0], y: r[1], width: r[2], height: r[3] });
   class DOMPoint {
     constructor(x = 0, y = 0, z = 0, w = 1) { this.x = +x; this.y = +y; this.z = +z; this.w = +w; }
     static fromPoint(p = {}) { return new this(p.x, p.y, p.z, p.w); }
