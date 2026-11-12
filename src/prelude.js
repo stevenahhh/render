@@ -714,6 +714,7 @@
     if (got & SCRIPT) for (const s of __tagged(id, SCRIPT)) started.add(s);
     if ($.mo) $.mo.childList(el, __kids(id, false).map(wrap), removed, null, null, true);
     if (got & CUSTOM && $.ce) for (const c of __kids(id, false)) $.ce.connected(c);
+    return got;
   };
   const fragmentFrom = (html) => {
     const f = document.createDocumentFragment();
@@ -725,6 +726,7 @@
 
   const started = new Set();
   let currentScript = null;
+  $.setCurrentScript = (s) => { currentScript = s; };
   const SCRIPT_TYPES = /^(|text\/javascript|application\/javascript|text\/ecmascript|application\/ecmascript|module|text\/jscript|text\/livescript|application\/x-javascript|application\/x-ecmascript)$/i;
   const scriptsInserted = (root) => { for (const s of __tagged(root, SCRIPT)) prepareScript(wrap(s)); };
   const prepareScript = (s) => {
@@ -1523,10 +1525,6 @@
     get links() { const id = this[ID]; return liveList(HTMLCollection, () => __query(id, 'a[href],area[href]', false), true); }
     get anchors() { const id = this[ID]; return liveList(HTMLCollection, () => __query(id, 'a[name]', false), true); }
     hasFocus() { return true; }
-    open() { return this; }
-    close() {}
-    write() {}
-    writeln() {}
     execCommand() { return false; }
     queryCommandSupported() { return false; }
     queryCommandEnabled() { return false; }
@@ -1543,6 +1541,7 @@
     }
   }
   mixin(Document, ParentNode);
+  lazyMethods(Document.prototype, 'write', ['open', 'close', 'write', 'writeln']);
   lazyMethods(Document.prototype, 'traversal', ['createTreeWalker', 'createNodeIterator', 'createRange', 'getSelection']);
   getters(Document.prototype, {
     implementation() { need('traversal'); return $.implementation; },
@@ -2224,9 +2223,12 @@
     },
     begin(id) {
       started.add(id);
-      currentScript = wrap(id);
+      currentScript = $.parserScript = wrap(id);
     },
-    end() { currentScript = null; },
+    end() {
+      currentScript = $.parserScript = null;
+      if ($.parsed) $.parsed();
+    },
     fetched(id, result) { if ($.fetched) $.fetched(id, result); },
   };
 })(globalThis);

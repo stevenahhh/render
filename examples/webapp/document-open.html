@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: document.write after load</title>
+</head>
+<body>
+<p id="old">old content</p>
+<script>
+window.addEventListener('load', function () {
+  setTimeout(function () {
+    var old = !!document.getElementById('old');
+    document.write('<!DOCTYPE html><html><head><title>replaced</title><style>.m{font:13px monospace;margin:2px 0}</style></head><body>');
+    document.write('<h1 data-m="STATIC document-open">STATIC document-open</h1><div id="out"></div>');
+    document.write('<script>document.getElementById("out").innerHTML = "<div class=m data-m=\'DO script ran title:" + document.title + "\'>x</div>"; document.write("<p id=inner>inner</p>")<\/script>');
+    document.write('<p id="tail">tail</p></body></html>');
+    document.close();
+    var d = document.createElement('div');
+    d.className = 'm';
+    d.textContent = d.dataset.m = 'DO replaced before:' + old + ' old:' + !!document.getElementById('old') + ' order:' + Array.prototype.map.call(document.querySelectorAll('p'), function (p) { return p.id; }).join(',') + ' state:' + document.readyState;
+    document.body.appendChild(d);
+  }, 0);
+});
+</script>
+</body>
+</html>

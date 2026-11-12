@@ -540,8 +540,9 @@ impl Dom {
 
     /// Replaces the children of `n` with parsed HTML: a fragment as `innerHTML`
     /// parses one, one that may declare shadow roots as `setHTMLUnsafe` does, or
-    /// with `n` a document, a whole document.
-    pub fn parse_into(&mut self, n: NodeId, html: &str, how: Parse) {
+    /// with `n` a document, a whole document. Returns false when the markup left
+    /// an element open, as one `document.write` of several can.
+    pub fn parse_into(&mut self, n: NodeId, html: &str, how: Parse) -> bool {
         while self.nodes[n as usize].first_child != NONE {
             let c = self.nodes[n as usize].first_child;
             self.detach(c);
@@ -552,7 +553,10 @@ impl Dom {
             Parse::Document => (false, true),
         };
         let (stack, html_, body) = if fragment { (vec![n, n, n], n, n) } else { (vec![n], NONE, NONE) };
-        Parser { src: html, b: html.as_bytes(), pos: 0, dom: self, stack, html: html_, head: NONE, body, fragment, templates: 0, declarative }.run();
+        let base = stack.len();
+        let mut parser = Parser { src: html, b: html.as_bytes(), pos: 0, dom: self, stack, html: html_, head: NONE, body, fragment, templates: 0, declarative };
+        parser.run();
+        parser.stack.len() <= base
     }
 
     /// Makes the content of a `<template shadowrootmode>` that just closed the
@@ -1225,6 +1229,17 @@ mod tests {
         dom.serialize(doc, false, &mut whole);
         assert_eq!(whole, "<html><head><title>t</title></head><body><p></p></body></html>");
         assert_eq!(dom.shadows.len(), 4);
+    }
+
+    #[test]
+    fn fragments_report_elements_left_open() {
+        let mut dom = parse_html("<body><div></div></body>");
+        let div = first(&dom, atom::DIV);
+        let how = super::Parse::Fragment;
+        assert!(dom.parse_into(div, "<p>a</p>text<br><img>", how));
+        assert!(!dom.parse_into(div, "<p>a</p><div id=w>", how));
+        assert!(!dom.parse_into(div, "<template><b></b>", how));
+        assert!(dom.parse_into(div, "<div id=w>two</div>\n", how));
     }
 
     #[test]

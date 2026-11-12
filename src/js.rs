@@ -37,6 +37,7 @@ fn chunk(name: &str) -> Option<&'static str> {
         "fetch" => include_str!("web/fetch.js"),
         "encoding" => include_str!("web/encoding.js"),
         "shadow" => include_str!("web/shadow.js"),
+        "write" => include_str!("web/write.js"),
         "cssom" => include_str!("web/cssom.js"),
         _ => return None,
     })
@@ -261,7 +262,7 @@ fn html(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
 
 /// `__set_html(id, html, how)`: replaces the children with parsed HTML, `how`
 /// 0 as `innerHTML`, 1 as `setHTMLUnsafe`, 2 a whole document; returns what
-/// the new ones connected.
+/// the new ones connected, with 8 when the markup left an element open.
 fn set_html(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let (n, s) = (id_arg(a, 0), str_arg(a, 1, ctx)?);
     let how = match a.get_or_undefined(2).as_number() {
@@ -276,8 +277,7 @@ fn set_html(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> 
             h.page.moved(c);
             c = h.page.dom.nodes[c as usize].next;
         }
-        h.page.dom.parse_into(n, &s, how);
-        let mut flags = 0;
+        let mut flags = if h.page.dom.parse_into(n, &s, how) { 0 } else { 8 };
         let mut c = h.page.dom.nodes[n as usize].first_child;
         while c != NONE {
             flags |= h.page.moved(c);

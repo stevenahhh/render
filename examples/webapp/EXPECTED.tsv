@@ -117,3 +117,11 @@ shadow-selectors.html	SS host width:302x23 context:150
 shadow-selectors.html	SS slotted span:61 class:62 named:63 inner:71x7 fallback:plain
 shadow-selectors.html	SS adopted first:87/33 replaced:88/88 document:302
 shadow-selectors.html	SS defined before:0 after:41x9 div:5 late:1 host:2
+document-write.html	STATIC document-write
+document-write.html	DW order writer inline:w2 writer-end:true ext:write-ext.js after-script
+document-write.html	DW placed before writer w1 w2 nested from-ext last
+document-write.html	DW head p:BODY text:two
+document-write.html	DW style width:93
+document-open.html	STATIC document-open
+document-open.html	DO script ran title:replaced
+document-open.html	DO replaced before:true old:false order:inner,tail state:complete
