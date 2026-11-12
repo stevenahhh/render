@@ -1,0 +1,106 @@
+custom-elements.html	STATIC custom-elements
+custom-elements.html	CE upgrade before define upgraded:3 connected:3
+custom-elements.html	CE class extends HTMLElement instanceof:true tag:X-UP
+custom-elements.html	CE attributeChanged on upgrade color:null:green
+custom-elements.html	CE attributeChanged observed color:null:red color:red:blue color:blue:null
+custom-elements.html	CE parser after define ctor connected:early-host instance:true
+custom-elements.html	CE createElement lifecycle ctor created connected disconnected ctor new:x-made
+custom-elements.html	CE innerHTML constructed:2 connected:2 instance:true
+custom-elements.html	CE get defined:true missing:true
+custom-elements.html	CE whenDefined resolved ctor:true before:undefined
+custom-elements.html	CE invalid name throws:SyntaxError
+shadow-dom.html	STATIC shadow-dom
+shadow-dom.html	SD attachShadow mode:open same:true host:true
+shadow-dom.html	SD slot assigned default:light named:titled
+shadow-dom.html	SD slot render slotted:visible unslotted:hidden
+shadow-dom.html	SD slot fallback missing:shown filled:hidden
+shadow-dom.html	SD style scoped inside:123 outside:other docRule:blocked
+shadow-dom.html	SD querySelector inside:found document:null
+shadow-dom.html	SD attachShadow twice throws:NotSupportedError
+template.html	STATIC template
+template.html	TPL content fragment:true nodeType:11 items:2 inert:true tplChildren:0
+template.html	TPL cloneNode cloned:2 appended:2 fragEmpty:true sourceKept:2 text:AB
+template.html	TPL importNode owner:true tplOwnerDiffers:true text:AB
+template.html	TPL DocumentFragment before:3 after:0 moved:3 parent:true
+template.html	TPL parsed via innerHTML content:B inert:true
+mutation-observer.html	STATIC mutation-observer
+mutation-observer.html	MO childList calls:1 records:3 added:2 removed:1 sync:0 type:childList observer:true
+mutation-observer.html	MO attributes records:2 names:data-x data-x old:null 1
+mutation-observer.html	MO characterData records:1 type:characterData old:old now:new
+mutation-observer.html	MO subtree records:1 target:inner noSubtree:0
+mutation-observer.html	MO microtask order:sync mo promise calls:1
+mutation-observer.html	MO disconnect calls:0
+mutation-observer.html	MO takeRecords taken:2 type:childList laterCalls:0
+abort.html	STATIC abort
+abort.html	AB instanceof signal:true eventTarget:true aborted:false
+abort.html	AB abort sync:true onabort:1 type:abort aborted:true reason:why
+abort.html	AB default reason:AbortError isDOMException:true
+abort.html	AB throwIfAborted:AbortError
+abort.html	AB AbortSignal.abort aborted:true reason:pre
+abort.html	AB AbortSignal.timeout early:false later:true reason:TimeoutError
+abort.html	AB AbortSignal.any early:false aborted:true reason:bee
+abort.html	AB addEventListener signal count:1
+abort.html	AB addEventListener once count:1
+abort.html	AB addEventListener capture order:capture target bubble removed:true
+fetch-xhr.html	STATIC fetch-xhr
+fetch-xhr.html	FX fetch text status:200 ok:true body:hello from data.txt
+fetch-xhr.html	FX fetch headers.get content-type:json
+fetch-xhr.html	FX fetch json name:render items:3
+fetch-xhr.html	FX fetch missing file handled:true
+fetch-xhr.html	FX fetch bad url rejected:TypeError
+fetch-xhr.html	FX xhr onload status:200 readyState:4 text:hello from data.txt
+fetch-xhr.html	FX xhr readyState sequence:1 2 3 4
+fetch-xhr.html	FX xhr responseType json name:render
+modules.html	STATIC modules
+modules.html	MOD static import result:42
+modules.html	MOD scope strict:true noLeak:true
+modules.html	MOD deferred sawLater:true
+modules.html	MOD top-level await value:7
+modules.html	MOD import.meta.url path:/webapp/mod-meta.js value:41 evaluatedOnce:true
+modules.html	MOD dynamic import value:dynamic default:dyn-default
+dom-traversal.html	STATIC dom-traversal
+dom-traversal.html	DOM createComment nodeType:8 name:#comment data:made parsed:8 hi
+dom-traversal.html	DOM createTreeWalker elements:P P text:abcd root:true
+dom-traversal.html	DOM identity firstChild:true childNodes:true query:true parent:true
+dom-traversal.html	DOM live childNodes:1to3 children:1to2 sameList:true
+dom-traversal.html	DOM getElementById created:true innerHTML:true removed:null
+dom-traversal.html	DOM classList result:a c d contains:true toggle:true false length:3
+dom-traversal.html	DOM attributes length:2 named:v1 first:id item:data-k
+dom-traversal.html	DOM currentScript id:cs later:null
+dom-traversal.html	DOM dynamic script inline sync:true rerun:no
+dom-traversal.html	DOM dynamic script src:loaded onload:true current:dyn-script.js
+dom-traversal.html	DOM dynamic style applied:137 removed:reverted
+dom-traversal.html	DOM layout read after write first:50 second:90 offsetWidth:90
+events.html	STATIC events
+events.html	EV order capture-outer capture-inner target bubble-inner bubble-outer phases:11233
+events.html	EV stopPropagation outer:0 immediate:1
+events.html	EV handleEvent this:true count:1
+events.html	EV composedPath length:7 first:leaf second:mid window:true after:0
+events.html	EV CustomEvent detail:1 isEvent:true target:leaf currentTarget:root
+events.html	EV preventDefault returned:false defaultPrevented:true trusted:false
+events.html	EV instanceof window:true document:true element:true node:true
+timers.html	STATIC timers
+timers.html	TM setTimeout order:c b d a
+timers.html	TM setTimeout args:x y
+timers.html	TM clearTimeout fired:0 setInterval ticks:3
+timers.html	TM microtasks order:sync sync2 m1 p1 m2 p2 timeout
+timers.html	TM MessageChannel data:5 async:true cloned:true
+timers.html	TM requestAnimationFrame fired:2 ts:number increasing:true
+misc-globals.html	STATIC misc-globals
+misc-globals.html	MISC location href:/webapp/misc-globals.html pathname:/webapp/misc-globals.html sameAsURL:true
+misc-globals.html	MISC history.pushState pathname:/webapp/pushed-page.html state:1 grew:true
+misc-globals.html	MISC TextEncoder bytes:10 uint8:true roundtrip:true
+misc-globals.html	MISC base64 btoa:aGVsbG8= atob:hello
+misc-globals.html	MISC structuredClone deep:true date:true map:x cycle:true
+misc-globals.html	MISC substr bcd ef
+misc-globals.html	MISC html comment in script hc:2
+misc-globals.html	MISC recursion depth:1000
+throw-toplevel.html	STATIC throw-toplevel
+throw-toplevel.html	ERR statements before throw ran
+throw-toplevel.html	ERR error event message:fixture top-level throw file:throw-toplevel.html
+throw-toplevel.html	ERR static after throwing script
+throw-toplevel.html	ERR later script ran
+syntax-error.html	STATIC syntax-error
+syntax-error.html	SYN error event SyntaxError:true
+syntax-error.html	SYN static after broken script
+syntax-error.html	SYN later script ran brokenRan:false

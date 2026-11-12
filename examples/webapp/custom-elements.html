@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: custom elements v1</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC custom-elements">STATIC custom-elements</h1>
+<div id="out"></div>
+<script>
+// Every visible marker is written by mark(); each sub-feature runs in its own
+// script so a missing API only loses that sub-feature's marker.
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+</script>
+
+<!-- Parsed before their definitions exist: upgraded by define(). -->
+<x-up></x-up><x-up></x-up><x-up></x-up>
+<x-attr color="green"></x-attr>
+
+<script>
+check('upgrade', function(){
+  var made=0, conn=0, isHE=true;
+  class XUp extends HTMLElement {
+    constructor(){ super(); made++; if(!(this instanceof HTMLElement)) isHE=false; }
+    connectedCallback(){ conn++; }
+  }
+  window.XUp = XUp;
+  customElements.define('x-up', XUp);
+  mark('CE upgrade before define upgraded:'+made+' connected:'+conn);
+  var first=document.querySelector('x-up');
+  mark('CE class extends HTMLElement instanceof:'+(first instanceof XUp && isHE)+' tag:'+first.tagName);
+});
+</script>
+<script>
+check('attr-upgrade', function(){
+  var calls=[];
+  class XAttr extends HTMLElement {
+    static get observedAttributes(){ return ['color']; }
+    attributeChangedCallback(n,o,v){ calls.push(n+':'+o+':'+v); }
+  }
+  customElements.define('x-attr', XAttr);
+  mark('CE attributeChanged on upgrade '+calls.join(' '));
+});
+</script>
+<script>
+check('attr-observed', function(){
+  var calls=[];
+  class XObs extends HTMLElement {
+    static get observedAttributes(){ return ['color']; }
+    attributeChangedCallback(n,o,v){ calls.push(n+':'+o+':'+v); }
+  }
+  customElements.define('x-obs', XObs);
+  var el=document.createElement('x-obs');
+  el.setAttribute('color','red');
+  el.setAttribute('size','9');
+  el.setAttribute('color','blue');
+  el.removeAttribute('color');
+  mark('CE attributeChanged observed '+calls.join(' '));
+});
+</script>
+<script>
+check('define-first', function(){
+  window.earlyLog=[];
+  class XEarly extends HTMLElement {
+    constructor(){ super(); earlyLog.push('ctor'); }
+    connectedCallback(){ earlyLog.push('connected:'+this.parentNode.id); }
+  }
+  customElements.define('x-early', XEarly);
+});
+</script>
+<!-- Parsed after its definition: the parser constructs it directly. -->
+<div id="early-host"><x-early></x-early></div>
+<script>
+check('define-first-result', function(){
+  mark('CE parser after define '+earlyLog.join(' ')+' instance:'+(document.querySelector('x-early') instanceof customElements.get('x-early')));
+});
+</script>
+<script>
+check('createElement', function(){
+  var log=[];
+  class XMade extends HTMLElement {
+    constructor(){ super(); log.push('ctor'); }
+    connectedCallback(){ log.push('connected'); }
+    disconnectedCallback(){ log.push('disconnected'); }
+  }
+  customElements.define('x-made', XMade);
+  var el=document.createElement('x-made');
+  log.push('created');
+  document.body.appendChild(el);
+  document.body.removeChild(el);
+  var el2=new XMade();
+  log.push('new:'+el2.localName);
+  mark('CE createElement lifecycle '+log.join(' '));
+});
+</script>
+<script>
+check('innerHTML', function(){
+  var n=0, c=0;
+  class XInner extends HTMLElement { constructor(){ super(); n++; } connectedCallback(){ c++; } }
+  customElements.define('x-inner', XInner);
+  var host=document.createElement('div');
+  document.body.appendChild(host);
+  host.innerHTML='<x-inner></x-inner><x-inner></x-inner>';
+  mark('CE innerHTML constructed:'+n+' connected:'+c+' instance:'+(host.firstChild instanceof XInner));
+});
+</script>
+<script>
+check('get', function(){
+  mark('CE get defined:'+(customElements.get('x-up')===window.XUp)+' missing:'+(customElements.get('x-nothing')===undefined));
+});
+</script>
+<script>
+check('whenDefined', function(){
+  var before=customElements.get('x-later');
+  customElements.whenDefined('x-later').then(function(ctor){
+    mark('CE whenDefined resolved ctor:'+(ctor===window.XLater)+' before:'+before);
+  });
+  setTimeout(function(){
+    window.XLater = class extends HTMLElement {};
+    customElements.define('x-later', window.XLater);
+  }, 20);
+});
+</script>
+<script>
+check('invalid-name', function(){
+  try { customElements.define('nodash', class extends HTMLElement {}); mark('CE invalid name accepted'); }
+  catch (e) { mark('CE invalid name throws:'+e.name); }
+});
+</script>
+</body>
+</html>

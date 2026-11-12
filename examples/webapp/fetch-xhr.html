@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: fetch and XMLHttpRequest</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC fetch-xhr">STATIC fetch-xhr</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+function fail(name){return function(e){console.log('FIXTURE '+name+' rejected: '+e);};}
+</script>
+<script>
+check('fetch-text', function(){
+  fetch('data.txt').then(function(r){
+    return r.text().then(function(t){
+      mark('FX fetch text status:'+r.status+' ok:'+r.ok+' body:'+t.trim());
+    });
+  }).catch(fail('fetch-text'));
+});
+</script>
+<script>
+check('fetch-json', function(){
+  fetch('data.json').then(function(r){
+    var type=String(r.headers.get('content-type'));
+    mark('FX fetch headers.get content-type:'+(type.indexOf('json')>=0?'json':type));
+    return r.json();
+  }).then(function(j){
+    mark('FX fetch json name:'+j.name+' items:'+j.items.length);
+  }).catch(fail('fetch-json'));
+});
+</script>
+<script>
+check('fetch-missing', function(){
+  // Over file: a missing file rejects; over http it resolves as a 404. Both count.
+  fetch('missing-file.json').then(function(r){
+    if (!r.ok && r.status===404) mark('FX fetch missing file handled:true');
+  }, function(e){
+    if (e instanceof TypeError) mark('FX fetch missing file handled:true');
+  });
+});
+</script>
+<script>
+check('fetch-bad-url', function(){
+  fetch('http://bad host/').then(function(){ mark('FX fetch bad url resolved'); }, function(e){
+    mark('FX fetch bad url rejected:'+e.name);
+  });
+});
+</script>
+<script>
+check('xhr-text', function(){
+  var x=new XMLHttpRequest(), states=[];
+  x.onreadystatechange=function(){ if (states[states.length-1]!==x.readyState) states.push(x.readyState); };
+  x.open('GET', 'data.txt');
+  x.onload=function(){
+    mark('FX xhr onload status:'+x.status+' readyState:'+x.readyState+' text:'+x.responseText.trim());
+    mark('FX xhr readyState sequence:'+states.join(' '));
+  };
+  x.onerror=function(){ console.log('FIXTURE xhr-text error'); };
+  x.send();
+});
+</script>
+<script>
+check('xhr-json', function(){
+  var x=new XMLHttpRequest();
+  x.open('GET', 'data.json');
+  x.responseType='json';
+  x.onload=function(){ mark('FX xhr responseType json name:'+(x.response&&x.response.name)); };
+  x.send();
+});
+</script>
+</body>
+</html>

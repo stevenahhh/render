@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: template and DocumentFragment</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC template">STATIC template</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+</script>
+<template id="tpl"><li class="item">A</li><li class="item">B</li></template>
+<ul id="list"></ul>
+<script>
+check('content', function(){
+  var tpl=document.getElementById('tpl');
+  var c=tpl.content;
+  mark('TPL content fragment:'+(c instanceof DocumentFragment)+' nodeType:'+c.nodeType+' items:'+c.querySelectorAll('.item').length+
+    ' inert:'+(document.querySelectorAll('.item').length===0)+' tplChildren:'+tpl.childNodes.length);
+});
+</script>
+<script>
+check('cloneNode', function(){
+  var tpl=document.getElementById('tpl'), list=document.getElementById('list');
+  var clone=tpl.content.cloneNode(true);
+  var before=clone.childNodes.length;
+  list.appendChild(clone);
+  mark('TPL cloneNode cloned:'+before+' appended:'+list.children.length+' fragEmpty:'+(clone.childNodes.length===0)+
+    ' sourceKept:'+tpl.content.childNodes.length+' text:'+list.textContent);
+});
+</script>
+<script>
+check('importNode', function(){
+  var tpl=document.getElementById('tpl');
+  var imp=document.importNode(tpl.content, true);
+  var ul=document.createElement('ul');
+  document.body.appendChild(ul);
+  ul.appendChild(imp);
+  mark('TPL importNode owner:'+(ul.firstChild.ownerDocument===document)+' tplOwnerDiffers:'+(tpl.content.ownerDocument!==document)+' text:'+ul.textContent);
+});
+</script>
+<script>
+check('fragment', function(){
+  var f=document.createDocumentFragment();
+  var a=document.createElement('span');
+  a.textContent='x';
+  f.appendChild(a);
+  f.append('y', document.createElement('b'));
+  var before=f.childNodes.length;
+  var host=document.createElement('div');
+  document.body.appendChild(host);
+  host.appendChild(f);
+  mark('TPL DocumentFragment before:'+before+' after:'+f.childNodes.length+' moved:'+host.childNodes.length+' parent:'+(a.parentNode===host));
+});
+</script>
+<script>
+check('innerHTML-template', function(){
+  var d=document.createElement('div');
+  d.innerHTML='<template><b>x</b></template>';
+  var t=d.firstChild;
+  mark('TPL parsed via innerHTML content:'+t.content.firstChild.tagName+' inert:'+(d.querySelector('b')===null));
+});
+</script>
+</body>
+</html>

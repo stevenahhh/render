@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: script throws at top level</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC throw-toplevel">STATIC throw-toplevel</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+window.addEventListener('error', function(e){
+  var f=String(e.filename);
+  mark('ERR error event message:'+(e.error&&e.error.message)+' file:'+f.slice(f.lastIndexOf('/')+1));
+});
+</script>
+<script>
+mark('ERR statements before throw ran');
+throw new Error('fixture top-level throw');
+</script>
+<p data-m="ERR static after throwing script">ERR static after throwing script</p>
+<script>
+mark('ERR later script ran');
+</script>
+</body>
+</html>

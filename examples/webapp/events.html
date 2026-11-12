@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: events</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC events">STATIC events</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+</script>
+<div id="root"><div id="mid"><span id="leaf">leaf</span></div></div>
+<script>
+check('order', function(){
+  var outer=document.getElementById('root'), inner=document.getElementById('mid'), leaf=document.getElementById('leaf');
+  var order=[], phases='';
+  function rec(name){ return function(e){ order.push(name); phases+=e.eventPhase; }; }
+  outer.addEventListener('ping', rec('bubble-outer'));
+  inner.addEventListener('ping', rec('bubble-inner'));
+  outer.addEventListener('ping', rec('capture-outer'), true);
+  inner.addEventListener('ping', rec('capture-inner'), true);
+  leaf.addEventListener('ping', rec('target'));
+  leaf.dispatchEvent(new Event('ping', {bubbles:true}));
+  mark('EV order '+order.join(' ')+' phases:'+phases);
+});
+</script>
+<script>
+check('stop', function(){
+  var outer=document.getElementById('root'), inner=document.getElementById('mid'), leaf=document.getElementById('leaf');
+  var outerCalls=0, sameNode=0;
+  outer.addEventListener('stopper', function(){ outerCalls++; });
+  inner.addEventListener('stopper', function(e){ e.stopPropagation(); });
+  leaf.addEventListener('imm', function(e){ sameNode++; e.stopImmediatePropagation(); });
+  leaf.addEventListener('imm', function(){ sameNode++; });
+  leaf.dispatchEvent(new Event('stopper', {bubbles:true}));
+  leaf.dispatchEvent(new Event('imm', {bubbles:true}));
+  mark('EV stopPropagation outer:'+outerCalls+' immediate:'+sameNode);
+});
+</script>
+<script>
+check('handleEvent', function(){
+  var leaf=document.getElementById('leaf');
+  var obj={n:0, self:false, handleEvent:function(e){ this.n++; this.self=(this===obj); }};
+  leaf.addEventListener('he', obj);
+  leaf.dispatchEvent(new Event('he'));
+  leaf.removeEventListener('he', obj);
+  leaf.dispatchEvent(new Event('he'));
+  mark('EV handleEvent this:'+obj.self+' count:'+obj.n);
+});
+</script>
+<script>
+check('composedPath', function(){
+  var leaf=document.getElementById('leaf'), during=[], ev=new Event('cp', {bubbles:true});
+  leaf.addEventListener('cp', function(e){ during=e.composedPath(); });
+  leaf.dispatchEvent(ev);
+  mark('EV composedPath length:'+during.length+' first:'+during[0].id+' second:'+during[1].id+' window:'+(during[during.length-1]===window)+' after:'+ev.composedPath().length);
+});
+</script>
+<script>
+check('CustomEvent', function(){
+  var leaf=document.getElementById('leaf'), got=null, tgt=null, cur=null;
+  document.getElementById('root').addEventListener('cv', function(e){ got=e.detail; tgt=e.target; cur=e.currentTarget; });
+  var ev=new CustomEvent('cv', {detail:{a:1}, bubbles:true});
+  leaf.dispatchEvent(ev);
+  mark('EV CustomEvent detail:'+got.a+' isEvent:'+(ev instanceof Event)+' target:'+tgt.id+' currentTarget:'+cur.id);
+});
+</script>
+<script>
+check('preventDefault', function(){
+  var leaf=document.getElementById('leaf');
+  leaf.addEventListener('pd', function(e){ e.preventDefault(); });
+  var ev=new Event('pd', {cancelable:true});
+  var ret=leaf.dispatchEvent(ev);
+  mark('EV preventDefault returned:'+ret+' defaultPrevented:'+ev.defaultPrevented+' trusted:'+ev.isTrusted);
+});
+</script>
+<script>
+check('instanceof', function(){
+  mark('EV instanceof window:'+(window instanceof EventTarget)+' document:'+(document instanceof EventTarget)+' element:'+(document.body instanceof EventTarget)+' node:'+(document instanceof Node));
+});
+</script>
+</body>
+</html>

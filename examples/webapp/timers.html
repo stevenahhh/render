@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: timers and scheduling</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC timers">STATIC timers</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+</script>
+<script>
+check('setTimeout-order', function(){
+  var order=[];
+  setTimeout(function(){ order.push('a'); }, 30);
+  setTimeout(function(){ order.push('b'); }, 10);
+  setTimeout(function(){ order.push('c'); }, 0);
+  setTimeout(function(){ order.push('d'); }, 10);
+  setTimeout(function(){ mark('TM setTimeout order:'+order.join(' ')); }, 60);
+});
+</script>
+<script>
+check('setTimeout-args', function(){
+  setTimeout(function(a, b){ mark('TM setTimeout args:'+a+' '+b); }, 0, 'x', 'y');
+});
+</script>
+<script>
+check('clear', function(){
+  var fired=0, ticks=0;
+  var id=setTimeout(function(){ fired++; }, 5);
+  clearTimeout(id);
+  var iv=setInterval(function(){ ticks++; if (ticks===3) clearInterval(iv); }, 5);
+  setTimeout(function(){ mark('TM clearTimeout fired:'+fired+' setInterval ticks:'+ticks); }, 100);
+});
+</script>
+<script>
+check('microtasks', function(){
+  var order=['sync'];
+  queueMicrotask(function(){ order.push('m1'); });
+  Promise.resolve().then(function(){ order.push('p1'); }).then(function(){ order.push('p2'); });
+  queueMicrotask(function(){ order.push('m2'); });
+  setTimeout(function(){ order.push('timeout'); mark('TM microtasks order:'+order.join(' ')); }, 0);
+  order.push('sync2');
+});
+</script>
+<script>
+check('MessageChannel', function(){
+  var ch=new MessageChannel(), sent={x:5}, sync=true;
+  ch.port1.onmessage=function(e){ mark('TM MessageChannel data:'+e.data.x+' async:'+(!sync)+' cloned:'+(e.data!==sent)); };
+  ch.port2.postMessage(sent);
+  sync=false;
+});
+</script>
+<script>
+check('rAF', function(){
+  var stamps=[];
+  requestAnimationFrame(function(t1){
+    stamps.push(t1);
+    requestAnimationFrame(function(t2){
+      stamps.push(t2);
+      mark('TM requestAnimationFrame fired:'+stamps.length+' ts:'+(typeof t1)+' increasing:'+(t2>=t1));
+    });
+  });
+});
+</script>
+<script>
+check('rIC', function(){
+  requestIdleCallback(function(deadline){
+    mark('TM requestIdleCallback fired:true timeRemaining:'+(typeof deadline.timeRemaining())+' didTimeout:'+(typeof deadline.didTimeout));
+  }, {timeout:200});
+});
+</script>
+</body>
+</html>

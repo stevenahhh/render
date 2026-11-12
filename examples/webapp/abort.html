@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: AbortController and AbortSignal</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC abort">STATIC abort</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+</script>
+<script>
+check('instanceof', function(){
+  var c=new AbortController();
+  mark('AB instanceof signal:'+(c.signal instanceof AbortSignal)+' eventTarget:'+(c.signal instanceof EventTarget)+' aborted:'+c.signal.aborted);
+});
+</script>
+<script>
+check('abort-sync', function(){
+  var c=new AbortController(), fired=0, handler=0;
+  c.signal.addEventListener('abort', function(e){ fired++; window.__abortType=e.type; });
+  c.signal.onabort=function(){ handler++; };
+  c.abort('why');
+  c.abort('again');
+  mark('AB abort sync:'+(fired===1)+' onabort:'+handler+' type:'+window.__abortType+' aborted:'+c.signal.aborted+' reason:'+c.signal.reason);
+});
+</script>
+<script>
+check('default-reason', function(){
+  var c=new AbortController();
+  c.abort();
+  var r=c.signal.reason;
+  mark('AB default reason:'+r.name+' isDOMException:'+(r instanceof DOMException));
+  try { c.signal.throwIfAborted(); } catch (e) { mark('AB throwIfAborted:'+e.name); }
+});
+</script>
+<script>
+check('static-abort', function(){
+  var s=AbortSignal.abort('pre');
+  mark('AB AbortSignal.abort aborted:'+s.aborted+' reason:'+s.reason);
+});
+</script>
+<script>
+check('timeout', function(){
+  var s=AbortSignal.timeout(30), early=s.aborted;
+  setTimeout(function(){ mark('AB AbortSignal.timeout early:'+early+' later:'+s.aborted+' reason:'+(s.reason&&s.reason.name)); }, 200);
+});
+</script>
+<script>
+check('any', function(){
+  var a=new AbortController(), b=new AbortController();
+  var s=AbortSignal.any([a.signal, b.signal]), early=s.aborted;
+  b.abort('bee');
+  mark('AB AbortSignal.any early:'+early+' aborted:'+s.aborted+' reason:'+s.reason);
+});
+</script>
+<script>
+check('listener-signal', function(){
+  var t=document.createElement('div'), c=new AbortController(), n=0;
+  t.addEventListener('ping', function(){ n++; }, {signal:c.signal});
+  t.dispatchEvent(new Event('ping'));
+  c.abort();
+  t.dispatchEvent(new Event('ping'));
+  mark('AB addEventListener signal count:'+n);
+});
+</script>
+<script>
+check('once', function(){
+  var t=document.createElement('div'), n=0;
+  t.addEventListener('ping', function(){ n++; }, {once:true});
+  t.dispatchEvent(new Event('ping'));
+  t.dispatchEvent(new Event('ping'));
+  mark('AB addEventListener once count:'+n);
+});
+</script>
+<script>
+check('capture', function(){
+  var parent=document.createElement('div'), child=document.createElement('span'), order=[];
+  parent.appendChild(child);
+  document.body.appendChild(parent);
+  var cap=function(){ order.push('capture'); };
+  parent.addEventListener('ping', function(){ order.push('bubble'); });
+  parent.addEventListener('ping', cap, {capture:true});
+  child.addEventListener('ping', function(){ order.push('target'); });
+  child.dispatchEvent(new Event('ping', {bubbles:true}));
+  parent.removeEventListener('ping', cap, {capture:true});
+  var before=order.length;
+  child.dispatchEvent(new Event('ping', {bubbles:true}));
+  mark('AB addEventListener capture order:'+order.slice(0, before).join(' ')+' removed:'+(order.indexOf('capture', before)===-1));
+});
+</script>
+</body>
+</html>

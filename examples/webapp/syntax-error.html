@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: script with a syntax error</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC syntax-error">STATIC syntax-error</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+window.addEventListener('error', function(e){
+  mark('SYN error event SyntaxError:'+(e.error instanceof SyntaxError));
+});
+</script>
+<script>
+window.__brokenRan = true;
+var x = ;
+</script>
+<p data-m="SYN static after broken script">SYN static after broken script</p>
+<script>
+mark('SYN later script ran brokenRan:'+(window.__brokenRan === true));
+</script>
+</body>
+</html>

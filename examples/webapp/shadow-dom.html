@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: shadow DOM</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}
+.leak{display:block;width:77px}</style>
+</head>
+<body>
+<h1 data-m="STATIC shadow-dom">STATIC shadow-dom</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+</script>
+<div id="host"><span id="light">LIGHT</span><span slot="title" id="titled">TITLE</span><span slot="nowhere" id="unslotted">UNSLOTTED</span></div>
+<p id="lp">outside paragraph</p>
+<script>
+check('attach', function(){
+  var host=document.getElementById('host');
+  var root=host.attachShadow({mode:'open'});
+  root.innerHTML='<style>p{display:block;width:123px;margin:0}</style>'+
+    '<p id="sp">inside</p><div class="leak" id="sl">leak</div>'+
+    '<h3><slot name="title">fallback-title</slot></h3>'+
+    '<div><slot id="defslot"><i id="fbd">fallback-default</i></slot></div>'+
+    '<div><slot name="missing"><b id="fb">fallback-missing</b></slot></div>';
+  mark('SD attachShadow mode:'+root.mode+' same:'+(host.shadowRoot===root)+' host:'+(root.host===host));
+});
+</script>
+<script>
+check('slot-assign', function(){
+  var root=document.getElementById('host').shadowRoot;
+  var named=root.querySelector('slot[name=title]').assignedElements()[0].id;
+  var def=root.getElementById('defslot').assignedNodes().map(function(n){return n.id;}).join(' ');
+  mark('SD slot assigned default:'+def+' named:'+named);
+});
+</script>
+<script>
+check('slot-render', function(){
+  var light=document.getElementById('light').getBoundingClientRect().width;
+  var unslotted=document.getElementById('unslotted').getBoundingClientRect().width;
+  mark('SD slot render slotted:'+(light>0?'visible':'hidden')+' unslotted:'+(unslotted>0?'visible':'hidden'));
+});
+</script>
+<script>
+check('slot-fallback', function(){
+  var root=document.getElementById('host').shadowRoot;
+  var missing=root.getElementById('fb').getBoundingClientRect().width;
+  var filled=root.getElementById('fbd').getBoundingClientRect().width;
+  mark('SD slot fallback missing:'+(missing>0?'shown':'hidden')+' filled:'+(filled>0?'shown':'hidden'));
+});
+</script>
+<script>
+check('style-scope', function(){
+  var root=document.getElementById('host').shadowRoot;
+  var inside=root.getElementById('sp').getBoundingClientRect().width;
+  var outside=document.getElementById('lp').getBoundingClientRect().width;
+  var leak=root.getElementById('sl').getBoundingClientRect().width;
+  mark('SD style scoped inside:'+Math.round(inside)+' outside:'+(Math.round(outside)===123?'123':'other')+' docRule:'+(Math.round(leak)===77?'leaked':'blocked'));
+});
+</script>
+<script>
+check('querySelector', function(){
+  var root=document.getElementById('host').shadowRoot;
+  mark('SD querySelector inside:'+(root.querySelector('#sp')?'found':'null')+' document:'+(document.querySelector('#sp')?'found':'null'));
+});
+</script>
+<script>
+check('attach-twice', function(){
+  try { document.getElementById('host').attachShadow({mode:'open'}); mark('SD attachShadow twice allowed'); }
+  catch (e) { mark('SD attachShadow twice throws:'+e.name); }
+});
+</script>
+</body>
+</html>

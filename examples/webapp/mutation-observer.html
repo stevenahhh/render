@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: MutationObserver</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC mutation-observer">STATIC mutation-observer</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+function box(){var t=document.createElement('div');document.body.appendChild(t);return t;}
+</script>
+<script>
+check('childList', function(){
+  var t=box(), calls=0, recs=[], same=false;
+  var mo=new MutationObserver(function(list, obs){ calls++; recs=recs.concat(list); same=(obs===mo); });
+  mo.observe(t, {childList:true});
+  var a=document.createElement('i'), b=document.createElement('i');
+  t.appendChild(a); t.appendChild(b); t.removeChild(a);
+  var sync=calls;
+  setTimeout(function(){
+    var added=0, removed=0;
+    recs.forEach(function(r){ added+=r.addedNodes.length; removed+=r.removedNodes.length; });
+    mark('MO childList calls:'+calls+' records:'+recs.length+' added:'+added+' removed:'+removed+' sync:'+sync+' type:'+recs[0].type+' observer:'+same);
+  }, 0);
+});
+</script>
+<script>
+check('attributes', function(){
+  var t=box(), recs=[];
+  var mo=new MutationObserver(function(list){ recs=recs.concat(list); });
+  mo.observe(t, {attributes:true, attributeOldValue:true, attributeFilter:['data-x']});
+  t.setAttribute('data-x','1');
+  t.setAttribute('title','ignored');
+  t.setAttribute('data-x','2');
+  setTimeout(function(){
+    mark('MO attributes records:'+recs.length+' names:'+recs.map(function(r){return r.attributeName;}).join(' ')+
+      ' old:'+recs.map(function(r){return String(r.oldValue);}).join(' '));
+  }, 0);
+});
+</script>
+<script>
+check('characterData', function(){
+  var t=box(), recs=[];
+  var tx=document.createTextNode('old');
+  t.appendChild(tx);
+  var mo=new MutationObserver(function(list){ recs=recs.concat(list); });
+  mo.observe(tx, {characterData:true, characterDataOldValue:true});
+  tx.data='new';
+  setTimeout(function(){
+    mark('MO characterData records:'+recs.length+' type:'+recs[0].type+' old:'+recs[0].oldValue+' now:'+recs[0].target.data);
+  }, 0);
+});
+</script>
+<script>
+check('subtree', function(){
+  var outer=box(), inner=document.createElement('section');
+  inner.id='inner';
+  outer.appendChild(inner);
+  var deep=[], shallow=[];
+  new MutationObserver(function(l){ deep=deep.concat(l); }).observe(outer, {childList:true, subtree:true});
+  new MutationObserver(function(l){ shallow=shallow.concat(l); }).observe(outer, {childList:true});
+  inner.appendChild(document.createElement('span'));
+  setTimeout(function(){
+    mark('MO subtree records:'+deep.length+' target:'+deep[0].target.id+' noSubtree:'+shallow.length);
+  }, 0);
+});
+</script>
+<script>
+check('microtask', function(){
+  var t=box(), order=[], calls=0;
+  new MutationObserver(function(){ calls++; order.push('mo'); }).observe(t, {childList:true});
+  t.appendChild(document.createElement('i'));
+  Promise.resolve().then(function(){ order.push('promise'); });
+  t.appendChild(document.createElement('i'));
+  order.push('sync');
+  setTimeout(function(){ mark('MO microtask order:'+order.join(' ')+' calls:'+calls); }, 0);
+});
+</script>
+<script>
+check('disconnect', function(){
+  var t=box(), calls=0;
+  var mo=new MutationObserver(function(){ calls++; });
+  mo.observe(t, {childList:true, attributes:true});
+  t.appendChild(document.createElement('i'));
+  mo.disconnect();
+  t.setAttribute('data-after','1');
+  t.appendChild(document.createElement('i'));
+  setTimeout(function(){ mark('MO disconnect calls:'+calls); }, 0);
+});
+</script>
+<script>
+check('takeRecords', function(){
+  var t=box(), calls=0;
+  var mo=new MutationObserver(function(){ calls++; });
+  mo.observe(t, {childList:true});
+  t.appendChild(document.createElement('i'));
+  t.appendChild(document.createElement('i'));
+  var taken=mo.takeRecords();
+  setTimeout(function(){ mark('MO takeRecords taken:'+taken.length+' type:'+taken[0].type+' laterCalls:'+calls); }, 0);
+});
+</script>
+</body>
+</html>

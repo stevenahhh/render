@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: DOM traversal and identity</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}
+#sb,#lw{display:block;padding:0;border:0;margin:0}</style>
+</head>
+<body>
+<h1 data-m="STATIC dom-traversal">STATIC dom-traversal</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+</script>
+<div id="cm"><!--hi--></div>
+<div id="tw"><p>a</p><span>b</span><p>c<em>d</em></p></div>
+<div id="idn"><b>one</b></div>
+<div id="live"><i>x</i></div>
+<div id="at" data-k="v1"></div>
+<div id="sb" style="height:10px">styled box</div>
+<div id="lw" style="height:5px"></div>
+<script>
+check('comment', function(){
+  var c=document.createComment('made');
+  var parsed=document.getElementById('cm').firstChild;
+  mark('DOM createComment nodeType:'+c.nodeType+' name:'+c.nodeName+' data:'+c.data+' parsed:'+parsed.nodeType+' '+parsed.data);
+});
+</script>
+<script>
+check('treewalker', function(){
+  var root=document.getElementById('tw'), els=[], texts=[];
+  var w=document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT, {acceptNode:function(n){
+    return n.tagName==='P' ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+  }});
+  while (w.nextNode()) els.push(w.currentNode.tagName);
+  var t=document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  while (t.nextNode()) texts.push(t.currentNode.data);
+  mark('DOM createTreeWalker elements:'+els.join(' ')+' text:'+texts.join('')+' root:'+(w.root===root));
+});
+</script>
+<script>
+check('identity', function(){
+  var el=document.getElementById('idn');
+  mark('DOM identity firstChild:'+(el.firstChild===el.firstChild)+' childNodes:'+(el.childNodes[0]===el.firstChild)+
+    ' query:'+(document.getElementById('idn')===document.querySelector('#idn'))+' parent:'+(el.firstChild.parentNode===el));
+});
+</script>
+<script>
+check('live', function(){
+  var el=document.getElementById('live'), kids=el.childNodes, ch=el.children;
+  var k0=kids.length, c0=ch.length;
+  el.appendChild(document.createTextNode('t'));
+  el.appendChild(document.createElement('u'));
+  mark('DOM live childNodes:'+k0+'to'+kids.length+' children:'+c0+'to'+ch.length+' sameList:'+(kids===el.childNodes));
+});
+</script>
+<script>
+check('getElementById', function(){
+  var d=document.createElement('div');
+  d.id='dyn-created';
+  document.body.appendChild(d);
+  var h=document.createElement('div');
+  document.body.appendChild(h);
+  h.innerHTML='<span id="dyn-inner">x</span>';
+  var created=document.getElementById('dyn-created')===d;
+  var inner=document.getElementById('dyn-inner')!==null;
+  document.body.removeChild(d);
+  mark('DOM getElementById created:'+created+' innerHTML:'+inner+' removed:'+document.getElementById('dyn-created'));
+});
+</script>
+<script>
+check('classList', function(){
+  var el=document.createElement('div');
+  el.className='a b';
+  el.classList.add('c', 'd');
+  el.classList.remove('b');
+  var t=el.classList.toggle('e');
+  var t2=el.classList.toggle('e');
+  mark('DOM classList result:'+el.className+' contains:'+el.classList.contains('c')+' toggle:'+t+' '+t2+' length:'+el.classList.length);
+});
+</script>
+<script>
+check('attributes', function(){
+  var el=document.getElementById('at');
+  mark('DOM attributes length:'+el.attributes.length+' named:'+el.attributes.getNamedItem('data-k').value+' first:'+el.attributes[0].name+' item:'+el.attributes.item(1).name);
+});
+</script>
+<script id="cs">
+check('currentScript', function(){
+  var now=document.currentScript;
+  setTimeout(function(){ mark('DOM currentScript id:'+(now&&now.id)+' later:'+document.currentScript); }, 0);
+});
+</script>
+<script>
+check('dynamic-inline', function(){
+  var s=document.createElement('script');
+  s.textContent='window.__inl=(window.__inl||0)+1;';
+  document.body.appendChild(s);
+  var sync=window.__inl===1;
+  document.body.removeChild(s);
+  document.body.appendChild(s);
+  mark('DOM dynamic script inline sync:'+sync+' rerun:'+(window.__inl===1?'no':'yes'));
+});
+</script>
+<script>
+check('dynamic-src', function(){
+  var s=document.createElement('script');
+  s.src='dyn-script.js';
+  s.onload=function(){ mark('DOM dynamic script src:'+window.__dynsrc+' onload:true current:'+window.__dynsrcCurrent); };
+  s.onerror=function(){ console.log('FIXTURE dyn-script.js failed to load'); };
+  document.head.appendChild(s);
+});
+</script>
+<script>
+check('dynamic-style', function(){
+  var sb=document.getElementById('sb');
+  var st=document.createElement('style');
+  st.textContent='#sb{width:137px}';
+  document.head.appendChild(st);
+  var applied=Math.round(sb.getBoundingClientRect().width);
+  document.head.removeChild(st);
+  var after=Math.round(sb.getBoundingClientRect().width);
+  mark('DOM dynamic style applied:'+applied+' removed:'+(after!==137?'reverted':'stuck'));
+});
+</script>
+<script>
+check('layout-fresh', function(){
+  var el=document.getElementById('lw');
+  el.style.width='50px';
+  var first=Math.round(el.getBoundingClientRect().width);
+  el.style.width='90px';
+  var second=Math.round(el.getBoundingClientRect().width);
+  mark('DOM layout read after write first:'+first+' second:'+second+' offsetWidth:'+el.offsetWidth);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: ES modules</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC modules">STATIC modules</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+</script>
+<script type="module">
+import add1, { value } from './mod-a.js';
+mark('MOD static import result:' + add1(value));
+var moduleVar = 'm';
+mark('MOD scope strict:' + (function () { return this === undefined; })() + ' noLeak:' + (typeof window.moduleVar === 'undefined'));
+mark('MOD deferred sawLater:' + (document.getElementById('after-modules') !== null));
+</script>
+<script type="module">
+const v = await new Promise(function (r) { setTimeout(function () { r(7); }, 10); });
+mark('MOD top-level await value:' + v);
+</script>
+<script type="module" src="mod-meta.js"></script>
+<script>
+check('dynamic', function(){
+  import('./mod-dyn.js').then(function(m){
+    mark('MOD dynamic import value:'+m.dyn+' default:'+m.default);
+  }, function(e){ console.log('FIXTURE dynamic import rejected: '+e); });
+});
+</script>
+<p id="after-modules">after the module scripts</p>
+</body>
+</html>
