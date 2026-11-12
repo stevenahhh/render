@@ -372,9 +372,75 @@ fn decode(path: &std::path::Path, w: u32, h: u32) -> Option<Picture> {
     } else if w <= img.width() && h <= img.height() {
         image::imageops::thumbnail(&img, w, h)
     } else {
-        image::imageops::resize(&img, w, h, image::imageops::FilterType::Triangle)
+        return Some(Picture { w, h, px: enlarge(&img, w, h) });
     };
     Some(Picture { w, h, px: img.as_raw().chunks_exact(4).map(premultiply).collect() })
+}
+
+/// Output rows `enlarge` resamples at a time.
+const BAND: u32 = 32;
+
+/// Where the source pixels of output pixel `o` start, and their weights, for a
+/// triangle filter scaling `n_in` pixels to `n_out` (`image::imageops::resize`'s sums).
+fn triangle_weights(n_in: u32, n_out: u32, o: u32) -> (u32, Vec<f32>) {
+    let ratio = n_in as f32 / n_out as f32;
+    let sratio = if ratio < 1.0 { 1.0 } else { ratio };
+    let input = (o as f32 + 0.5) * ratio;
+    let left = ((input - sratio).floor() as i64).clamp(0, i64::from(n_in) - 1);
+    let right = ((input + sratio).ceil() as i64).clamp(left + 1, i64::from(n_in));
+    let input = input - 0.5;
+    let mut ws: Vec<f32> = (left..right)
+        .map(|i| {
+            let x = (i as f32 - input) / sratio;
+            if x.abs() < 1.0 { 1.0 - x.abs() } else { 0.0 }
+        })
+        .collect();
+    let sum = ws.iter().fold(0.0f32, |s, w| s + w);
+    for w in &mut ws {
+        *w /= sum;
+    }
+    (left as u32, ws)
+}
+
+/// `image::imageops::resize` with the triangle filter, premultiplied: the same sums in
+/// the same order, so the same pixels, but the vertical pass is kept for `BAND` rows at
+/// a time instead of in a float copy of the whole image at its new height.
+fn enlarge(img: &image::RgbaImage, w: u32, h: u32) -> Vec<u32> {
+    let (sw, sh) = img.dimensions();
+    let src = img.as_raw();
+    let cols: Vec<(u32, Vec<f32>)> = (0..w).map(|x| triangle_weights(sw, w, x)).collect();
+    let mut out = Vec::with_capacity(w as usize * h as usize);
+    let mut band = vec![[0.0f32; 4]; sw as usize * BAND.min(h) as usize];
+    for y0 in (0..h).step_by(BAND as usize) {
+        let rows = BAND.min(h - y0);
+        for r in 0..rows {
+            let (top, ws) = triangle_weights(sh, h, y0 + r);
+            for x in 0..sw as usize {
+                let mut t = [0.0f32; 4];
+                for (i, w) in ws.iter().enumerate() {
+                    let p = (top as usize + i) * sw as usize * 4 + x * 4;
+                    for c in 0..4 {
+                        t[c] += f32::from(src[p + c]) * w;
+                    }
+                }
+                band[r as usize * sw as usize + x] = t;
+            }
+        }
+        for r in 0..rows as usize {
+            for (left, ws) in &cols {
+                let mut t = [0.0f32; 4];
+                for (i, w) in ws.iter().enumerate() {
+                    let v = band[r * sw as usize + *left as usize + i];
+                    for c in 0..4 {
+                        t[c] += v[c] * w;
+                    }
+                }
+                let px = t.map(|v| (if v < 0.0 { 0.0 } else if v > 255.0 { 255.0 } else { v }).round() as u8);
+                out.push(premultiply(&px));
+            }
+        }
+    }
+    out
 }
 
 /// The part `keep` (`[x0, y0, x1, y1]`) of the image scaled to `w` x `h`: the matching
@@ -408,4 +474,18 @@ fn rasterize(tree: &usvg::Tree, w: u32, h: u32) -> Option<Picture> {
     resvg::render(tree, scale, &mut pm.as_mut());
     let px = pm.data().chunks_exact(4).map(|p| (p[3] as u32) << 24 | (p[0] as u32) << 16 | (p[1] as u32) << 8 | p[2] as u32).collect();
     Some(Picture { w, h, px })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enlarging_in_bands_gives_the_pixels_of_a_whole_image_resize() {
+        let src = image::RgbaImage::from_fn(37, 23, |x, y| image::Rgba([(x * 7 + y * 3) as u8, (x * y) as u8, (255 - x * 5) as u8, if (x + y) % 5 == 0 { 255 } else { (x * 11 + y * 13) as u8 }]));
+        for (w, h) in [(80, 23), (37, 71), (90, 100), (50, 10), (20, 90), (41, 24)] {
+            let want: Vec<u32> = image::imageops::resize(&src, w, h, image::imageops::FilterType::Triangle).as_raw().chunks_exact(4).map(premultiply).collect();
+            assert_eq!(enlarge(&src, w, h), want, "{w}x{h}");
+        }
+    }
 }
