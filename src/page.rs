@@ -351,7 +351,8 @@ impl Page {
             dom.text_content(t, &mut title);
         }
         let scripts = scripts_of(&dom);
-        let parsed_resources = resource_nodes(&dom);
+        // Only scripts are owed the load and error events of these.
+        let parsed_resources = if scripts.is_empty() { Vec::new() } else { resource_nodes(&dom) };
         let mut page = Page {
             dom,
             sheet,
