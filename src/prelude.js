@@ -1841,7 +1841,7 @@
     let delay = Math.max(0, +ms || 0);
     // Deeply nested timers wait at least 4 ms, as in browsers.
     if (nesting >= 5 && delay < 4) delay = 4;
-    tasks.push({ id: nextTask, fn, at: __now() + delay, seq: ++seq, every: every ? Math.max(4, delay) : 0, args, kind, nest: nesting + 1 });
+    tasks.push({ id: nextTask, fn, at: __now() + delay, seq: ++seq, every: every ? Math.max(4, delay) : 0, args, kind, nest: nesting + 1, want: ms });
     return nextTask++;
   };
   $.addTimer = addTimer;
@@ -1854,6 +1854,8 @@
   // timers they set keep coming due. A turn that has been busy for 250 ms hands
   // control back to the host, so its limit on the page's time holds in a turn too.
   let busySince = -1;
+  // The task `tick` ran last and how late it ran, for the host's timer log.
+  let ran = null, ranLate = 0;
   // An exception a task threw that could not be reported then.
   let unreported = false, unreportedError;
   // Runs the earliest due task. Returns 0 after running one, else milliseconds
@@ -1891,6 +1893,8 @@
         return 0.001;
       }
     }
+    ran = t;
+    ranLate = now - t.at;
     if (t.every) { t.at = now + t.every; t.seq = ++seq; } else tasks.splice(best, 1);
     nesting = t.nest;
     try {
@@ -2291,6 +2295,14 @@
       return frameBatch.length;
     },
     framesQueued() { return frameCallbacks.length; },
+    // The task `tick` ran last, for the host's timer log.
+    lastTask() {
+      const t = ran;
+      if (!t) return '';
+      const kind = t.kind || (t.every ? 'interval' : 'timeout');
+      const src = String(__unbound(t.fn)).slice(0, 160).replace(/\s+/g, ' ');
+      return `id ${t.id} ${kind} want ${t.want} nest ${t.nest} late ${ranLate.toFixed(1)} queued ${tasks.length} frames ${frameCallbacks.length} fn ${t.fn.name || '?'}: ${src}`;
+    },
     visibility(hidden, quiet) {
       if (pageHidden === hidden) return;
       pageHidden = hidden;

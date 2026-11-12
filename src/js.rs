@@ -11,6 +11,7 @@ use crate::net::{Site, Wake};
 use crate::page::Page;
 use crate::url::Url;
 use crate::{style, FxMap};
+use boa_engine::builtins::function::BoundFunction;
 use boa_engine::builtins::is_html_dda::IsHTMLDDA;
 use boa_engine::builtins::promise::{OperationType, Promise, PromiseState};
 use boa_engine::context::HostHooks;
@@ -108,6 +109,26 @@ fn js_error(message: String) -> JsError {
 /// A node index that scripts passed in, checked against the arena.
 fn live(dom: &Dom, n: NodeId) -> Option<NodeId> {
     ((n as usize) < dom.nodes.len()).then_some(n)
+}
+
+/// With `RENDER_TIMER_LOG` set, every timer task a window runs is reported on stderr:
+/// when, how long it took with its microtasks, its id, kind, requested delay, nesting,
+/// how late it ran, how many tasks and frame callbacks wait, and its function's source.
+fn timer_log() -> bool {
+    static LOG: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *LOG.get_or_init(|| std::env::var_os("RENDER_TIMER_LOG").is_some())
+}
+
+/// The function a bound function calls in the end, for the timer log; others as they are.
+fn unbound(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+    let Some(mut f) = a.first().and_then(JsValue::as_object).map(|o| o.clone()) else { return Ok(JsValue::undefined()) };
+    loop {
+        let target = f.downcast_ref::<BoundFunction>().map(|b| b.target_function().clone());
+        match target {
+            Some(t) => f = t,
+            None => return Ok(f.into()),
+        }
+    }
 }
 
 fn log(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
@@ -888,6 +909,7 @@ fn abort_fetch(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValu
 
 const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__log", 1, log),
+    ("__unbound", 1, unbound),
     ("__tag", 1, tag),
     ("__link", 2, link),
     ("__attr", 2, attr),
@@ -1449,7 +1471,14 @@ impl Js {
     pub fn timers(&mut self) -> Option<f64> {
         loop {
             self.answers();
+            let started = timer_log().then(std::time::Instant::now);
             let next = self.call("tick", &[])?.as_number()?;
+            if let (Some(started), true) = (started, next == 0.0) {
+                let ms = started.elapsed().as_secs_f64() * 1e3;
+                let task = self.call("lastTask", &[]).and_then(|v| v.as_string().map(|s| s.to_std_string_escaped())).unwrap_or_default();
+                let at = START.with(|s| s.elapsed().as_secs_f64());
+                eprintln!("[timer] {at:.3}s {ms:.2} ms {task}");
+            }
             if next != 0.0 {
                 return (next > 0.0).then_some(next);
             }
