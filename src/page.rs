@@ -1,7 +1,7 @@
 //! A loaded document: DOM, stylesheet, computed styles and layout.
 
-use crate::css::{FontFace, Sheet};
-use crate::dom::{atom, parse_html, Dom, NodeId, HAS_SHEET, NONE};
+use crate::css::{Compound, FontFace, Pseudo, Sheet};
+use crate::dom::{atom, parse_html, Atom, Dom, NodeId, HAS_SHEET, NONE};
 use crate::font::Fonts;
 use crate::url::Url;
 use crate::img::Images;
@@ -243,6 +243,8 @@ pub struct Page {
     url: Url,
     /// CSS of the sheets the document adopted.
     adopted: String,
+    /// Attributes that some selector of `sheet` tests.
+    sheet_attrs: FxMap<Atom, ()>,
     /// Set for a page opened from the web: its URL and downloaded resources.
     site: Option<Arc<Site>>,
     /// Keep every element's box in the layout. Set before the first `update`.
@@ -266,6 +268,29 @@ pub struct Page {
 /// The address of a page from the web, as scripts see it.
 fn web_url(site: &Site) -> Url {
     Url::parse(&site.url.to_string(), None).unwrap_or_default()
+}
+
+/// The attributes that some selector of `sheet` tests.
+fn selector_attrs(sheet: &Sheet) -> FxMap<Atom, ()> {
+    fn walk(c: &Compound, out: &mut FxMap<Atom, ()>) {
+        for a in &c.attrs {
+            out.insert(a.name, ());
+        }
+        for p in &c.pseudos {
+            match p {
+                Pseudo::Not(inner) => walk(inner, out),
+                Pseudo::Has(parts) => parts.iter().for_each(|part| walk(&part.c, out)),
+                _ => {}
+            }
+        }
+    }
+    let mut out = FxMap::default();
+    for sel in &sheet.sels {
+        for part in &sel.parts {
+            walk(&part.c, &mut out);
+        }
+    }
+    out
 }
 
 /// Moves a sheet's `@font-face` rules out, to be shared with the font matcher.
@@ -303,6 +328,7 @@ impl Page {
             dom.text_content(t, &mut title);
         }
         let scripts = scripts_of(&dom);
+        let sheet_attrs = selector_attrs(&sheet);
         let mut page = Page {
             dom,
             sheet,
@@ -325,6 +351,7 @@ impl Page {
             pending: Vec::new(),
             url,
             adopted: String::new(),
+            sheet_attrs,
             site: site.clone(),
             record_boxes: false,
             css_left_out,
@@ -374,6 +401,7 @@ impl Page {
             pending: Vec::new(),
             url: Url::default(),
             adopted: String::new(),
+            sheet_attrs: FxMap::default(),
             site: None,
             record_boxes: false,
             css_left_out: Vec::new(),
@@ -478,14 +506,28 @@ impl Page {
         tag(n) == atom::STYLE || (parent != NONE && tag(parent) == atom::STYLE)
     }
 
-    pub(crate) fn attr_changed(&mut self, n: NodeId) {
-        self.touch();
+    /// Notes a change of the attribute `name`. One that no selector tests changes
+    /// no style, so only the layout, which reads `src`, `width` and the like, is redone.
+    pub(crate) fn attr_changed(&mut self, n: NodeId, name: Atom) {
         self.sheet_dirty |= matches!(self.dom.nodes[n as usize].tag, atom::LINK | atom::STYLE);
+        if self.sheet_dirty || self.sheet_attrs.contains_key(&name) || matches!(name, atom::CLASS | atom::ID | atom::STYLE | atom::HREF | atom::POSTER) {
+            self.touch();
+        } else {
+            self.stale = true;
+            self.dirty = true;
+        }
     }
 
+    /// Notes new data in a text or comment node: a new layout, and for the text
+    /// of a `<style>` a new style sheet.
     pub(crate) fn text_changed(&mut self, n: NodeId) {
-        self.touch();
-        self.sheet_dirty |= self.in_style(n);
+        if self.in_style(n) {
+            self.sheet_dirty = true;
+            self.touch();
+        } else {
+            self.stale = true;
+            self.dirty = true;
+        }
     }
 
     /// Notes that `n` is about to leave its parent, or has just been inserted.
@@ -684,6 +726,7 @@ impl Page {
             css = self.css_left_out.len().saturating_sub(left_out.len());
             self.web_faces = take_faces(&mut sheet);
             self.sheet = sheet;
+            self.sheet_attrs = selector_attrs(&self.sheet);
             self.viewport_units |= units;
             self.styles.clear();
             self.css_left_out = left_out;
@@ -759,6 +802,7 @@ impl Page {
             let (mut sheet, units, left_out) = style_sheet(&mut self.dom, self.base.as_deref(), self.site.as_deref(), self.wait, &self.adopted);
             self.web_faces = take_faces(&mut sheet);
             self.sheet = sheet;
+            self.sheet_attrs = selector_attrs(&self.sheet);
             self.viewport_units |= units;
             self.css_left_out = left_out;
         }

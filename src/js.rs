@@ -161,7 +161,7 @@ fn set_attr(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> 
             return Some(());
         }
         dom.set_attr(n, &name, value.as_deref());
-        h.page.attr_changed(n);
+        h.page.attr_changed(n, atom);
         Some(())
     });
     Ok(JsValue::undefined())
