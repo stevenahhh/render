@@ -1302,6 +1302,14 @@ impl Js {
         self.call("resized", &[]);
     }
 
+    /// Fires events that do not bubble, as `load` and `error` of a resource, in
+    /// order and in one call into the page.
+    pub fn fire(&mut self, events: &[(NodeId, &str)]) {
+        let list = events.iter().flat_map(|&(node, event)| [js_id(node), js_str(event)]).collect();
+        let list = js_array(list, &mut self.ctx);
+        self.call("fire", &[list]);
+    }
+
     /// Dispatches a bubbling event; true when a listener prevented the default.
     pub fn dispatch(&mut self, node: NodeId, event: &str) -> bool {
         self.call("dispatch", &[js_id(node), js_str(event)]).is_some_and(|v| v.to_boolean())

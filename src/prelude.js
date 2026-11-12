@@ -169,6 +169,8 @@
   const EVENT_NAMES = { event: 'Event', events: 'Event', htmlevents: 'Event', svgevents: 'Event', customevent: 'CustomEvent', uievent: 'UIEvent', uievents: 'UIEvent', mouseevent: 'MouseEvent', mouseevents: 'MouseEvent', keyboardevent: 'KeyboardEvent', keyevents: 'KeyboardEvent', focusevent: 'FocusEvent', messageevent: 'MessageEvent', touchevent: 'TouchEvent', wheelevent: 'WheelEvent', dragevent: 'DragEvent', compositionevent: 'CompositionEvent', hashchangeevent: 'HashChangeEvent', storageevent: 'StorageEvent', errorevent: 'ErrorEvent', popstateevent: 'PopStateEvent', textevent: 'CompositionEvent' };
 
   const LISTENERS = Symbol('listeners');
+  // Event types some listener was added for in the capture phase, ever.
+  const capturing = new Set();
   // Listener options: a boolean is the capture flag.
   const flags = (o) => (o !== null && typeof o === 'object' ? { capture: !!o.capture, once: !!o.once, passive: !!o.passive, signal: o.signal } : { capture: !!o });
 
@@ -189,6 +191,7 @@
       for (const l of list) if (l.callback === callback && l.capture === o.capture) return;
       const l = { callback, capture: o.capture, once: o.once, passive: o.passive, removed: false };
       list.push(l);
+      if (o.capture) capturing.add(type);
       if (o.signal) o.signal.addEventListener('abort', () => removeListener(t, type, l));
     }
     removeEventListener(type, callback, options) {
@@ -2263,6 +2266,19 @@
         : new Event(type, { bubbles: true, cancelable: true });
       ev.isTrusted = true;
       return !dispatch(wrap(id), ev);
+    },
+    // An event that does not bubble reaches other nodes than its target only
+    // through capture listeners: with none for its type, and no listener or
+    // handler on the target, nothing can see it and it is not dispatched.
+    fire(list) {
+      for (let i = 0; i < list.length; i += 2) {
+        const n = wrap(list[i]), type = list[i + 1];
+        const own = n[LISTENERS] && n[LISTENERS].get(type);
+        if (!capturing.has(type) && !(own && own.length) && !handlerOf(n, type)) continue;
+        const ev = new Event(type);
+        ev.isTrusted = true;
+        dispatch(n, ev);
+      }
     },
     load() {
       readyState = 'interactive';

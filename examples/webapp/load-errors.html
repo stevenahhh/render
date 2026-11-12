@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: load and error events of resources</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+<script>
+var seen = { scriptMissing: [], scriptPresent: [], linkMissing: [], linkPresent: [], imgMissing: [], imgPresent: [] };
+var captured = [];
+window.addEventListener('error', function(e){ if (e.target !== window) captured.push(e.target.tagName); }, true);
+function note(name, type){ seen[name].push(type); }
+</script>
+<script src="load-missing.js" onload="note('scriptMissing','load')" onerror="note('scriptMissing','error')"></script>
+<script src="load-ok.js" onload="note('scriptPresent','load')" onerror="note('scriptPresent','error')"></script>
+<link rel="stylesheet" href="load-missing.css" onload="note('linkMissing','load')" onerror="note('linkMissing','error')">
+<link rel="stylesheet" href="load-ok.css" onload="note('linkPresent','load')" onerror="note('linkPresent','error')">
+</head>
+<body>
+<h1 data-m="STATIC load-errors">STATIC load-errors</h1>
+<img src="load-missing.png" alt="" onload="note('imgMissing','load')" onerror="note('imgMissing','error')">
+<img src="load-ok.svg" alt="" onload="note('imgPresent','load')" onerror="note('imgPresent','error')">
+<img id="changed" src="load-missing.png" alt="">
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+var changed = document.getElementById('changed'), changedEvents = [];
+changed.onload = function(){ changedEvents.push('load'); };
+changed.onerror = function(){ changedEvents.push('error'); };
+changed.src = 'load-ok.svg';
+var made = document.createElement('img'), madeEvents = [];
+made.onload = function(){ madeEvents.push('load'); };
+made.onerror = function(){ madeEvents.push('error'); };
+made.src = 'load-ok.svg';
+document.body.appendChild(made);
+window.addEventListener('load', function(){
+  setTimeout(function(){ mark('LE img by script:' + madeEvents.join(',') + ' changed:' + changedEvents.join(',')); }, 200);
+  mark('LE script missing:' + seen.scriptMissing.join(','));
+  mark('LE script present:' + seen.scriptPresent.join(',') + ' ran:' + (window.loadOkRan === true));
+  mark('LE link missing:' + seen.linkMissing.join(','));
+  mark('LE link present:' + seen.linkPresent.join(','));
+  mark('LE img missing:' + seen.imgMissing.join(','));
+  mark('LE img present:' + seen.imgPresent.join(','));
+  mark('LE window capture:' + captured.slice().sort().join(','));
+});
+</script>
+</body>
+</html>

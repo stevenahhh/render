@@ -150,3 +150,12 @@ bogus-comments.html	BC atob InvalidCharacterError/true/The string contains inval
 bogus-comments.html	BC queueMicrotask TypeError/false/Argument 1 callback to Window.queueMicrotask must be a function
 modal.html	STATIC modal
 modal.html	MO supports:true matches:true/false/1 inner:20 closed:false/0 plain:block/none
+load-errors.html	STATIC load-errors
+load-errors.html	LE script missing:error
+load-errors.html	LE script present:load ran:true
+load-errors.html	LE link missing:error
+load-errors.html	LE link present:load
+load-errors.html	LE img missing:error
+load-errors.html	LE img present:load
+load-errors.html	LE window capture:IMG,LINK,SCRIPT
+load-errors.html	LE img by script:load changed:load

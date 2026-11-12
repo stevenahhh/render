@@ -104,6 +104,32 @@ struct Script {
     module: bool,
 }
 
+/// The stylesheet `<link>` and `<img>` elements in the document with the source
+/// each names, in document order.
+fn resource_nodes(dom: &Dom) -> Vec<(NodeId, Box<str>)> {
+    let mut out = Vec::new();
+    let mut n = 0;
+    while n != NONE {
+        let src = match dom.nodes[n as usize].tag {
+            atom::LINK if dom.attr(n, atom::REL).is_some_and(is_stylesheet) => dom.attr(n, atom::HREF),
+            atom::IMG => dom.attr(n, atom::SRC),
+            _ => None,
+        };
+        out.extend(src.map(str::trim).filter(|s| !s.is_empty()).map(|s| (n, s.into())));
+        n = dom.next_in(n, 0);
+    }
+    out
+}
+
+/// What happens for one script when its turn comes.
+enum Run {
+    Classic { node: NodeId, name: String, code: String, url: String, external: bool },
+    /// A module, with its code when it is in the page.
+    Module { name: String, code: Option<String>, href: String },
+    /// An external classic script that could not be had: its `error` event fires.
+    Failed(NodeId),
+}
+
 fn has_attr(dom: &Dom, n: NodeId, name: &str) -> bool {
     dom.atoms.get(name).is_some_and(|a| dom.attr(n, a).is_some())
 }
@@ -274,6 +300,10 @@ pub struct Page {
     web_faces: Rc<[FontFace]>,
     /// Web fonts asked for that are still downloading, for a page that does not wait.
     fonts_pending: Vec<Box<str>>,
+    /// The stylesheet links and images the parser made, with their sources, which
+    /// fire `load` or `error` before the document's load event. Those a script
+    /// gives another source fire from the prelude instead.
+    parsed_resources: Vec<(NodeId, Box<str>)>,
     /// Downloads are waited for (one-shot output) rather than taken in later.
     wait: bool,
     /// Directory a local page's relative URLs resolve against.
@@ -320,6 +350,7 @@ impl Page {
             dom.text_content(t, &mut title);
         }
         let scripts = scripts_of(&dom);
+        let parsed_resources = resource_nodes(&dom);
         let mut page = Page {
             dom,
             sheet,
@@ -352,6 +383,7 @@ impl Page {
             stale: false,
             web_faces,
             fonts_pending: Vec::new(),
+            parsed_resources,
             wait,
             base: base.map(Path::to_path_buf),
         };
@@ -404,6 +436,7 @@ impl Page {
             stale: false,
             web_faces: Rc::from([]),
             fonts_pending: Vec::new(),
+            parsed_resources: Vec::new(),
             wait: false,
             base: None,
         }
@@ -420,37 +453,75 @@ impl Page {
         Some((String::from_utf8_lossy(&code).into_owned(), url.href()))
     }
 
-    /// Runs the first `count` waiting scripts in order; with `last` the load event follows.
+    /// Runs the first `count` waiting scripts in order; with `last` the load event
+    /// follows, after the `load` or `error` events of the page's resources.
     fn run_scripts(&mut self, fonts: &mut Fonts, count: usize, last: bool) {
         let scripts: Vec<Script> = self.pending.drain(..count.min(self.pending.len())).collect();
         let page_url = self.url.href();
         let mut runs = Vec::with_capacity(scripts.len());
         for s in scripts {
             match (s.module, s.src.is_empty()) {
-                (true, true) => runs.push((s.node, "inline script".to_string(), Some(s.code), page_url.clone(), true)),
+                (true, true) => runs.push(Run::Module { name: "inline script".to_string(), code: Some(s.code), href: page_url.clone() }),
                 (true, false) => match Url::parse(&s.src, Some(&self.url)) {
-                    Some(url) => runs.push((s.node, s.src, None, url.href(), true)),
+                    Some(url) => runs.push(Run::Module { name: s.src, code: None, href: url.href() }),
                     None => eprintln!("[js] cannot read script {}", s.src),
                 },
-                (false, true) => runs.push((s.node, "inline script".to_string(), Some(s.code), page_url.clone(), false)),
+                (false, true) => runs.push(Run::Classic { node: s.node, name: "inline script".to_string(), code: s.code, url: page_url.clone(), external: false }),
                 (false, false) => match self.script_code(&s.src) {
-                    Some((code, url)) => runs.push((s.node, s.src, Some(code), url, false)),
-                    None => eprintln!("[js] cannot read script {}", s.src),
+                    Some((code, url)) => runs.push(Run::Classic { node: s.node, name: s.src, code, url, external: true }),
+                    None => {
+                        eprintln!("[js] cannot read script {}", s.src);
+                        runs.push(Run::Failed(s.node));
+                    }
                 },
             }
         }
         self.with_js(fonts, |js| {
-            for (node, name, code, url, module) in runs {
-                if module {
-                    js.run_module(code.as_deref(), &name, &url);
-                } else {
-                    js.run_script(node, code.as_deref().unwrap_or(""), &name, &url);
+            for run in runs {
+                match run {
+                    Run::Classic { node, name, code, url, external } => {
+                        js.run_script(node, &code, &name, &url);
+                        if external {
+                            js.fire(&[(node, "load")]);
+                        }
+                    }
+                    Run::Module { name, code, href } => js.run_module(code.as_deref(), &name, &href),
+                    Run::Failed(node) => js.fire(&[(node, "error")]),
                 }
             }
-            if last {
-                js.load();
-            }
         });
+        if last {
+            let outcomes = self.resource_outcomes();
+            self.with_js(fonts, |js| {
+                js.fire(&outcomes);
+                js.load();
+            });
+        }
+    }
+
+    /// The `load` or `error` event each stylesheet `<link>` and `<img>` the parser
+    /// made owes the page's scripts, by whether its resource could be had, for
+    /// those still in the document with the source they were parsed with. A page
+    /// that waits for downloads waits for these, as a browser's load event does;
+    /// one that does not leaves out those still on their way.
+    fn resource_outcomes(&self) -> Vec<(NodeId, &'static str)> {
+        let current = resource_nodes(&self.dom);
+        let kept = self.parsed_resources.iter().filter(|r| current.contains(r));
+        kept.filter_map(|(n, src)| Some((*n, if self.resource_had(src)? { "load" } else { "error" }))).collect()
+    }
+
+    /// Whether the resource at `src` could be had; `None` while it downloads for
+    /// a page that does not wait, or when `src` does not resolve.
+    fn resource_had(&self, src: &str) -> Option<bool> {
+        let url = Url::parse(src, Some(&self.url))?;
+        if url.scheme == "data" {
+            return Some(true);
+        }
+        match &self.site {
+            Some(site) if self.wait => Some(site.file(src).is_some()),
+            Some(site) => site.file_if_ready(src).map(|file| file.is_some()),
+            None => Some(url.to_path().is_some_and(|p| p.is_file())),
+        }
     }
 
     /// Runs every script still waiting, then fires the load event, scripts seeing
@@ -1195,6 +1266,46 @@ mod tests {
         assert!(!answered.load(Ordering::SeqCst), "the page waited for its image before parsing");
         assert!(!page.sheet.rules.is_empty());
         release.send(()).unwrap();
+    }
+
+    #[test]
+    fn scripts_see_http_failures_as_browsers_report_them() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://127.0.0.1:{}/", listener.local_addr().unwrap().port());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                std::thread::spawn(move || {
+                    let mut conn = BufReader::new(stream.unwrap());
+                    loop {
+                        let mut request = String::new();
+                        while conn.read_line(&mut request).unwrap_or(0) > 0 && !request.ends_with("\r\n\r\n") {}
+                        let Some(path) = request.split_whitespace().nth(1).map(str::to_string) else { return };
+                        let (status, body) = match path.as_str() {
+                            "/" => ("200 OK", concat!(
+                                "<script>function mark(t){var d=document.createElement('p');d.setAttribute('data-m',t);document.documentElement.appendChild(d);}</script>",
+                                "<script src=s404.js onload=\"mark('s404 load')\" onerror=\"mark('s404 error')\"></script>",
+                                "<link rel=stylesheet href=c500.css onload=\"mark('c500 load')\" onerror=\"mark('c500 error')\">",
+                                "<img src=i404.png onload=\"mark('i404 load')\" onerror=\"mark('i404 error')\">",
+                                "<script>fetch('f404').then(r=>r.text().then(t=>mark('fetch '+r.ok+' '+r.status+' '+r.statusText+' '+t)));",
+                                "var x=new XMLHttpRequest();x.open('GET','x404');x.onload=()=>mark('xhr '+x.status+' '+x.statusText+' '+x.responseText);x.send();</script>",
+                            )),
+                            "/s404.js" => ("404 Not Found", "mark('s404 ran')"),
+                            "/c500.css" => ("500 Internal Server Error", "p{color:red}"),
+                            _ => ("404 Not Found", "missing"),
+                        };
+                        let reply = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+                        conn.get_mut().write_all(reply.as_bytes()).unwrap();
+                    }
+                });
+            }
+        });
+        let mut page = Page::load_url(&origin, false).unwrap();
+        page.settle(&mut Fonts::new(), 800.0, 600.0, std::time::Duration::from_millis(100));
+        let mut marks: Vec<String> = query(&mut page.dom, 0, "[data-m]", false).into_iter().filter_map(|n| page.dom.attr(n, page.dom.atoms.get("data-m")?).map(str::to_string)).collect();
+        marks.sort();
+        let expected = ["c500 error", "fetch false 404 Not Found missing", "i404 error", "s404 error", "xhr 404 Not Found missing"];
+        assert_eq!(marks, expected);
     }
 
     #[test]
