@@ -25,6 +25,10 @@ impl Engine<'_> {
     /// Ends the innermost block formatting context and drops its floats; returns
     /// the bottom of the lowest one, or minus infinity without floats.
     pub(super) fn leave_bfc(&mut self, outer: usize) -> f32 {
+        if self.floats.len() == self.bfc {
+            self.bfc = outer;
+            return f32::NEG_INFINITY;
+        }
         let bottom = self.floats[self.bfc..].iter().map(|f| f.y + f.h).fold(f32::NEG_INFINITY, f32::max);
         self.floats.truncate(self.bfc);
         self.bfc = outer;
@@ -145,10 +149,39 @@ impl Engine<'_> {
     }
 
     /// Moves a line that has not begun down past floats until `need` fits beside them.
+    #[inline]
     pub(super) fn fit_line(&self, il: &mut Inl, need: f32) {
         if !il.begun && self.floats.len() > self.bfc {
-            il.y = self.fit(il.y, il.above + il.below, need, il.cx, il.cw).0;
+            self.move_line_down(il, need);
         }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn move_line_down(&self, il: &mut Inl, need: f32) {
+        il.y = self.fit(il.y, il.above + il.below, need, il.cx, il.cw).0;
+    }
+
+    /// Starts a line beside the floats of the context: it begins after the left
+    /// ones and ends before the right ones.
+    #[cold]
+    #[inline(never)]
+    pub(super) fn shorten_line(&self, il: &mut Inl) {
+        let (l, r) = self.band(il.y, il.above + il.below, il.cx, il.cw);
+        (il.lx, il.right) = (l - il.cx, r - il.cx);
+        il.x += il.lx;
+    }
+
+    /// Places the floats a line that just ended left for below it.
+    #[cold]
+    #[inline(never)]
+    pub(super) fn place_queued(&mut self, il: &mut Inl) {
+        let queued = std::mem::take(&mut il.queued);
+        for &f in &queued {
+            self.place_float(f, il.cx, il.cw, il.y, NAN);
+        }
+        il.queued = queued;
+        il.queued.clear();
     }
 
     /// Lays out a box in normal flow that establishes a formatting context of its

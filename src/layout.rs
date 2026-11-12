@@ -1076,9 +1076,7 @@ impl<'a> Engine<'a> {
         il.begun = true;
         (il.lx, il.right) = (0.0, il.cw);
         if self.floats.len() > self.bfc {
-            let (l, r) = self.band(il.y, il.above + il.below, il.cx, il.cw);
-            (il.lx, il.right) = (l - il.cx, r - il.cx);
-            il.x += il.lx;
+            self.shorten_line(il);
         }
         for i in 0..il.open.len() {
             il.open[i].start_x = il.x;
@@ -1135,12 +1133,9 @@ impl<'a> Engine<'a> {
         il.content = false;
         il.last_text = NONE;
         il.frags.clear();
-        let queued = std::mem::take(&mut il.queued);
-        for &f in &queued {
-            self.place_float(f, il.cx, il.cw, il.y, NAN);
+        if !il.queued.is_empty() {
+            self.place_queued(il);
         }
-        il.queued = queued;
-        il.queued.clear();
     }
 
     /// Ends the text item `item` with an ellipsis in the face `face` that ends before
