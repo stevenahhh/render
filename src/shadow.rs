@@ -4,7 +4,7 @@
 //! rules of a shadow tree's `<style>` elements match only inside that tree,
 //! and the document's class and id rules do not reach into it.
 
-use crate::css::Sheet;
+use crate::css::{Compound, Pseudo, Sheet};
 use crate::dom::{atom, Atom, Dom, NodeId, NONE};
 use crate::FxMap;
 
@@ -145,6 +145,32 @@ pub fn restore(dom: &mut Dom, composed: Composed) {
     dom.classes.truncate(composed.classes);
 }
 
+/// Makes a compound name the classes and ids of the shadow tree `root`, in the
+/// selectors of its `:is()`, `:where()`, `:not()` and `:has()` too.
+fn scope_compound(dom: &mut Dom, c: &mut Compound, root: NodeId) {
+    for class in &mut c.classes {
+        *class = scoped(dom, *class, root);
+    }
+    if c.id != 0 {
+        c.id = scoped(dom, c.id, root);
+    }
+    for p in &mut c.pseudos {
+        match p {
+            Pseudo::Is(list) | Pseudo::Not(list) => {
+                for part in list.iter_mut().flatten() {
+                    scope_compound(dom, &mut part.c, root);
+                }
+            }
+            Pseudo::Has(parts) => {
+                for part in parts {
+                    scope_compound(dom, &mut part.c, root);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Adds the `<style>` rules of every shadow tree to `sheet`, each made to match
 /// only the elements of its own tree.
 pub fn add_scoped_sheets(dom: &mut Dom, sheet: &mut Sheet) {
@@ -162,13 +188,7 @@ pub fn add_scoped_sheets(dom: &mut Dom, sheet: &mut Sheet) {
         let scope = scope_class(dom, root);
         for sel in &mut sheet.sels[first..] {
             for part in &mut sel.parts {
-                let c = &mut part.c;
-                for class in &mut c.classes {
-                    *class = scoped(dom, *class, root);
-                }
-                if c.id != 0 {
-                    c.id = scoped(dom, c.id, root);
-                }
+                scope_compound(dom, &mut part.c, root);
             }
             sel.parts[0].c.classes.push(scope);
             // The ancestor filter knows the names as written in the document.

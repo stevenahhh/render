@@ -1120,7 +1120,7 @@ mod tests {
     #[test]
     fn script_changes_restyle_what_their_selectors_reach() {
         // (rule, css, body, script, selector, colours after it)
-        let cases: [(&str, &str, &str, &str, &str, &[&str]); 19] = [
+        let cases: [(&str, &str, &str, &str, &str, &[&str]); 24] = [
             ("descendant", ".on .x{color:#f00}", "<div id=a><p class=x></p><p></p></div><p class=x></p>", "$('a').className='on';", "p", &["ff0000", "000000", "000000"]),
             ("child", ".on>.x{color:#f00} b{color:#00f}", "<div id=a><p class=x><b class=x></b></p></div>", "$('a').classList.add('on');", ".x", &["ff0000", "0000ff"]),
             ("adjacent", ".a+.b{color:#f00}", "<i id=s></i><b class=b></b><b class=b></b>", "$('s').className='a';", "b", &["ff0000", "000000"]),
@@ -1143,6 +1143,11 @@ mod tests {
                 "p, i",
                 &["000000", "0000ff"],
             ),
+            ("is with a combinator", ":is(.on .a) .x{color:#f00}", "<div id=d><div class=a><p class=x></p></div></div>", "$('d').className='on';", "p", &["ff0000"]),
+            ("is with a sibling", ":is(.a + .b) .x{color:#f00}", "<i id=s></i><div class=b><p class=x></p></div>", "$('s').className='a';", "p", &["ff0000"]),
+            ("where list", ":where(.on, .open) > .x{color:#f00}", "<div id=d><p class=x></p></div>", "$('d').className='open';", "p", &["ff0000"]),
+            ("not list", ".x:not(.a, .b){color:#f00}", "<p class=x id=p></p><p class=x></p>", "$('p').classList.add('b');", "p", &["000000", "ff0000"]),
+            ("not with a combinator", ".x:not(.off *){color:#f00}", "<div id=d><p class=x></p></div><p class=x></p>", "$('d').className='off';", "p", &["000000", "ff0000"]),
             ("not", ".c:not(.on){color:#f00}", "<p class=c id=c1></p><p class=c></p>", "$('c1').classList.add('on');", "p", &["000000", "ff0000"]),
             (
                 "has",

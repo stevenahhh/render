@@ -1596,7 +1596,10 @@ pub enum Pseudo {
     FirstOfType,
     LastOfType,
     NthOfType(i32, i32),
-    Not(Box<Compound>),
+    /// `:not()`: matches when none of the selectors matches the element.
+    Not(Box<[Vec<Part>]>),
+    /// `:is()` or `:where()`: matches when one of the selectors matches the element.
+    Is(Box<[Vec<Part>]>),
     /// Matches when some descendant matches the selector.
     Has(Vec<Part>),
     Hover,
@@ -1856,7 +1859,10 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                     arg = &s[*i + 1..close];
                     *i = close + 1;
                 }
-                *spec += 0x100;
+                // A pseudo-class taking selectors counts as its most specific one; `:where()` counts nothing.
+                if !matches!(name.as_str(), "is" | "matches" | "-webkit-any" | "where" | "not") {
+                    *spec += 0x100;
+                }
                 c.pseudos.push(match name.as_str() {
                     "root" => Pseudo::Root,
                     "first-child" => Pseudo::FirstChild,
@@ -1867,14 +1873,20 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                     "nth-child" => parse_nth(arg).map_or(Pseudo::Never, |(a, b)| Pseudo::NthChild(a, b)),
                     "nth-last-child" => parse_nth(arg).map_or(Pseudo::Never, |(a, b)| Pseudo::NthLastChild(a, b)),
                     "nth-of-type" => parse_nth(arg).map_or(Pseudo::Never, |(a, b)| Pseudo::NthOfType(a, b)),
-                    "not" => {
-                        let arg = arg.trim();
-                        let (mut j, mut sp) = (0, 0);
-                        match parse_compound(arg, &mut j, atoms, hover, &mut sp) {
-                            Some(inner) if j == arg.len() => Pseudo::Not(Box::new(inner)),
-                            _ => Pseudo::Never,
+                    "is" | "matches" | "-webkit-any" | "where" => match selector_args(arg, atoms, hover, true) {
+                        Some((list, most)) => {
+                            *spec += if name == "where" { 0 } else { most };
+                            Pseudo::Is(list)
                         }
-                    }
+                        None => Pseudo::Never,
+                    },
+                    "not" => match selector_args(arg, atoms, hover, false) {
+                        Some((list, most)) => {
+                            *spec += most;
+                            Pseudo::Not(list)
+                        }
+                        None => Pseudo::Never,
+                    },
                     "has" => parse_selector(arg.trim(), atoms, hover).map_or(Pseudo::Never, |(parts, _)| Pseudo::Has(parts)),
                     "hover" => {
                         *hover = true;
@@ -1904,6 +1916,24 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
     } else {
         Some(c)
     }
+}
+
+/// The selectors in the argument of `:is()`, `:where()` or `:not()`, and the
+/// specificity of the most specific one. A selector that cannot be read makes the
+/// whole argument invalid, unless the list is `forgiving` and drops it instead.
+fn selector_args(arg: &str, atoms: &mut Interner, hover: &mut bool, forgiving: bool) -> Option<(Box<[Vec<Part>]>, u32)> {
+    let (mut list, mut most) = (Vec::new(), 0);
+    for sel in SplitTop::new(arg, b',') {
+        match parse_selector(sel.trim(), atoms, hover) {
+            Some((parts, spec)) => {
+                most = most.max(spec);
+                list.push(parts);
+            }
+            None if forgiving => {}
+            None => return None,
+        }
+    }
+    (!list.is_empty()).then(|| (list.into_boxed_slice(), most))
 }
 
 /// Returns the compounds right to left, so `parts[0]` is the subject.
@@ -1959,7 +1989,7 @@ pub fn parse_selector_list(s: &str, atoms: &mut Interner) -> Vec<Vec<Part>> {
 fn supported(c: &Compound) -> bool {
     c.pseudos.iter().all(|p| match p {
         Pseudo::Never => false,
-        Pseudo::Not(inner) => supported(inner),
+        Pseudo::Not(list) | Pseudo::Is(list) => list.iter().all(|parts| parts.iter().all(|p| supported(&p.c))),
         Pseudo::Has(parts) => parts.iter().all(|p| supported(&p.c)),
         _ => true,
     })

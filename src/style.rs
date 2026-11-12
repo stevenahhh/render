@@ -619,7 +619,8 @@ impl<'a> Matcher<'a> {
             Pseudo::FirstOfType => self.sib(n).type_pos == 1,
             Pseudo::LastOfType => self.sib(n).type_pos == self.sib(n).type_count,
             Pseudo::NthOfType(a, b) => nth(*a, *b, self.sib(n).type_pos as i32),
-            Pseudo::Not(c) => !self.compound(c, n),
+            Pseudo::Not(list) => !list.iter().any(|parts| self.matches(parts, n)),
+            Pseudo::Is(list) => list.iter().any(|parts| self.matches(parts, n)),
             Pseudo::Has(parts) => {
                 let mut c = node.first_child;
                 while c != NONE {
@@ -1344,6 +1345,17 @@ enum Target {
 }
 
 impl Target {
+    /// Where the elements are that going `self` from an element, then `next` from
+    /// there, reaches.
+    fn then(self, next: Target) -> Target {
+        match (self, next) {
+            (Target::Own, t) | (t, Target::Own) => t,
+            (Target::Desc, _) => Target::Desc,
+            (Target::Sib, Target::Sib) => Target::Sib,
+            _ => Target::SibDesc,
+        }
+    }
+
     fn of(parts: &[Part], k: usize) -> Target {
         if k == 0 {
             return Target::Own;
@@ -1382,7 +1394,24 @@ enum Feature {
     Empty,
 }
 
-/// The features a compound tests, those inside `:not()` included.
+/// A compound and the compounds of the selectors inside its `:is()`, `:where()`
+/// and `:not()`, each with where the elements are that a change to an element it
+/// matches can restyle, `at` being that place for `c` itself.
+fn each_compound<'c>(c: &'c Compound, at: Target, f: &mut impl FnMut(&'c Compound, Target)) {
+    f(c, at);
+    for p in &c.pseudos {
+        if let Pseudo::Not(list) | Pseudo::Is(list) = p {
+            for parts in list.iter() {
+                for (k, part) in parts.iter().enumerate() {
+                    each_compound(&part.c, Target::of(parts, k).then(at), f);
+                }
+            }
+        }
+    }
+}
+
+/// The features a compound tests itself; those of the selectors in its arguments
+/// are reached through `each_compound`.
 fn each_feature(c: &Compound, f: &mut impl FnMut(Feature)) {
     for &class in &c.classes {
         f(Feature::Class(class));
@@ -1395,7 +1424,6 @@ fn each_feature(c: &Compound, f: &mut impl FnMut(Feature)) {
     }
     for p in &c.pseudos {
         match p {
-            Pseudo::Not(inner) => each_feature(inner, f),
             Pseudo::Hover => f(Feature::Hover),
             Pseudo::FirstChild
             | Pseudo::LastChild
@@ -1407,18 +1435,16 @@ fn each_feature(c: &Compound, f: &mut impl FnMut(Feature)) {
             | Pseudo::NthOfType(..) => f(Feature::Position),
             Pseudo::Empty => f(Feature::Empty),
             Pseudo::Link => f(Feature::Attr(atom::HREF)),
-            Pseudo::Has(_) | Pseudo::Root | Pseudo::Never => {}
+            Pseudo::Has(_) | Pseudo::Not(_) | Pseudo::Is(_) | Pseudo::Root | Pseudo::Never => {}
         }
     }
 }
 
-/// The arguments of a compound's `:has()`s, those inside `:not()` included.
+/// The arguments of a compound's own `:has()`s.
 fn each_has<'c>(c: &'c Compound, f: &mut impl FnMut(&'c [Part])) {
     for p in &c.pseudos {
-        match p {
-            Pseudo::Has(args) => f(args),
-            Pseudo::Not(inner) => each_has(inner, f),
-            _ => {}
+        if let Pseudo::Has(args) = p {
+            f(args);
         }
     }
 }
@@ -1429,6 +1455,7 @@ fn can_match(c: &Compound) -> bool {
     c.pseudos.iter().all(|p| match p {
         Pseudo::Never => false,
         Pseudo::Has(args) => args.iter().all(|a| can_match(&a.c)),
+        Pseudo::Is(list) => list.iter().any(|parts| parts.iter().all(|p| can_match(&p.c))),
         _ => true,
     })
 }
@@ -1475,14 +1502,15 @@ impl Invalidation {
             }
             let subject = &parts[0].c;
             for (k, part) in parts.iter().enumerate() {
-                let target = Target::of(parts, k);
-                match target {
-                    Target::Sib => inv.sib.add(subject),
-                    Target::SibDesc => inv.sib_desc.add(subject),
-                    Target::Own | Target::Desc => {}
-                }
-                each_feature(&part.c, &mut |f| inv.entry(f).add(target, subject));
-                each_has(&part.c, &mut |args| inv.add_has(target, (&part.c, subject), args));
+                each_compound(&part.c, Target::of(parts, k), &mut |c, target| {
+                    match target {
+                        Target::Sib => inv.sib.add(subject),
+                        Target::SibDesc => inv.sib_desc.add(subject),
+                        Target::Own | Target::Desc => {}
+                    }
+                    each_feature(c, &mut |f| inv.entry(f).add(target, subject));
+                    each_has(c, &mut |args| inv.add_has(target, (c, subject), args));
+                });
             }
         }
         inv
@@ -1504,13 +1532,17 @@ impl Invalidation {
     /// element changes which anchors above it match, and with a combinator in the
     /// argument, which matches through ancestors of any height, anchors below it too.
     fn add_has(&mut self, at: Target, (anchor, subject): (&Compound, &Compound), args: &[Part]) {
-        let tree = args.len() > 1;
-        let mut nested = false;
+        let (mut tree, mut nested) = (args.len() > 1, false);
+        let mut inner = Vec::new();
         for p in args {
-            each_has(&p.c, &mut |_| nested = true);
+            each_compound(&p.c, Target::Own, &mut |c, t| inner.push((c, t)));
         }
-        for p in args {
-            each_feature(&p.c, &mut |f| {
+        for &(c, t) in &inner {
+            tree |= !matches!(t, Target::Own);
+            each_has(c, &mut |_| nested = true);
+        }
+        for (c, _) in inner {
+            each_feature(c, &mut |f| {
                 let e = self.entry(f);
                 match at {
                     _ if nested => e.full = true,
@@ -1786,5 +1818,20 @@ mod tests {
         let html = "<style>.big{font-size:20px} .small{font-size:10px} .f{font-size:calc(1em + 1px)}</style>\
                     <div class=big><p class=f></p></div><div class=small><p class=f></p></div><div class=big><p class=f></p></div>";
         assert_eq!(styles_of(html, "p").iter().map(|s| s.font_size).collect::<Vec<_>>(), [21.0, 11.0, 21.0]);
+    }
+    #[test]
+    fn is_where_and_not_take_selector_lists_with_selectors_4_specificity() {
+        let css = ".a{width:2px} :where(#a){width:1px}
+                   :is(#b, .zz){width:3px} p.b{width:4px}
+                   .c:not(#zz){width:5px} p.c.c{width:6px}
+                   .d:not(.x, .y){width:7px}
+                   :is(div > .e){width:8px}
+                   :is(.g, .h) + .f{width:9px}
+                   .k:is(.zz, :focus-visible, .kk){width:10px}";
+        let body = "<p id=a class=a></p><p id=b class=b></p><p class=c></p><p class='d x'></p><p class=d></p>\
+                    <div><p class=e></p></div><section><p class=e></p></section><i class=h></i><p class=f></p><p class='k kk'></p>";
+        let px = Len::Px;
+        let want = [px(2.0), px(3.0), px(5.0), Len::Auto, px(7.0), px(8.0), Len::Auto, px(9.0), px(10.0)];
+        assert_eq!(widths(&styles_of(&format!("<style>{css}</style>{body}"), "p")), want);
     }
 }
