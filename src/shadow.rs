@@ -232,6 +232,12 @@ struct Scope {
     scope: Atom,
 }
 
+/// True for a compound that only the host matches: one with the host's class,
+/// or an `:is()` each of whose selectors names the host, as `:is(:host)` does.
+fn names_host(c: &Compound, mark: Atom) -> bool {
+    c.classes.contains(&mark) || c.pseudos.iter().any(|p| matches!(p, Pseudo::Is(list) if list.iter().all(|parts| names_host(&parts[0].c, mark))))
+}
+
 /// Makes a compound name the classes and ids of the tree it matches in, in the
 /// selectors of its `:is()`, `:where()`, `:not()` and `:has()` too: the host
 /// and the children slotted into it belong to the tree the host is in, every
@@ -243,7 +249,7 @@ fn scope_compound(dom: &mut Dom, c: &mut Compound, s: &Scope, within: Option<Nod
     if light {
         c.classes.retain(|&a| a != s.slotted);
     }
-    let tree = if light || c.classes.contains(&s.mark) { s.outer } else { within };
+    let tree = if light || names_host(c, s.mark) { s.outer } else { within };
     if let Some(tree) = tree {
         for class in c.classes.iter_mut().filter(|a| **a != s.mark) {
             *class = scoped(dom, *class, tree);

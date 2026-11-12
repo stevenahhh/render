@@ -21,6 +21,7 @@ function w(el){return Math.round(el.getBoundingClientRect().width);}
 :host(.big){width:302px}
 :host(.nope){width:999px}
 :host(:is(.big, .x)){height:23px}
+:is(:host){min-width:5px;border-right:3px solid transparent}
 :is(.inner, .alt):not(.nope){height:7px}
 :host-context(.theme){height:17px}
 ::slotted(span){display:block;width:61px}
@@ -33,7 +34,7 @@ slot[name=b]::slotted(*){display:block;width:63px}
 <script>
 check('host', function(){
   var h1=document.getElementById('h1'), h2=document.getElementById('h2');
-  mark('SS host width:'+w(h1)+'x'+Math.round(h1.getBoundingClientRect().height>=23?23:0)+' context:'+w(h2));
+  mark('SS host width:'+w(h1)+'x'+Math.round(h1.getBoundingClientRect().height>=23?23:0)+' context:'+w(h2)+' isHost:'+getComputedStyle(h1).borderRightWidth);
 });
 check('slotted', function(){
   var r=document.getElementById('h1').shadowRoot;
