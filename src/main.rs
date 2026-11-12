@@ -196,7 +196,11 @@ fn bench(a: &Args, iters: u32) -> std::io::Result<()> {
         ("style", time(&mut || drop(std::hint::black_box(compute_styles(&page.dom, &page.sheet, a.width, a.height, u32::MAX))))),
         ("layout", time(&mut || {
             let old = std::mem::take(&mut page.layout);
+            let generated = if page.sheet.generates { render::generated::add(&mut page.dom, &mut page.styles) } else { None };
             page.layout = layout(&page.dom, &page.styles, &mut fonts, &mut page.images, a.width, a.height, old);
+            if let Some(g) = generated {
+                render::generated::remove(&mut page.dom, &mut page.styles, g, &mut page.layout);
+            }
         })),
         ("paint", time(&mut || {
             let mut target = Target { buf: &mut buf, w: w as i32, h: h as i32 };

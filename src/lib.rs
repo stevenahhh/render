@@ -3,6 +3,7 @@
 pub mod css;
 pub mod dom;
 pub mod font;
+pub mod generated;
 pub mod img;
 pub mod js;
 pub mod layout;

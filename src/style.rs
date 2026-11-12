@@ -91,6 +91,44 @@ pub struct Style {
     /// Product of this element's opacity and all ancestors'.
     pub opacity: f32,
     pub vars: Option<Rc<Vars>>,
+    /// What few elements have, kept out of line: a style is built, copied and
+    /// dropped for every node in every pass, so each byte here costs every page.
+    rare: Option<Rc<Rare>>,
+}
+
+/// The parts of a computed style that few elements have.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Rare {
+    /// The element's `::before` and `::after` boxes.
+    pub before: Option<Rc<Generated>>,
+    pub after: Option<Rc<Generated>>,
+    /// `content`, read while styling a `::before` or `::after` box.
+    content: Option<Rc<[Content]>>,
+}
+
+/// The rare parts of a style that has none of them.
+const NO_RARE: Rare = Rare { before: None, after: None, content: None };
+
+/// A `::before` or `::after` box: its style and what it shows.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Generated {
+    pub style: Style,
+    pub content: Box<[Piece]>,
+}
+
+/// A piece of generated content, with attribute values filled in.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Piece {
+    Text(Box<str>),
+    /// An image, by its URL.
+    Image(Rc<str>),
+}
+
+impl Generated {
+    /// The style of an image that generated content shows, in a box styled `parent`.
+    pub(crate) fn image_style(parent: &Style) -> Style {
+        Style { display: Display::InlineBlock, opacity: parent.opacity, ..Style::inherit(parent) }
+    }
 }
 
 impl Style {
@@ -161,6 +199,7 @@ impl Style {
             fill: Color::BLACK,
             opacity: 1.0,
             vars: None,
+            rare: None,
         }
     }
 
@@ -185,6 +224,15 @@ impl Style {
             vars: p.vars.clone(),
             ..Style::initial()
         }
+    }
+
+    /// Generated boxes.
+    pub fn rare(&self) -> &Rare {
+        self.rare.as_deref().unwrap_or(&NO_RARE)
+    }
+
+    fn rare_mut(&mut self) -> &mut Rare {
+        Rc::make_mut(self.rare.get_or_insert_with(Default::default))
     }
 
     /// Computed values under their CSS property names, `name:value;` each,
@@ -469,6 +517,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::GridRows(ref l) => st.row_lines = l.clone().or_else(|| parent.row_lines.clone()),
         Decl::GridRow(ref g) => st.grid_row = g.as_ref().map_or(0, |g| row_line(parent, g)),
         Decl::Order(v) => st.order = v,
+        Decl::Content(ref c) => st.rare_mut().content = c.clone(),
         Decl::FontSize(_) | Decl::Var(..) | Decl::Deferred(..) => {}
     }
 }
@@ -812,6 +861,8 @@ struct Styler<'a> {
     media_ok: Vec<bool>,
     m: Matcher<'a>,
     matched: Vec<(u64, u32)>,
+    /// Rules of the element's `::before` and `::after`, with which of the two.
+    pseudo: Vec<(u64, u32, u8)>,
     expanded: Vec<Decl>,
     /// Expansions of `Deferred` declarations. A `Vars` map in a key is held by a
     /// style that stays in place until the pass ends, so its address identifies
@@ -825,6 +876,10 @@ struct Styler<'a> {
     ancestors: Vec<NodeId>,
 }
 
+/// An element's own declarations: the normal and `!important` ones of its
+/// `style` attribute, and whether they use custom properties.
+type Inline = (Vec<Decl>, Vec<Decl>, bool);
+
 impl<'a> Styler<'a> {
     fn new(dom: &'a Dom, sheet: &'a Sheet, vw: f32, vh: f32, hover: &'a [NodeId]) -> Styler<'a> {
         Styler {
@@ -833,6 +888,7 @@ impl<'a> Styler<'a> {
             media_ok: sheet.media.iter().map(|m| m.matches(vw, vh)).collect(),
             m: Matcher { dom, hover, idx: Vec::new() },
             matched: Vec::new(),
+            pseudo: Vec::new(),
             expanded: Vec::new(),
             deferred: FxMap::default(),
             own_vars: FxMap::default(),
@@ -863,12 +919,41 @@ impl<'a> Styler<'a> {
 
     /// The computed style of element `i`, whose parent's style is `parent`.
     fn style(&mut self, i: NodeId, parent: &Style) -> Style {
-        let Styler { dom, sheet, media_ok, m, matched, expanded, deferred, own_vars, var_decls, ctx, bloom, .. } = self;
-        let (dom, sheet, ctx) = (*dom, *sheet, &*ctx);
-        let node = &dom.nodes[i as usize];
+        let (mut matched, mut pseudo) = (std::mem::take(&mut self.matched), std::mem::take(&mut self.pseudo));
+        self.collect(i, &mut matched, &mut pseudo);
+        let dom = self.dom;
+        let no_inline = (Vec::new(), Vec::new(), false);
+        let inline;
+        let inl = match dom.attr(i, atom::STYLE) {
+            Some(s) if !s.is_empty() => {
+                inline = parse_declarations(s);
+                &inline
+            }
+            _ => &no_inline,
+        };
         let mut st = Style::inherit(parent);
+        self.cascade(&mut st, parent, &matched, inl);
+        let node = &dom.nodes[i as usize];
+        finish(&mut st, parent, node.parent == 0, node.tag == atom::INPUT || dom.shows_image(i));
+        if !pseudo.is_empty() {
+            let (before, after) = (self.generate(i, &st, &pseudo, BEFORE), self.generate(i, &st, &pseudo, AFTER));
+            if before.is_some() || after.is_some() {
+                let rare = st.rare_mut();
+                (rare.before, rare.after) = (before, after);
+            }
+        }
+        (self.matched, self.pseudo) = (matched, pseudo);
+        st
+    }
 
+    /// The rules whose selectors match element `i`, in cascade order: those of the
+    /// element in `matched`, those of its `::before` and `::after` in `pseudo`.
+    fn collect(&mut self, i: NodeId, matched: &mut Vec<(u64, u32)>, pseudo: &mut Vec<(u64, u32, u8)>) {
+        let Styler { dom, sheet, media_ok, m, bloom, .. } = self;
+        let (dom, sheet) = (*dom, *sheet);
+        let node = &dom.nodes[i as usize];
         matched.clear();
+        pseudo.clear();
         let mut test = |list: Option<&Vec<u32>>, m: &mut Matcher| {
             for &si in list.into_iter().flatten() {
                 let sel = &sheet.sels[si as usize];
@@ -880,7 +965,12 @@ impl<'a> Styler<'a> {
                     continue;
                 }
                 if m.matches(&sel.parts, i) {
-                    matched.push(((sel.level as u64) << 60 | (sel.spec as u64) << 32 | si as u64, sel.rule));
+                    let key = (sel.level as u64) << 60 | (sel.spec as u64) << 32 | si as u64;
+                    if sel.elem == 0 {
+                        matched.push((key, sel.rule));
+                    } else {
+                        pseudo.push((key, sel.rule, sel.elem));
+                    }
                 }
             }
         };
@@ -893,18 +983,14 @@ impl<'a> Styler<'a> {
         test(sheet.by_tag.get(&node.tag), m);
         test(Some(&sheet.universal), m);
         matched.sort_unstable();
-        let matched = &matched[..];
+        pseudo.sort_unstable();
+    }
 
-        let no_inline = (Vec::new(), Vec::new(), false);
-        let inline;
-        let inl = match dom.attr(i, atom::STYLE) {
-            Some(s) if !s.is_empty() => {
-                inline = parse_declarations(s);
-                &inline
-            }
-            _ => &no_inline,
-        };
-
+    /// Applies the declarations of the rules in `matched` and then of `inl`,
+    /// normal before `!important`, to `st`, whose parent's style is `parent`.
+    fn cascade(&mut self, st: &mut Style, parent: &Style, matched: &[(u64, u32)], inl: &Inline) {
+        let Styler { sheet, expanded, deferred, own_vars, var_decls, ctx, .. } = self;
+        let (sheet, ctx) = (*sheet, &*ctx);
         if inl.2 || matched.iter().any(|&(_, r)| sheet.rules[r as usize].dynamic) {
             var_decls.clear();
             let mut inline_var = false;
@@ -916,8 +1002,9 @@ impl<'a> Styler<'a> {
                 }
             });
             if !var_decls.is_empty() {
+                let inherited = st.vars.clone();
                 let build = || {
-                    let mut own = st.vars.as_deref().cloned().unwrap_or_default();
+                    let mut own = inherited.as_deref().cloned().unwrap_or_default();
                     each(sheet, matched, inl, |d| {
                         if let Decl::Var(k, v) = d {
                             own.insert(k.clone(), v.clone());
@@ -930,7 +1017,7 @@ impl<'a> Styler<'a> {
                 st.vars = Some(if inline_var {
                     build()
                 } else {
-                    let key = (st.vars.as_ref().map_or(0, |m| Rc::as_ptr(m) as usize), var_decls.clone());
+                    let key = (inherited.as_ref().map_or(0, |m| Rc::as_ptr(m) as usize), var_decls.clone());
                     own_vars.entry(key).or_insert_with(build).clone()
                 });
             }
@@ -970,88 +1057,124 @@ impl<'a> Styler<'a> {
             });
             for d in expanded.iter() {
                 match d {
-                    Decl::FontSize(fs) => apply_font_size(&mut st, parent, *fs, ctx),
+                    Decl::FontSize(fs) => apply_font_size(st, parent, *fs, ctx),
                     Decl::AllUnset => st.font_size = parent.font_size,
                     _ => {}
                 }
             }
             for d in expanded.iter() {
-                apply(&mut st, parent, d, ctx);
+                apply(st, parent, d, ctx);
             }
         } else {
             each(sheet, matched, inl, |d| match d {
-                Decl::FontSize(fs) => apply_font_size(&mut st, parent, *fs, ctx),
+                Decl::FontSize(fs) => apply_font_size(st, parent, *fs, ctx),
                 Decl::AllUnset => st.font_size = parent.font_size,
                 _ => {}
             });
-            each(sheet, matched, inl, |d| apply(&mut st, parent, d, ctx));
+            each(sheet, matched, inl, |d| apply(st, parent, d, ctx));
         }
+    }
 
-        for s in 0..4 {
-            if st.bs & (1 << s) == 0 {
-                st.bw[s] = 0.0;
+    /// The `::before` or `::after` box (`elem`) of element `i`, whose style is
+    /// `st`, from the rules in `pseudo`: none when they give it no content.
+    fn generate(&mut self, i: NodeId, st: &Style, pseudo: &[(u64, u32, u8)], elem: u8) -> Option<Rc<Generated>> {
+        let rules: Vec<(u64, u32)> = pseudo.iter().filter(|p| p.2 == elem).map(|p| (p.0, p.1)).collect();
+        if rules.is_empty() {
+            return None;
+        }
+        let mut gs = Style::inherit(st);
+        self.cascade(&mut gs, st, &rules, &(Vec::new(), Vec::new(), false));
+        finish(&mut gs, st, false, false);
+        let content = gs.rare.as_mut().and_then(|r| Rc::make_mut(r).content.take())?;
+        if gs.display == Display::None {
+            return None;
+        }
+        let dom = self.dom;
+        let (mut pieces, mut text) = (Vec::new(), String::new());
+        for c in content.iter() {
+            match c {
+                Content::Text(t) => text.push_str(t),
+                Content::Attr(name) => text.push_str(dom.atoms.get(name).and_then(|a| dom.attr(i, a)).unwrap_or("")),
+                Content::Url(u) => {
+                    if !text.is_empty() {
+                        pieces.push(Piece::Text(std::mem::take(&mut text).into()));
+                    }
+                    pieces.push(Piece::Image(u.clone()));
+                }
             }
-            if st.bc_set & (1 << s) == 0 {
-                st.bc[s] = st.color;
-            }
         }
-        if st.clip_text {
-            text_from_background(&mut st);
+        if !text.is_empty() {
+            pieces.push(Piece::Text(text.into()));
         }
-        st.opacity = parent.opacity * st.own_opacity;
-        let parent_flex = matches!(parent.display, Display::Flex | Display::InlineFlex);
-        if st.display == Display::Inherit {
-            st.display = match parent.display {
-                _ if node.parent == 0 => Display::Block,
-                _ if parent.contents => Display::Contents,
-                d => d,
-            };
+        Some(Rc::new(Generated { style: gs, content: pieces.into() }))
+    }
+}
+
+/// The parts of a computed style that follow from the rest and from the box's
+/// place: used border widths and colours, opacity, and the display its parent
+/// and position give it. `root` is set for the root element, `replaced` for one
+/// whose content is an image or a form control.
+fn finish(st: &mut Style, parent: &Style, root: bool, replaced: bool) {
+    for s in 0..4 {
+        if st.bs & (1 << s) == 0 {
+            st.bw[s] = 0.0;
         }
-        match st.display {
-            // No box of its own. Flex layout skips it; elsewhere it falls
-            // back to a container that repeats the parent's flex settings.
-            Display::Contents if parent_flex => {
-                st.display = Display::Flex;
-                st.contents = true;
-                (st.flex_col, st.justify, st.align_items) = (parent.flex_col, parent.justify, parent.align_items);
-                (st.gap_row, st.gap_col, st.grow) = (parent.gap_row, parent.gap_col, 1.0);
-            }
-            Display::Contents => st.display = Display::Block,
-            // Grids are laid out as flex: one column stacks, several columns wrap.
-            Display::Grid => {
-                st.display = Display::Flex;
-                st.grid = true;
-                st.flex_col = st.grid_cols <= 1 && !st.grid_flow_col;
-                st.flex_wrap = st.grid_cols > 1 && st.grid_even;
-            }
-            _ => {}
+        if st.bc_set & (1 << s) == 0 {
+            st.bc[s] = st.color;
         }
-        if parent_flex && parent.grid_cols > 1 && parent.grid_even {
-            let n = parent.grid_cols as f32;
-            st.basis = Len::Calc(100.0 / n, -parent.gap_col * (n - 1.0) / n);
-            st.grow = 0.0;
+    }
+    if st.clip_text {
+        text_from_background(st);
+    }
+    st.opacity = parent.opacity * st.own_opacity;
+    let parent_flex = matches!(parent.display, Display::Flex | Display::InlineFlex);
+    if st.display == Display::Inherit {
+        st.display = match parent.display {
+            _ if root => Display::Block,
+            _ if parent.contents => Display::Contents,
+            d => d,
+        };
+    }
+    match st.display {
+        // No box of its own. Flex layout skips it; elsewhere it falls
+        // back to a container that repeats the parent's flex settings.
+        Display::Contents if parent_flex => {
+            st.display = Display::Flex;
+            st.contents = true;
+            (st.flex_col, st.justify, st.align_items) = (parent.flex_col, parent.justify, parent.align_items);
+            (st.gap_row, st.gap_col, st.grow) = (parent.gap_row, parent.gap_col, 1.0);
         }
-        // A grid that places its items in columns adds a track per item and
-        // overflows rather than squeezing them.
-        if parent_flex && parent.grid_flow_col {
-            st.shrink = 0.0;
+        Display::Contents => st.display = Display::Block,
+        // Grids are laid out as flex: one column stacks, several columns wrap.
+        Display::Grid => {
+            st.display = Display::Flex;
+            st.grid = true;
+            st.flex_col = st.grid_cols <= 1 && !st.grid_flow_col;
+            st.flex_wrap = st.grid_cols > 1 && st.grid_even;
         }
-        st.z_ctx = st.z_set && (st.position != Position::Static || parent_flex);
-        let blockify = node.parent == 0
-            || matches!(st.position, Position::Absolute | Position::Fixed)
-            || matches!(parent.display, Display::Flex | Display::InlineFlex);
-        if blockify {
-            st.display = match st.display {
-                Display::Inline | Display::InlineBlock => Display::Block,
-                Display::InlineFlex => Display::Flex,
-                d => d,
-            };
-        }
-        let replaced = node.tag == atom::INPUT || dom.shows_image(i);
-        if replaced && st.display == Display::Inline {
-            st.display = Display::InlineBlock;
-        }
-        st
+        _ => {}
+    }
+    if parent_flex && parent.grid_cols > 1 && parent.grid_even {
+        let n = parent.grid_cols as f32;
+        st.basis = Len::Calc(100.0 / n, -parent.gap_col * (n - 1.0) / n);
+        st.grow = 0.0;
+    }
+    // A grid that places its items in columns adds a track per item and
+    // overflows rather than squeezing them.
+    if parent_flex && parent.grid_flow_col {
+        st.shrink = 0.0;
+    }
+    st.z_ctx = st.z_set && (st.position != Position::Static || parent_flex);
+    let blockify = root || matches!(st.position, Position::Absolute | Position::Fixed) || parent_flex;
+    if blockify {
+        st.display = match st.display {
+            Display::Inline | Display::InlineBlock => Display::Block,
+            Display::InlineFlex => Display::Flex,
+            d => d,
+        };
+    }
+    if replaced && st.display == Display::Inline {
+        st.display = Display::InlineBlock;
     }
 }
 
@@ -1738,7 +1861,8 @@ fn mark_above(dirty: &mut Dirty, dom: &Dom, mut a: NodeId, (up, far): (&Filter, 
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_styles, query, Style};
+    use super::{compute_styles, query, Generated, Piece, Style};
+    use std::rc::Rc;
     use crate::css::{Display, Len};
     use crate::page::Page;
 
@@ -1833,5 +1957,20 @@ mod tests {
         let px = Len::Px;
         let want = [px(2.0), px(3.0), px(5.0), Len::Auto, px(7.0), px(8.0), Len::Auto, px(9.0), px(10.0)];
         assert_eq!(widths(&styles_of(&format!("<style>{css}</style>{body}"), "p")), want);
+    }
+
+    #[test]
+    fn before_and_after_get_their_own_style_and_content() {
+        let html = "<style>p{font-size:20px;color:#00f} .a::before{content:'\\201C' attr(data-x) '!';color:#f00}\
+                    .a:after{content:url(i.png) 'x'} .b::before{content:none} .c::after{content:counter(n) ''}\
+                    .d::before{display:none;content:''}</style>\
+                    <p class=a data-x=hi></p><p class=b></p><p class=c></p><p class=d></p><p></p>";
+        let s = styles_of(html, "p");
+        let gen = |g: &Option<Rc<Generated>>| g.as_ref().map(|g| (g.style.color.0 & 0xff_ffff, g.style.font_size, g.content.to_vec()));
+        assert_eq!(gen(&s[0].rare().before), Some((0xff_0000, 20.0, vec![Piece::Text("\u{201c}hi!".into())])));
+        assert_eq!(gen(&s[0].rare().after), Some((0x00_00ff, 20.0, vec![Piece::Image("i.png".into()), Piece::Text("x".into())])));
+        assert_eq!([gen(&s[1].rare().before), gen(&s[2].rare().after), gen(&s[3].rare().before), gen(&s[4].rare().before)], [None, Some((0x00_00ff, 20.0, vec![])), None, None]);
+        let mut page = Page::from_html(html, None);
+        assert!(query(&mut page.dom, 0, ".a::before, p::after", false).is_empty());
     }
 }

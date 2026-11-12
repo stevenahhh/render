@@ -104,13 +104,15 @@ impl Layout {
     /// Gives the items of `nodes` the colours of their styles in `st`, for styles
     /// that changed only as `Change::Paint` allows. False, with nothing changed,
     /// when one of them draws more than its own colours: replaced content, a list
-    /// marker, or the canvas, which takes the background of `<html>` or `<body>`.
+    /// marker, generated content, which is credited to its element but styled on
+    /// its own, or the canvas, which takes the background of `<html>` or `<body>`.
     pub fn recolour(&mut self, dom: &Dom, st: &[Style], nodes: &[NodeId]) -> bool {
         let mut set: FxMap<NodeId, ()> = FxMap::default();
         for &n in nodes {
             let (tag, s) = (dom.nodes[n as usize].tag, &st[n as usize]);
             let marker = s.display == Display::ListItem && s.list_style != ListStyle::None;
-            if marker || matches!(tag, atom::INPUT | atom::HTML | atom::BODY) || dom.shows_image(n) {
+            let generated = s.rare().before.is_some() || s.rare().after.is_some();
+            if marker || generated || matches!(tag, atom::INPUT | atom::HTML | atom::BODY) || dom.shows_image(n) {
                 return false;
             }
             set.insert(n, ());

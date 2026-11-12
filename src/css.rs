@@ -313,6 +313,38 @@ pub enum Decl {
     /// A value containing `var()`, or lengths only known while styling, parsed
     /// once the variables and sizes are known.
     Deferred(Box<str>, Box<str>),
+    /// `content`; `None` is `none` or `normal`, which generate no box.
+    Content(Option<Rc<[Content]>>),
+}
+
+/// One piece of a `content` value.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Content {
+    Text(Box<str>),
+    /// The value of the element's attribute of this name.
+    Attr(Box<str>),
+    /// An image, its URL resolved like other `url()`s.
+    Url(Rc<str>),
+}
+
+/// Reads a `content` value. Counters show nothing; text after a `/` is
+/// alternative text, which is not drawn.
+fn parse_content(v: &str) -> Option<Rc<[Content]>> {
+    let mut parts = Vec::new();
+    for t in tokens(v) {
+        let lower = t.to_ascii_lowercase();
+        match lower.as_str() {
+            "none" | "normal" => return None,
+            "/" => break,
+            "open-quote" => parts.push(Content::Text("\u{201C}".into())),
+            "close-quote" => parts.push(Content::Text("\u{201D}".into())),
+            _ if t.starts_with(['"', '\'']) => parts.push(Content::Text(unquote(t).into())),
+            _ if lower.starts_with("url(") => parts.extend(css_url(t).map(|u| Content::Url(Rc::from(u.trim())))),
+            _ if lower.starts_with("attr(") => parts.push(Content::Attr(lower[5..].trim_end_matches(')').trim().into())),
+            _ => {}
+        }
+    }
+    Some(parts.into())
 }
 
 /// `background-size`.
@@ -1111,6 +1143,11 @@ fn side_of(name: &str) -> Option<u8> {
 /// Unknown properties and invalid values are dropped, as CSS requires.
 pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
     use Decl as D;
+    // Its strings keep their case.
+    if name == "content" {
+        out.push(D::Content(parse_content(value.trim())));
+        return;
+    }
     let lower;
     let v = value.trim();
     let v = if v.bytes().any(|b| b.is_ascii_uppercase()) {
@@ -1618,7 +1655,14 @@ pub struct Compound {
     pub classes: Vec<Atom>,
     pub attrs: Vec<AttrSel>,
     pub pseudos: Vec<Pseudo>,
+    /// The pseudo-element a subject compound selects: 0, `BEFORE` or `AFTER`.
+    pub elem: u8,
 }
+
+/// `::before`, the box generated as an element's first child.
+pub const BEFORE: u8 = 1;
+/// `::after`, the box generated as an element's last child.
+pub const AFTER: u8 = 2;
 
 /// One compound of a complex selector plus the combinator joining it to the
 /// compound on its left.
@@ -1846,13 +1890,22 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
             }
             b':' => {
                 *i += 1;
-                if *i < b.len() && b[*i] == b':' {
-                    *i += 1;
-                    ident(s, i);
-                    c.pseudos.push(Pseudo::Never);
+                let element = *i < b.len() && b[*i] == b':';
+                *i += element as usize;
+                let name = ident(s, i).to_ascii_lowercase();
+                // CSS 2 wrote the oldest pseudo-elements with one colon.
+                if element || matches!(name.as_str(), "before" | "after" | "first-line" | "first-letter") {
+                    match name.as_str() {
+                        "before" => c.elem = BEFORE,
+                        "after" => c.elem = AFTER,
+                        _ => c.pseudos.push(Pseudo::Never),
+                    }
+                    if *i < b.len() && b[*i] == b'(' {
+                        *i = block_end(b, *i)? + 1;
+                    }
+                    *spec += 1;
                     continue;
                 }
-                let name = ident(s, i).to_ascii_lowercase();
                 let mut arg = "";
                 if *i < b.len() && b[*i] == b'(' {
                     let close = block_end(b, *i)?;
@@ -1887,7 +1940,7 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                         }
                         None => Pseudo::Never,
                     },
-                    "has" => parse_selector(arg.trim(), atoms, hover).map_or(Pseudo::Never, |(parts, _)| Pseudo::Has(parts)),
+                    "has" => parse_selector(arg.trim(), atoms, hover).filter(|(parts, _)| parts[0].c.elem == 0).map_or(Pseudo::Never, |(parts, _)| Pseudo::Has(parts)),
                     "hover" => {
                         *hover = true;
                         Pseudo::Hover
@@ -1925,12 +1978,12 @@ fn selector_args(arg: &str, atoms: &mut Interner, hover: &mut bool, forgiving: b
     let (mut list, mut most) = (Vec::new(), 0);
     for sel in SplitTop::new(arg, b',') {
         match parse_selector(sel.trim(), atoms, hover) {
-            Some((parts, spec)) => {
+            Some((parts, spec)) if parts[0].c.elem == 0 => {
                 most = most.max(spec);
                 list.push(parts);
             }
-            None if forgiving => {}
-            None => return None,
+            _ if forgiving => {}
+            _ => return None,
         }
     }
     (!list.is_empty()).then(|| (list.into_boxed_slice(), most))
@@ -1975,13 +2028,19 @@ fn parse_selector(s: &str, atoms: &mut Interner, hover: &mut bool) -> Option<(Ve
         return None;
     }
     parts.reverse();
+    // A pseudo-element ends a selector.
+    if parts[1..].iter().any(|p| p.c.elem != 0) {
+        return None;
+    }
     Some((parts, spec))
 }
 
-/// Parses a comma-separated selector list, dropping invalid selectors.
+/// Parses a comma-separated selector list for the DOM, dropping invalid
+/// selectors and those of pseudo-elements, which select no element.
 pub fn parse_selector_list(s: &str, atoms: &mut Interner) -> Vec<Vec<Part>> {
     let mut hover = false;
-    SplitTop::new(s, b',').filter_map(|sel| parse_selector(sel.trim(), atoms, &mut hover)).map(|(parts, _)| parts).collect()
+    let parsed = SplitTop::new(s, b',').filter_map(|sel| parse_selector(sel.trim(), atoms, &mut hover));
+    parsed.filter(|(parts, _)| parts[0].c.elem == 0).map(|(parts, _)| parts).collect()
 }
 
 /// False for a compound with a pseudo-class or pseudo-element this engine does
@@ -2035,6 +2094,8 @@ pub struct SelEntry {
     /// Bloom slots of names that must appear on some ancestor of the subject.
     pub anc: [u16; 4],
     pub anc_n: u8,
+    /// The pseudo-element of the subject: 0, `BEFORE` or `AFTER`.
+    pub elem: u8,
 }
 
 /// Slot of an atom in the 4096-entry ancestor filter.
@@ -2074,6 +2135,8 @@ pub struct Sheet {
     pub by_tag: FxMap<Atom, Vec<u32>>,
     pub universal: Vec<u32>,
     pub uses_hover: bool,
+    /// Some selector is of `::before` or `::after`.
+    pub generates: bool,
     /// `@font-face` rules in document order.
     pub fonts: Vec<FontFace>,
 }
@@ -2198,7 +2261,9 @@ impl Sheet {
             for sel in SplitTop::new(&s[start..open], b',') {
                 if let Some((parts, spec)) = parse_selector(sel.trim(), atoms, &mut self.uses_hover) {
                     let (anc, anc_n) = ancestor_slots(&parts);
-                    self.sels.push(SelEntry { parts, spec, rule, level, anc, anc_n });
+                    let elem = parts[0].c.elem;
+                    self.generates |= elem != 0;
+                    self.sels.push(SelEntry { parts, spec, rule, level, anc, anc_n, elem });
                 }
             }
             if self.sels.len() > before {

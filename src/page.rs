@@ -911,6 +911,7 @@ impl Page {
     fn relayout(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
         self.stale = false;
         fonts.set_web_faces(&self.web_faces);
+        let generated = if self.sheet.generates { crate::generated::add(&mut self.dom, &mut self.styles) } else { None };
         loop {
             let mut old = std::mem::take(&mut self.layout);
             old.record_boxes = self.record_boxes || self.scripted;
@@ -919,6 +920,9 @@ impl Page {
             if !self.fetch_fonts(fonts) {
                 break;
             }
+        }
+        if let Some(g) = generated {
+            crate::generated::remove(&mut self.dom, &mut self.styles, g, &mut self.layout);
         }
         if self.scripted {
             self.rects.clear();
@@ -1007,12 +1011,16 @@ impl Page {
     /// Stops the program when the styles or the layout differ from styling and
     /// laying out the whole page again (see `check_restyles`).
     fn check(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
-        let full = compute_styles(&self.dom, &self.sheet, vw, vh, self.hover);
+        let mut full = compute_styles(&self.dom, &self.sheet, vw, vh, self.hover);
         if let Some(d) = crate::style::first_difference(&self.dom, &self.styles, &full) {
             panic!("incremental restyle differs from a full one at {d}");
         }
         let mut fresh = Layout { record_boxes: self.record_boxes || self.scripted, ..Layout::default() };
+        let generated = if self.sheet.generates { crate::generated::add(&mut self.dom, &mut full) } else { None };
         fresh = layout(&self.dom, &full, fonts, &mut self.images, vw, vh, fresh);
+        if let Some(g) = generated {
+            crate::generated::remove(&mut self.dom, &mut full, g, &mut fresh);
+        }
         if let Some(d) = self.layout.difference(&fresh) {
             panic!("layout after an incremental restyle differs from a full one: {d}");
         }
@@ -1087,9 +1095,13 @@ mod tests {
     /// the whole page again at 1024 by 768, on the composed tree, as updates do.
     fn assert_matches_full(page: &mut Page, fonts: &mut Fonts) {
         let composed = crate::shadow::compose(&mut page.dom);
-        let full = compute_styles(&page.dom, &page.sheet, 1024.0, 768.0, page.hover);
+        let mut full = compute_styles(&page.dom, &page.sheet, 1024.0, 768.0, page.hover);
         let styles = first_difference(&page.dom, &page.styles, &full);
-        let fresh = layout(&page.dom, &full, fonts, &mut page.images, 1024.0, 768.0, Layout { record_boxes: true, ..Layout::default() });
+        let generated = crate::generated::add(&mut page.dom, &mut full);
+        let mut fresh = layout(&page.dom, &full, fonts, &mut page.images, 1024.0, 768.0, Layout { record_boxes: true, ..Layout::default() });
+        if let Some(g) = generated {
+            crate::generated::remove(&mut page.dom, &mut full, g, &mut fresh);
+        }
         if let Some(c) = composed {
             crate::shadow::restore(&mut page.dom, c);
         }
@@ -1120,7 +1132,7 @@ mod tests {
     #[test]
     fn script_changes_restyle_what_their_selectors_reach() {
         // (rule, css, body, script, selector, colours after it)
-        let cases: [(&str, &str, &str, &str, &str, &[&str]); 24] = [
+        let cases: [(&str, &str, &str, &str, &str, &[&str]); 25] = [
             ("descendant", ".on .x{color:#f00}", "<div id=a><p class=x></p><p></p></div><p class=x></p>", "$('a').className='on';", "p", &["ff0000", "000000", "000000"]),
             ("child", ".on>.x{color:#f00} b{color:#00f}", "<div id=a><p class=x><b class=x></b></p></div>", "$('a').classList.add('on');", ".x", &["ff0000", "0000ff"]),
             ("adjacent", ".a+.b{color:#f00}", "<i id=s></i><b class=b></b><b class=b></b>", "$('s').className='a';", "b", &["ff0000", "000000"]),
@@ -1148,6 +1160,7 @@ mod tests {
             ("where list", ":where(.on, .open) > .x{color:#f00}", "<div id=d><p class=x></p></div>", "$('d').className='open';", "p", &["ff0000"]),
             ("not list", ".x:not(.a, .b){color:#f00}", "<p class=x id=p></p><p class=x></p>", "$('p').classList.add('b');", "p", &["000000", "ff0000"]),
             ("not with a combinator", ".x:not(.off *){color:#f00}", "<div id=d><p class=x></p></div><p class=x></p>", "$('d').className='off';", "p", &["000000", "ff0000"]),
+            ("generated content", ".on::after{content:'';display:block;height:5px} .on .x{color:#f00}", "<div id=d><p class=x></p></div>", "$('d').className='on';", "p", &["ff0000"]),
             ("not", ".c:not(.on){color:#f00}", "<p class=c id=c1></p><p class=c></p>", "$('c1').classList.add('on');", "p", &["000000", "ff0000"]),
             (
                 "has",
@@ -1237,5 +1250,20 @@ mod tests {
         let root = page.dom.shadows[&host];
         assert_eq!(colours(&mut page, root, ".in"), ["00ff00"]);
         assert_eq!(colours(&mut page, 0, "b"), ["ff00ff", "ff00ff"]);
+    }
+    #[test]
+    fn generated_boxes_are_laid_out_in_their_element_and_left_out_of_the_document() {
+        let css = "body{margin:0;font:16px/20px sans-serif} .m{display:inline-block;width:10px;height:10px}\
+                   #b::after{content:'';display:block;height:7px} #i::before{content:'';display:inline-block;width:30px;height:5px}\
+                   #f{display:flex} #f::before{content:'';width:12px;height:3px}";
+        let body = "<div id=b>t</div><div id=i><i class=m id=im></i></div><div id=f><i class=m id=fm></i></div>";
+        let (mut page, _) = after_script(css, body, "$('b').title='x';");
+        let nodes = page.dom.nodes.len();
+        let mut rect = |sel: &str| page.describe(sel).and_then(|d| d.0);
+        assert_eq!(rect("#b").map(|r| r[3]), Some(27.0));
+        assert_eq!(rect("#im").map(|r| r[0]), Some(30.0));
+        assert_eq!(rect("#fm").map(|r| r[0]), Some(12.0));
+        assert_eq!(page.dom.nodes.len(), nodes);
+        assert!(query(&mut page.dom, 0, "#b::after", false).is_empty());
     }
 }
