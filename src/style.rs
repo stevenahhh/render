@@ -50,6 +50,14 @@ pub struct Style {
     grid_cols: u8,
     grid_even: bool,
     grid_flow_col: bool,
+    /// Row lines of a grid container, so its items can resolve `grid-row`.
+    row_lines: Option<Rc<RowLines>>,
+    /// The box is a grid container (laid out as flex).
+    grid: bool,
+    /// Start row line this grid item is placed on; 0 when placed automatically.
+    pub grid_row: u16,
+    /// `order`: flex and grid items are laid out by ascending order.
+    pub order: i32,
     own_opacity: f32,
     pub flex_col: bool,
     pub flex_wrap: bool,
@@ -64,9 +72,12 @@ pub struct Style {
 
     pub color: Color,
     pub font_size: f32,
-    pub bold: bool,
+    /// `font-weight`, 1 to 1000.
+    pub weight: u16,
     pub italic: bool,
     pub family: Family,
+    /// The `font-family` list as written, matched against `@font-face` rules.
+    pub families: Option<Rc<str>>,
     pub line_height: LineHeight,
     pub text_align: TextAlign,
     pub white_space: WhiteSpace,
@@ -117,6 +128,10 @@ impl Style {
             grid_cols: 1,
             grid_even: false,
             grid_flow_col: false,
+            row_lines: None,
+            grid: false,
+            grid_row: 0,
+            order: 0,
             own_opacity: 1.0,
             flex_col: false,
             flex_wrap: false,
@@ -130,9 +145,10 @@ impl Style {
             gap_col: 0.0,
             color: Color::BLACK,
             font_size: 16.0,
-            bold: false,
+            weight: 400,
             italic: false,
             family: Family::Serif,
+            families: None,
             line_height: LineHeight::Normal,
             text_align: TextAlign::Left,
             white_space: WhiteSpace::Normal,
@@ -152,9 +168,10 @@ impl Style {
         Style {
             color: p.color,
             font_size: p.font_size,
-            bold: p.bold,
+            weight: p.weight,
             italic: p.italic,
             family: p.family,
+            families: p.families.clone(),
             line_height: p.line_height,
             text_align: p.text_align,
             white_space: p.white_space,
@@ -246,7 +263,7 @@ impl Style {
         out += &format!(
             "font-size:{}px;font-weight:{};line-height:{line_height};text-align:{text_align};white-space:{white_space};opacity:{};z-index:{z};",
             self.font_size,
-            if self.bold { "bold" } else { "normal" },
+            if self.weight >= 600 { "bold" } else { "normal" },
             self.own_opacity
         );
         out += &format!(
@@ -353,9 +370,9 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::Background(col) => st.bg = col,
         Decl::Gradient(ref g) => st.grad = g.clone(),
         Decl::Color(col) => st.color = col.unwrap_or(parent.color),
-        Decl::Bold(b) => st.bold = b,
+        Decl::Weight(w) => st.weight = relative_weight(w, parent.weight),
         Decl::Italic(b) => st.italic = b,
-        Decl::Family(f) => st.family = f,
+        Decl::Family(f, ref list) => (st.family, st.families) = (f, Some(list.clone())),
         Decl::LineHeight(lh) => {
             st.line_height = match lh {
                 LineHeight::Len(Len::Pct(p)) => LineHeight::Len(Len::Px(p * 0.01 * em)),
@@ -397,7 +414,41 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::ZIndex(z) => (st.z, st.z_set) = (z.unwrap_or(0), z.is_some()),
         Decl::GridCols(n, even) => (st.grid_cols, st.grid_even) = (n, even),
         Decl::GridFlowCol(v) => st.grid_flow_col = v,
+        Decl::GridRows(ref l) => st.row_lines = l.clone().or_else(|| parent.row_lines.clone()),
+        Decl::GridRow(ref g) => st.grid_row = g.as_ref().map_or(0, |g| row_line(parent, g)),
+        Decl::Order(v) => st.order = v,
         Decl::FontSize(_) | Decl::Var(..) | Decl::Deferred(..) => {}
+    }
+}
+
+/// A `font-weight` against the parent's, with CSS Fonts 4's table for
+/// `bolder` and `lighter`.
+fn relative_weight(w: FontWeight, parent: u16) -> u16 {
+    match w {
+        FontWeight::Abs(n) => n,
+        FontWeight::Bolder if parent < 350 => 400,
+        FontWeight::Bolder if parent < 550 => 700,
+        FontWeight::Bolder => parent.max(900),
+        FontWeight::Lighter if parent < 550 => parent.min(100),
+        FontWeight::Lighter if parent < 750 => 400,
+        FontWeight::Lighter => 700,
+    }
+}
+
+/// The line number a grid item's `grid-row` start refers to in its parent
+/// grid, or 0 when the parent is not a grid or has no such line.
+fn row_line(grid: &Style, g: &GridLine) -> u16 {
+    if !grid.grid {
+        return 0;
+    }
+    let lines = grid.row_lines.as_deref();
+    match g {
+        GridLine::Name(n) => lines.map_or(0, |l| {
+            let find = |want: &str| l.names.iter().find(|(name, _)| &**name == want).map(|&(_, i)| i);
+            find(n).or_else(|| find(&format!("{n}-start"))).unwrap_or(0)
+        }),
+        &GridLine::Num(k) if k > 0 => k as u16,
+        &GridLine::Num(k) => lines.map_or(0, |l| (l.count as i32 + 1 + k as i32).max(0) as u16),
     }
 }
 
@@ -813,6 +864,7 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
             // Grids are laid out as flex: one column stacks, several columns wrap.
             Display::Grid => {
                 st.display = Display::Flex;
+                st.grid = true;
                 st.flex_col = st.grid_cols <= 1 && !st.grid_flow_col;
                 st.flex_wrap = st.grid_cols > 1 && st.grid_even;
             }

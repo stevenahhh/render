@@ -129,8 +129,9 @@ fn is_cjk(c: char) -> bool {
     matches!(c as u32, 0x2E80..=0xD7FF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF)
 }
 
-fn face_of(s: &Style) -> u8 {
-    Fonts::face_id(s.family, s.bold, s.italic)
+/// The face text in this style is drawn with.
+fn face_of(fonts: &mut Fonts, s: &Style) -> u8 {
+    fonts.face(s.families.as_deref(), s.family, s.weight, s.italic)
 }
 
 fn is_abs(s: &Style) -> bool {
@@ -288,6 +289,20 @@ struct FItem {
     first: u32,
     end: u32,
     item: u32,
+}
+
+/// Lengths of the layout output at one point, for [`Engine::rewind`].
+#[derive(Clone, Copy)]
+struct Snapshot {
+    items: usize,
+    boxes: usize,
+    texts: usize,
+    pictures: usize,
+    text: usize,
+    abs: usize,
+    zranges: usize,
+    next_ord: u32,
+    last_bl: f32,
 }
 
 #[derive(Default)]
@@ -461,7 +476,7 @@ impl<'a> Engine<'a> {
 
     /// Emits already-shaped text at a fixed position and returns its width.
     fn emit_text(&mut self, node: NodeId, text: &str, x: f32, baseline: f32, s: &Style, color: Color) -> f32 {
-        let face = face_of(s);
+        let face = face_of(self.fonts, s);
         let size = s.font_size;
         let (asc, desc, _) = self.fonts.metrics(face);
         let mut segs = std::mem::take(&mut self.segs);
@@ -740,7 +755,8 @@ impl<'a> Engine<'a> {
                 return if inner_h.is_nan() { 0.0 } else { inner_h };
             }
         }
-        let (asc, desc, gap) = self.fonts.metrics(face_of(s));
+        let face = face_of(self.fonts, s);
+        let (asc, desc, gap) = self.fonts.metrics(face);
         let (above, below) = line_extent(s, asc, desc, gap);
         let (text, color) = if tag == atom::IMG {
             (dom.attr(n, atom::ALT).unwrap_or(""), s.color)
@@ -762,14 +778,15 @@ impl<'a> Engine<'a> {
     }
 
     fn marker(&mut self, n: NodeId, s: &Style, cx: f32, cy: f32, ord: u32) {
-        let (asc, desc, gap) = self.fonts.metrics(face_of(s));
+        let face = face_of(self.fonts, s);
+        let (asc, desc, gap) = self.fonts.metrics(face);
         let (above, _) = line_extent(s, asc, desc, gap);
         let size = s.font_size;
         let baseline = cy + above;
         let color = s.color.with_opacity(s.opacity);
         if s.list_style == ListStyle::Decimal {
             let label = format!("{ord}.");
-            let w = self.fonts.measure(face_of(s), &label, size, 0.0);
+            let w = self.fonts.measure(face, &label, size, 0.0);
             self.emit_text(n, &label, cx - w - size * 0.4, baseline, s, color);
             return;
         }
@@ -837,7 +854,7 @@ impl<'a> Engine<'a> {
     fn layout_inline(&mut self, block: NodeId, first: NodeId, end: NodeId, cx: f32, cw: f32, y: f32) -> f32 {
         let st = self.st;
         let s = &st[block as usize];
-        let face = face_of(s);
+        let face = face_of(self.fonts, s);
         let (asc, desc, gap) = self.fonts.metrics(face);
         let (above, below) = line_extent(s, asc, desc, gap);
         let mut il = self.pool.pop().unwrap_or_default();
@@ -972,7 +989,8 @@ impl<'a> Engine<'a> {
                     }
                     self.begin_line(il);
                 }
-                let (asc, desc, _) = self.fonts.metrics(face_of(s));
+                let face = face_of(self.fonts, s);
+                let (asc, desc, _) = self.fonts.metrics(face);
                 il.x += sd.ml;
                 il.open.push(Open {
                     node: n,
@@ -1026,7 +1044,8 @@ impl<'a> Engine<'a> {
         };
         let outer_w = w + sd.ml + sd.mr;
         let ps = &st[self.dom.nodes[n as usize].parent as usize];
-        let gap = self.fonts.lookup(face_of(ps), ' ').2 * ps.font_size + ps.spacing;
+        let face = face_of(self.fonts, ps);
+        let gap = self.fonts.lookup(face, ' ').2 * ps.font_size + ps.spacing;
         let mut space_w = if il.space && il.content { gap } else { 0.0 };
         if il.wrap && il.content && il.x + space_w + outer_w > il.cw + FIT {
             self.finish_line(il);
@@ -1051,7 +1070,7 @@ impl<'a> Engine<'a> {
         let parent = dom.nodes[n as usize].parent;
         let s = &st[parent as usize];
         let text = dom.text_of(n);
-        let face = face_of(s);
+        let face = face_of(self.fonts, s);
         let (asc, desc, gap) = self.fonts.metrics(face);
         let (above, below) = line_extent(s, asc, desc, gap);
         let size = s.font_size;
@@ -1249,6 +1268,10 @@ impl<'a> Engine<'a> {
                 }
             }
         }
+        if items.iter().any(|it| !it.text && st[it.node as usize].order != 0) {
+            items.sort_by_key(|it| if it.text { 0 } else { st[it.node as usize].order });
+        }
+        self.order_grid_rows(&mut items);
         if s.flex_col {
             return self.flex_column(n, &mut items, cx, cw, y, inner_h, min_h);
         }
@@ -1335,33 +1358,43 @@ impl<'a> Engine<'a> {
                 }
             }
 
-            let cross = if single { inner_h } else { NAN };
-            let mut px = cx + lead;
-            let mut line_h = 0.0f32;
-            for it in line.iter_mut() {
-                px += it.sd.ml + if it.sd.auto_l { auto_m } else { 0.0 };
-                it.first = self.mark();
-                if it.text {
-                    let next = dom.nodes[it.node as usize].next;
-                    it.h = self.layout_inline(n, it.node, next, px, it.w, cy);
-                } else {
-                    let cs = &st[it.node as usize];
-                    let stretch = matches!(it.align, Align::Stretch | Align::Auto) && cs.height == Len::Auto;
-                    let fh = if stretch && !cross.is_nan() { (cross - it.sd.mt - it.sd.mb).max(0.0) } else { NAN };
-                    let r = self.layout_box(it.node, px, cy + it.sd.mt, it.w, cw, inner_h, fh, true);
-                    it.h = r.h;
-                    it.item = r.item;
+            let mut cross = if single { inner_h } else { NAN };
+            let snap = self.snapshot();
+            let mut line_h;
+            loop {
+                let mut px = cx + lead;
+                line_h = 0.0f32;
+                for it in line.iter_mut() {
+                    px += it.sd.ml + if it.sd.auto_l { auto_m } else { 0.0 };
+                    it.first = self.mark();
+                    if it.text {
+                        let next = dom.nodes[it.node as usize].next;
+                        it.h = self.layout_inline(n, it.node, next, px, it.w, cy);
+                    } else {
+                        let cs = &st[it.node as usize];
+                        let stretch = matches!(it.align, Align::Stretch | Align::Auto) && cs.height == Len::Auto;
+                        let fh = if stretch && !cross.is_nan() { (cross - it.sd.mt - it.sd.mb).max(0.0) } else { NAN };
+                        let r = self.layout_box(it.node, px, cy + it.sd.mt, it.w, cw, inner_h, fh, true);
+                        it.h = r.h;
+                        it.item = r.item;
+                    }
+                    it.end = self.mark();
+                    line_h = line_h.max(it.h + it.sd.mt + it.sd.mb);
+                    px += it.w + it.sd.mr + if it.sd.auto_r { auto_m } else { 0.0 } + between;
                 }
-                it.end = self.mark();
-                line_h = line_h.max(it.h + it.sd.mt + it.sd.mb);
-                px += it.w + it.sd.mr + if it.sd.auto_r { auto_m } else { 0.0 } + between;
-            }
-            if single {
-                if !inner_h.is_nan() {
-                    line_h = inner_h;
-                } else if !min_h.is_nan() {
-                    line_h = line_h.max(min_h);
+                if single {
+                    if !inner_h.is_nan() {
+                        line_h = inner_h;
+                    } else if !min_h.is_nan() {
+                        line_h = line_h.max(min_h);
+                    }
                 }
+                if cross.is_nan() && self.restretch(line, line_h) {
+                    self.rewind(snap);
+                    cross = line_h;
+                    continue;
+                }
+                break;
             }
             for it in line.iter() {
                 let outer = it.h + it.sd.mt + it.sd.mb;
@@ -1389,14 +1422,24 @@ impl<'a> Engine<'a> {
         let s = &st[n as usize];
         let gap = s.gap_row;
         let mut cy = y;
+        // Grid items placed on the same row share it: each starts at the
+        // row's top and the next row starts below the tallest of them.
+        let (mut row, mut row_top, mut row_next) = (0u16, y, y);
         for it in items.iter_mut() {
             it.first = self.mark();
             if it.text {
                 let next = dom.nodes[it.node as usize].next;
                 it.h = self.layout_inline(n, it.node, next, cx, cw, cy);
                 cy += it.h + gap;
+                row = 0;
             } else {
                 let cs = &st[it.node as usize];
+                let shared = cs.grid_row > 0 && cs.grid_row == row;
+                if shared {
+                    cy = row_top;
+                } else {
+                    (row, row_top) = (cs.grid_row, cy);
+                }
                 let sd = it.sd;
                 let fill = (cw - sd.ml - sd.mr).max(0.0);
                 let stretch = matches!(it.align, Align::Stretch | Align::Auto) && !sd.auto_l && !sd.auto_r;
@@ -1414,6 +1457,10 @@ impl<'a> Engine<'a> {
                 it.h = r.h;
                 it.item = r.item;
                 cy += sd.mt + r.h + sd.mb + gap;
+                if shared {
+                    cy = cy.max(row_next);
+                }
+                row_next = cy;
             }
             it.end = self.mark();
         }
@@ -1447,6 +1494,81 @@ impl<'a> Engine<'a> {
             }
         }
         target
+    }
+
+    /// Puts grid items in row order when some of them name their row with
+    /// `grid-row`. The others are placed like CSS sparse auto-placement in
+    /// one column: in document order, each on the next row no named item
+    /// starts on.
+    fn order_grid_rows(&self, items: &mut Vec<FItem>) {
+        let row = |it: &FItem| self.st[it.node as usize].grid_row;
+        if items.iter().any(|it| it.text) || items.iter().all(|it| row(it) == 0) {
+            return;
+        }
+        let taken: Vec<u16> = items.iter().map(row).filter(|&r| r > 0).collect();
+        let mut next = 1u16;
+        let mut keys = Vec::with_capacity(items.len());
+        for it in items.iter() {
+            let r = row(it);
+            if r > 0 {
+                keys.push(r);
+            } else {
+                while taken.contains(&next) {
+                    next += 1;
+                }
+                keys.push(next);
+                next += 1;
+            }
+        }
+        let mut keyed: Vec<(u16, FItem)> = keys.into_iter().zip(items.drain(..)).collect();
+        keyed.sort_by_key(|k| k.0);
+        items.extend(keyed.into_iter().map(|k| k.1));
+    }
+
+    /// Whether a flex line whose cross size was only known after laying
+    /// out its items must be laid out again: a stretched column flex item
+    /// shorter than the line places its own children (justify-content,
+    /// flex-grow) against the stretched height, so it needs that height
+    /// as a definite size, as CSS Flexbox 9.4 step 11 requires.
+    fn restretch(&self, line: &[FItem], line_h: f32) -> bool {
+        line.iter().any(|it| {
+            let cs = &self.st[it.node as usize];
+            !it.text
+                && matches!(it.align, Align::Stretch | Align::Auto)
+                && cs.height == Len::Auto
+                && cs.flex_col
+                && matches!(cs.display, Display::Flex | Display::InlineFlex)
+                && it.h + it.sd.mt + it.sd.mb + FIT < line_h
+        })
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        let o = &self.out;
+        Snapshot {
+            items: o.items.len(),
+            boxes: o.boxes.len(),
+            texts: o.texts.len(),
+            pictures: o.pictures.len(),
+            text: o.text.len(),
+            abs: self.abs.len(),
+            zranges: self.zranges.len(),
+            next_ord: self.next_ord,
+            last_bl: self.last_bl,
+        }
+    }
+
+    /// Drops everything laid out since `s`, so that part can be laid out again.
+    fn rewind(&mut self, s: Snapshot) {
+        let o = &mut self.out;
+        o.items.truncate(s.items);
+        o.boxes.truncate(s.boxes);
+        o.texts.truncate(s.texts);
+        o.pictures.truncate(s.pictures);
+        o.text.truncate(s.text);
+        self.abs.truncate(s.abs);
+        self.zranges.truncate(s.zranges);
+        self.next_ord = s.next_ord;
+        self.last_bl = s.last_bl;
     }
 
     /// Children that take part in a flex container's layout: a
@@ -1582,7 +1704,10 @@ impl<'a> Engine<'a> {
             match dom.attr(n, atom::WIDTH).and_then(|v| v.trim().parse::<f32>().ok()) {
                 Some(w) if tag == atom::IMG => (w - extra).max(0.0),
                 _ if self.waiting.contains_key(&n) => 0.0,
-                _ => self.fonts.measure(face_of(s), text, s.font_size, 0.0).max(if tag == atom::IMG { 16.0 } else { 0.0 }),
+                _ => {
+                    let face = face_of(self.fonts, s);
+                    self.fonts.measure(face, text, s.font_size, 0.0).max(if tag == atom::IMG { 16.0 } else { 0.0 })
+                }
             }
         } else if matches!(s.display, Display::Flex | Display::InlineFlex) {
             let (mut sum, mut max, mut count) = (0.0f32, 0.0f32, 0.0f32);
@@ -1652,7 +1777,8 @@ impl<'a> Engine<'a> {
                         let w = self.intrinsic(c);
                         if state.space && state.content {
                             let ps = &st[n as usize];
-                            state.cur += self.fonts.lookup(face_of(ps), ' ').2 * ps.font_size + ps.spacing;
+                            let face = face_of(self.fonts, ps);
+                            state.cur += self.fonts.lookup(face, ' ').2 * ps.font_size + ps.spacing;
                         }
                         state.cur += w;
                         state.space = false;
@@ -1673,7 +1799,7 @@ impl<'a> Engine<'a> {
         let dom = self.dom;
         let s = &self.st[dom.nodes[n as usize].parent as usize];
         let text = dom.text_of(n);
-        let (face, size, spacing) = (face_of(s), s.font_size, s.spacing);
+        let (face, size, spacing) = (face_of(self.fonts, s), s.font_size, s.spacing);
         let transform = s.transform;
         let measure = |fonts: &mut Fonts, w: &str| match transform {
             TextTransform::Upper => fonts.measure(face, &w.to_uppercase(), size, spacing),

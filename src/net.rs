@@ -212,17 +212,23 @@ fn read_into(conn: &mut Conn, body: &mut Vec<u8>, n: usize, feed: &mut dyn FnMut
     Ok(())
 }
 
+/// The request for a GET of `url`. A page's resources name the page in
+/// `Referer`, as browsers do; some servers refuse fonts and stylesheets without it.
+fn request_head(url: &Url, referer: Option<&str>) -> String {
+    let default_port = url.port == if url.https { 443 } else { 80 };
+    let host = if default_port { url.host.clone() } else { format!("{}:{}", url.host, url.port) };
+    let referer = referer.map(|r| format!("Referer: {r}\r\n")).unwrap_or_default();
+    format!(
+        "GET {} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0 (Macintosh) render/0.1\r\nAccept: */*\r\nAccept-Encoding: gzip, identity\r\n{referer}Connection: keep-alive\r\n\r\n",
+        url.path
+    )
+}
+
 /// Sends one GET on an open connection and reads the whole response. The flag
 /// tells whether the connection can carry another request. `watch` sees the body
 /// of a final (not redirecting) response while it arrives.
-fn exchange(conn: &mut Conn, url: &Url, watch: Option<&mut Watcher>) -> io::Result<(Response, bool)> {
-    let default_port = url.port == if url.https { 443 } else { 80 };
-    let host = if default_port { url.host.clone() } else { format!("{}:{}", url.host, url.port) };
-    let request = format!(
-        "GET {} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: Mozilla/5.0 (Macintosh) render/0.1\r\nAccept: */*\r\nAccept-Encoding: gzip, identity\r\nConnection: keep-alive\r\n\r\n",
-        url.path
-    );
-    conn.get_mut().write_all(request.as_bytes())?;
+fn exchange(conn: &mut Conn, url: &Url, referer: Option<&str>, watch: Option<&mut Watcher>) -> io::Result<(Response, bool)> {
+    conn.get_mut().write_all(request_head(url, referer).as_bytes())?;
     conn.get_mut().flush()?;
     let (status, mut reusable, headers) = loop {
         let status_line = read_line(conn)?;
@@ -365,11 +371,19 @@ fn new_tls_config() -> Arc<rustls::ClientConfig> {
 pub struct Client {
     tls: Arc<rustls::ClientConfig>,
     pool: HashMap<(bool, String, u16), Conn>,
+    /// The page whose resources this client fetches.
+    referer: Option<Arc<str>>,
 }
 
 impl Client {
     pub fn new(tls: Arc<rustls::ClientConfig>) -> Client {
-        Client { tls, pool: HashMap::new() }
+        Client { tls, pool: HashMap::new(), referer: None }
+    }
+
+    /// A client fetching the resources of the page at `page`.
+    fn referring(mut self, page: Arc<str>) -> Client {
+        self.referer = Some(page);
+        self
     }
 
     fn connect(&self, url: &Url) -> Result<Conn, String> {
@@ -399,7 +413,7 @@ impl Client {
         if let Some(mut conn) = kept {
             // A kept connection may have been closed by the server meanwhile; then
             // the request is sent again on a new one.
-            if let Ok((response, reusable)) = exchange(&mut conn, url, watch.as_deref_mut()) {
+            if let Ok((response, reusable)) = exchange(&mut conn, url, self.referer.as_deref(), watch.as_deref_mut()) {
                 if reusable {
                     self.pool.insert(key, conn);
                 }
@@ -407,11 +421,11 @@ impl Client {
             }
         }
         let (mut conn, fresh) = self.open(url)?;
-        let mut result = exchange(&mut conn, url, watch.as_deref_mut());
+        let mut result = exchange(&mut conn, url, self.referer.as_deref(), watch.as_deref_mut());
         if result.is_err() && !fresh {
             // The idle connection had been closed by its server meanwhile.
             conn = self.connect(url)?;
-            result = exchange(&mut conn, url, watch);
+            result = exchange(&mut conn, url, self.referer.as_deref(), watch);
         }
         let (response, reusable) = result.map_err(|e| format!("{url}: {e}"))?;
         if reusable {
@@ -616,6 +630,8 @@ enum Slot {
 struct Store {
     dir: PathBuf,
     tls: Arc<rustls::ClientConfig>,
+    /// The page the resources belong to, sent as their `Referer`.
+    page: Arc<str>,
     slots: Mutex<HashMap<Url, Slot>>,
     /// Signalled whenever a download finishes.
     done: Condvar,
@@ -626,12 +642,18 @@ struct Store {
 }
 
 impl Store {
-    fn new(tls: Arc<rustls::ClientConfig>) -> Result<Arc<Store>, String> {
+    fn new(tls: Arc<rustls::ClientConfig>, page: &Url) -> Result<Arc<Store>, String> {
         static OPENED: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!("render-{}-{}", std::process::id(), OPENED.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let store = Store { dir, tls, slots: Mutex::new(HashMap::new()), done: Condvar::new(), finished: AtomicUsize::new(0), wake: Mutex::new(None) };
+        let page = page.to_string().into();
+        let store = Store { dir, tls, page, slots: Mutex::new(HashMap::new()), done: Condvar::new(), finished: AtomicUsize::new(0), wake: Mutex::new(None) };
         Ok(Arc::new(store))
+    }
+
+    /// A client for this page's resources.
+    fn client(&self) -> Client {
+        Client::new(self.tls.clone()).referring(self.page.clone())
     }
 
     fn slots(&self) -> std::sync::MutexGuard<'_, HashMap<Url, Slot>> {
@@ -713,7 +735,7 @@ impl Store {
         std::thread::scope(|scope| {
             for _ in 0..urls.len().min(MAX_PARALLEL) {
                 scope.spawn(|| {
-                    let mut client = Client::new(self.tls.clone());
+                    let mut client = self.client();
                     while let Some(url) = urls.get(next.fetch_add(1, Ordering::Relaxed)) {
                         let path = self.download(&mut client, url);
                         self.finish(url.clone(), path);
@@ -758,7 +780,7 @@ impl Site {
         let started = Instant::now();
         let url = Url::parse(location).ok_or_else(|| format!("{location}: not an http or https URL"))?;
         let tls = tls_config();
-        let store = Store::new(tls.clone())?;
+        let store = Store::new(tls.clone(), &url)?;
         // A second connection to the page's server, ready for the first stylesheet found.
         preconnect(tls.clone(), url.clone());
         let mut preload = Preload::default();
@@ -791,7 +813,7 @@ impl Site {
             self.store.wait(std::slice::from_ref(&url), None);
             return self.store.ready(&url).flatten();
         }
-        let path = self.store.download(&mut Client::new(self.store.tls.clone()), &url);
+        let path = self.store.download(&mut self.store.client(), &url);
         self.store.finish(url, path.clone());
         path
     }
@@ -861,7 +883,17 @@ impl Site {
 
 #[cfg(test)]
 mod tests {
-    use super::{Preload, Url};
+    use super::{request_head, Preload, Url};
+
+    #[test]
+    fn resources_name_their_page_in_referer() {
+        let font = Url::parse("https://www.apple.com/wss/fonts?families=SF+Pro,v3|SF+Pro+Icons,v3").unwrap();
+        let head = request_head(&font, Some("https://www.apple.com/"));
+        assert!(head.starts_with("GET /wss/fonts?families=SF+Pro,v3|SF+Pro+Icons,v3 HTTP/1.1\r\nHost: www.apple.com\r\n"));
+        assert_eq!(head.lines().filter(|l| *l == "Referer: https://www.apple.com/").count(), 1);
+        assert!(head.ends_with("\r\n\r\n"));
+        assert!(!request_head(&font, None).contains("Referer"));
+    }
 
     #[test]
     fn preload_finds_stylesheets_split_across_pieces() {

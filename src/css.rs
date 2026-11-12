@@ -123,6 +123,27 @@ pub enum Family {
     Mono = 2,
 }
 
+/// A `font-weight` value; the relative keywords depend on the parent's weight.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum FontWeight {
+    Abs(u16),
+    Bolder,
+    Lighter,
+}
+
+/// An `@font-face` rule: a downloadable face of a family.
+#[derive(Debug)]
+pub struct FontFace {
+    /// Family name, lower case.
+    pub family: Box<str>,
+    /// `src` entries in order of preference: URL (resolved like other `url()`s)
+    /// and the `format()` hint when given. `local()` entries are left out.
+    pub srcs: Vec<(Box<str>, Option<Box<str>>)>,
+    /// The weights the face covers, `(400, 400)` when not given.
+    pub weight: (u16, u16),
+    pub italic: bool,
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum LineHeight {
     Normal,
@@ -142,6 +163,70 @@ pub struct Gradient {
     /// CSS angle in degrees: 0 points up, 90 points right.
     pub angle: f32,
     pub stops: Vec<(f32, Color)>,
+}
+
+/// The lines of a `grid-template-rows` track list: each line name with its
+/// 1-based line number, and how many lines there are.
+#[derive(Debug)]
+pub struct RowLines {
+    pub names: Vec<(Box<str>, u16)>,
+    pub count: u16,
+}
+
+/// The start line an item names in `grid-row`.
+#[derive(Clone, Debug)]
+pub enum GridLine {
+    /// A line name, or an area name that matches its `-start` line.
+    Name(Box<str>),
+    /// A line number; negative numbers count from the last line.
+    Num(i16),
+}
+
+/// Named lines of a track list such as `[image] auto [headline-start] 1fr`.
+/// A `repeat()` counts as one track.
+fn row_lines(v: &str) -> RowLines {
+    let mut names = Vec::new();
+    let mut line = 1u16;
+    let mut rest = v.trim();
+    while !rest.is_empty() {
+        if let Some(r) = rest.strip_prefix('[') {
+            let end = r.find(']').unwrap_or(r.len());
+            names.extend(r[..end].split_ascii_whitespace().map(|n| (n.into(), line)));
+            rest = r.get(end + 1..).unwrap_or("");
+        } else {
+            let mut depth = 0u32;
+            let end = rest
+                .char_indices()
+                .find(|&(_, c)| {
+                    match c {
+                        '(' => depth += 1,
+                        ')' => depth = depth.saturating_sub(1),
+                        _ => {}
+                    }
+                    depth == 0 && (c.is_ascii_whitespace() || c == '[')
+                })
+                .map_or(rest.len(), |(i, _)| i);
+            line += 1;
+            rest = &rest[end..];
+        }
+        rest = rest.trim_start();
+    }
+    RowLines { names, count: line }
+}
+
+/// Start line of a `grid-row`, `grid-row-start` or `grid-area` value.
+fn grid_line(v: &str) -> Option<GridLine> {
+    let start = v.split('/').next()?.trim();
+    let mut words = start.split_ascii_whitespace();
+    let first = words.next()?;
+    if first == "auto" || first == "span" {
+        return None;
+    }
+    match first.parse::<i16>() {
+        Ok(n) if n != 0 => Some(GridLine::Num(n)),
+        Ok(_) => None,
+        Err(_) => Some(GridLine::Name(first.into())),
+    }
 }
 
 /// One parsed declaration. Shorthands are expanded at parse time; sides are
@@ -176,9 +261,10 @@ pub enum Decl {
     /// `None` is `inherit`.
     Color(Option<Color>),
     FontSize(FontSize),
-    Bold(bool),
+    Weight(FontWeight),
     Italic(bool),
-    Family(Family),
+    /// The generic family the list falls back to, and the list as written.
+    Family(Family, Rc<str>),
     LineHeight(LineHeight),
     TextAlign(TextAlign),
     TextDeco(u8),
@@ -206,6 +292,13 @@ pub enum Decl {
     /// Column count, and whether the tracks share the width evenly.
     GridCols(u8, bool),
     GridFlowCol(bool),
+    /// `grid-template-rows`: its named lines, or `None` for `subgrid`,
+    /// which takes the parent grid's lines.
+    GridRows(Option<Rc<RowLines>>),
+    /// Start line of `grid-row`; `None` is automatic placement.
+    GridRow(Option<GridLine>),
+    /// `order` of a flex or grid item.
+    Order(i32),
     /// SVG fill; `None` is currentColor.
     Fill(Option<Color>),
     /// Custom property definition.
@@ -296,7 +389,11 @@ fn num(s: &str) -> Option<f32> {
 fn calc(inner: &str) -> Option<Len> {
     let (mut pct, mut px, mut sign, mut op) = (0.0, 0.0, 1.0, b'+');
     let mut term: Option<(f32, f32, bool)> = None;
+    let mut pieces = Vec::new();
     for t in tokens(inner) {
+        split_products(t, &mut pieces);
+    }
+    for t in pieces {
         match t {
             "+" | "-" => {
                 if let Some((p, v, _)) = term.take() {
@@ -339,6 +436,30 @@ fn calc(inner: &str) -> Option<Len> {
         px += sign * v;
     }
     Some(if pct == 0.0 { Len::Px(px) } else { Len::Calc(pct, px) })
+}
+
+/// Splits a `calc()` token at `*` and `/` outside parentheses, which CSS
+/// allows without surrounding spaces (`calc(var(--x)*-1)`), keeping each
+/// operator as its own piece.
+fn split_products<'a>(t: &'a str, out: &mut Vec<&'a str>) {
+    let (mut depth, mut start) = (0u32, 0);
+    for (i, c) in t.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            '*' | '/' if depth == 0 => {
+                if i > start {
+                    out.push(&t[start..i]);
+                }
+                out.push(&t[i..i + 1]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    if start < t.len() {
+        out.push(&t[start..]);
+    }
 }
 
 /// `translate` components of a `transform` value; other functions are ignored.
@@ -863,11 +984,13 @@ fn font_size(v: &str) -> Option<FontSize> {
     }
 }
 
-fn font_weight(v: &str) -> Option<bool> {
+fn font_weight(v: &str) -> Option<FontWeight> {
     match v {
-        "bold" | "bolder" => Some(true),
-        "normal" | "lighter" => Some(false),
-        _ => num(v).map(|n| n >= 600.0),
+        "bold" => Some(FontWeight::Abs(700)),
+        "normal" => Some(FontWeight::Abs(400)),
+        "bolder" => Some(FontWeight::Bolder),
+        "lighter" => Some(FontWeight::Lighter),
+        _ => num(v).filter(|n| (1.0..=1000.0).contains(n)).map(|n| FontWeight::Abs(n as u16)),
     }
 }
 
@@ -882,20 +1005,60 @@ fn line_height(v: &str) -> Option<LineHeight> {
 }
 
 fn font_family(v: &str) -> Family {
-    for name in v.split(',') {
-        let n = name.trim().trim_matches(|c| c == '"' || c == '\'');
-        let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
-        if has(&["mono", "courier", "consol", "menlo", "code"]) {
-            return Family::Mono;
-        }
-        if has(&["sans", "arial", "helvetica", "system-ui", "-apple-system", "segoe", "roboto", "inter", "verdana", "tahoma", "gothic", "pretendard"]) {
-            return Family::Sans;
-        }
-        if has(&["serif", "times", "georgia", "garamond", "palatino", "myeongjo", "batang"]) {
-            return Family::Serif;
+    family_names(v).find_map(|n| builtin_family(&n)).unwrap_or(Family::Sans)
+}
+
+/// The names of a `font-family` list, unquoted and in lower case.
+pub fn family_names(v: &str) -> impl Iterator<Item = String> + '_ {
+    SplitTop::new(v, b',').map(|name| name.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase())
+}
+
+/// The built-in family that stands in for a family name, if any does.
+pub fn builtin_family(n: &str) -> Option<Family> {
+    let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
+    if has(&["mono", "courier", "consol", "menlo", "code"]) {
+        return Some(Family::Mono);
+    }
+    if has(&["sans", "arial", "helvetica", "system-ui", "-apple-system", "segoe", "roboto", "inter", "verdana", "tahoma", "gothic", "pretendard"]) {
+        return Some(Family::Sans);
+    }
+    if has(&["serif", "times", "georgia", "garamond", "palatino", "myeongjo", "batang"]) {
+        return Some(Family::Serif);
+    }
+    None
+}
+
+/// Reads the body of an `@font-face` rule; `None` without a family or a usable source.
+fn font_face(body: &str) -> Option<FontFace> {
+    let mut face = FontFace { family: "".into(), srcs: Vec::new(), weight: (400, 400), italic: false };
+    for decl in SplitTop::new(body, b';') {
+        let Some((name, value)) = decl.split_once(':') else { continue };
+        let value = value.trim();
+        match name.trim().to_ascii_lowercase().as_str() {
+            "font-family" => face.family = family_names(value).next()?.into(),
+            "font-style" => face.italic = value.starts_with("italic") || value.starts_with("oblique"),
+            "font-weight" => {
+                let mut w = tokens(value).filter_map(|t| match font_weight(t) {
+                    Some(FontWeight::Abs(n)) => Some(n),
+                    _ => None,
+                });
+                if let Some(lo) = w.next() {
+                    face.weight = (lo, w.next().unwrap_or(lo).max(lo));
+                }
+            }
+            "src" => {
+                for entry in SplitTop::new(value, b',') {
+                    let mut parts = tokens(entry.trim());
+                    let Some(url) = parts.next().and_then(css_url) else { continue };
+                    let format = parts.find_map(|p| p.strip_prefix("format(")?.strip_suffix(')'));
+                    let format = format.map(|f| f.trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase().into());
+                    face.srcs.push((url.into(), format));
+                }
+            }
+            _ => {}
         }
     }
-    Family::Sans
+    (!face.family.is_empty() && !face.srcs.is_empty()).then_some(face)
 }
 
 fn align(v: &str) -> Option<Align> {
@@ -983,6 +1146,9 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             out.push(D::GridCols(cols as u8, even));
         }
         "grid-auto-flow" => push(Some(D::GridFlowCol(v.starts_with("column")))),
+        "grid-template-rows" => push(Some(D::GridRows((v != "subgrid").then(|| Rc::new(row_lines(v)))))),
+        "grid-row" | "grid-row-start" | "grid-area" => push(Some(D::GridRow(grid_line(v)))),
+        "order" => push(v.parse().ok().map(D::Order)),
         "position" => push(Some(D::Position(match v {
             "relative" => Position::Relative,
             "absolute" => Position::Absolute,
@@ -1089,31 +1255,31 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             }
         }
         "font-size" => push(font_size(v).map(D::FontSize)),
-        "font-weight" => push(font_weight(v).map(D::Bold)),
+        "font-weight" => push(font_weight(v).map(D::Weight)),
         "font-style" => push(Some(D::Italic(v == "italic" || v == "oblique"))),
-        "font-family" => push(Some(D::Family(font_family(v)))),
+        "font-family" => push(Some(D::Family(font_family(v), v.into()))),
         "line-height" => push(line_height(v).map(D::LineHeight)),
         "font" => {
             let toks: Vec<&str> = tokens(v).collect();
-            let (mut bold, mut italic) = (false, false);
+            let (mut weight, mut italic) = (FontWeight::Abs(400), false);
             for (i, t) in toks.iter().enumerate() {
                 match *t {
                     "italic" | "oblique" => italic = true,
-                    "bold" | "bolder" => bold = true,
                     "normal" | "small-caps" => {}
                     _ => {
-                        if let Ok(w) = t.parse::<f32>() {
-                            bold = w >= 600.0;
+                        if let Some(w) = font_weight(t) {
+                            weight = w;
                             continue;
                         }
                         let (sz, lh) = t.split_once('/').unwrap_or((t, ""));
                         let Some(fs) = font_size(sz) else { return };
                         out.push(D::Italic(italic));
-                        out.push(D::Bold(bold));
+                        out.push(D::Weight(weight));
                         out.push(D::FontSize(fs));
                         out.push(D::LineHeight(line_height(lh).unwrap_or(LineHeight::Normal)));
                         if i + 1 < toks.len() {
-                            out.push(D::Family(font_family(&toks[i + 1..].join(" "))));
+                            let list = toks[i + 1..].join(" ");
+                            out.push(D::Family(font_family(&list), list.into()));
                         }
                         return;
                     }
@@ -1676,6 +1842,11 @@ fn parse_media(q: &str, outer: Option<Media>) -> Media {
             "prefers-color-scheme" => m.on &= val == "light",
             // One still frame is painted, so motion is always reduced.
             "prefers-reduced-motion" => m.on &= val == "reduce",
+            // A desktop window with default accessibility settings and a mouse.
+            "prefers-contrast" | "prefers-reduced-transparency" | "prefers-reduced-data" => m.on &= val == "no-preference",
+            "forced-colors" | "inverted-colors" => m.on &= val == "none",
+            "hover" | "any-hover" => m.on &= val == "hover",
+            "pointer" | "any-pointer" => m.on &= val == "fine",
             _ => {}
         }
     }
@@ -1738,6 +1909,8 @@ pub struct Sheet {
     pub by_tag: FxMap<Atom, Vec<u32>>,
     pub universal: Vec<u32>,
     pub uses_hover: bool,
+    /// `@font-face` rules in document order.
+    pub fonts: Vec<FontFace>,
 }
 
 fn skip_block(b: &[u8], mut i: usize) -> usize {
@@ -1828,6 +2001,10 @@ impl Sheet {
                     self.rules_in(s, i, idx, level, atoms, true);
                 } else if prelude.starts_with("@supports") || prelude.starts_with("@layer") {
                     self.rules_in(s, i, media, level, atoms, true);
+                } else if prelude.trim_end().eq_ignore_ascii_case("@font-face") {
+                    let open = *i;
+                    *i = skip_block(b, open);
+                    self.fonts.extend(font_face(&s[open..(*i - 1).max(open)]));
                 } else {
                     *i = skip_block(b, *i);
                 }
@@ -1874,5 +2051,38 @@ impl Sheet {
                 self.universal.push(i);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FontWeight, Sheet};
+    use crate::dom::Interner;
+
+    #[test]
+    fn font_face_rules_are_collected_with_resolved_sources() {
+        let css = "@font-face{font-family:'SF Pro Text';font-style:normal;font-weight:100 900;\
+                   src:local('SF Pro'),url('/wss/a.woff2') format('woff2'),url(\"a.ttf\") format(\"truetype\");unicode-range:U+0-FF}\
+                   @media(min-width:1px){@font-face{font-family:Fira;font-style:italic;font-weight:bold;src:url(f.woff)}}\
+                   @font-face{font-family:NoSource}\
+                   p{font-weight:600}";
+        let mut sheet = Sheet::default();
+        sheet.add(css, &mut Interner::new(), 1, "https://example.com/css/site.css");
+        let faces: Vec<_> = sheet.fonts.iter().map(|f| (&*f.family, f.weight, f.italic, f.srcs.len())).collect();
+        assert_eq!(faces, [("sf pro text", (100, 900), false, 2), ("fira", (700, 700), true, 1)]);
+        let srcs: Vec<_> = sheet.fonts[0].srcs.iter().map(|(u, f)| (&**u, f.as_deref())).collect();
+        assert_eq!(srcs, [("/wss/a.woff2", Some("woff2")), ("https://example.com/css/a.ttf", Some("truetype"))]);
+        assert_eq!(&*sheet.fonts[1].srcs[0].0, "https://example.com/css/f.woff");
+        assert_eq!(sheet.rules.len(), 1);
+    }
+
+    #[test]
+    fn font_weight_values() {
+        let weight = |v: &str| super::font_weight(v);
+        assert_eq!(weight("bold"), Some(FontWeight::Abs(700)));
+        assert_eq!(weight("normal"), Some(FontWeight::Abs(400)));
+        assert_eq!(weight("550"), Some(FontWeight::Abs(550)));
+        assert_eq!(weight("bolder"), Some(FontWeight::Bolder));
+        assert_eq!(weight("1001"), None);
     }
 }

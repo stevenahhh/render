@@ -10,6 +10,7 @@ pub mod net;
 pub mod page;
 pub mod paint;
 pub mod style;
+pub mod webfont;
 
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};

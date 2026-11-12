@@ -478,17 +478,17 @@ impl App {
         self.request_redraw();
     }
 
-    /// Takes in the current page's stylesheets and images that arrived since it was
-    /// last laid out, and repaints it with them.
+    /// Takes in the current page's stylesheets, images and web fonts that arrived
+    /// since it was last laid out, and repaints it with them.
     fn take_arrivals(&mut self) {
-        let (css, images) = self.page.take_arrivals();
-        if css + images == 0 {
+        let (css, images, fonts) = self.page.take_arrivals(&mut self.fonts);
+        if css + images + fonts == 0 {
             return;
         }
         self.late_images += images;
         if let Some(start) = PROCESS_START.get().filter(|_| self.stats) {
             let at = millis(start.elapsed());
-            eprintln!("late arrivals: {css} stylesheets, {images} images ({} images so far); relayout at {at:.1} ms after process start", self.late_images);
+            eprintln!("late arrivals: {css} stylesheets, {images} images ({} images so far), {fonts} fonts; relayout at {at:.1} ms after process start", self.late_images);
         }
         self.request_redraw();
     }
@@ -765,6 +765,7 @@ fn run() -> Result<(), String> {
         notice: None,
         bar: (String::new(), 0, Vec::new()),
     };
+    app.fonts.log = args.stats;
     if web {
         app.navigate(args.path.clone(), 0.0, false);
     }

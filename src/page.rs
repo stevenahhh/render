@@ -1,6 +1,6 @@
 //! A loaded document: DOM, stylesheet, computed styles and layout.
 
-use crate::css::Sheet;
+use crate::css::{FontFace, Sheet};
 use crate::dom::{atom, parse_html, Dom, NodeId, NONE};
 use crate::font::Fonts;
 use crate::img::Images;
@@ -9,7 +9,8 @@ use crate::FxMap;
 use crate::layout::{layout, Kind, Layout};
 use crate::style::{compute_styles, Style};
 use crate::net::{Site, Wake};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -186,6 +187,19 @@ pub struct Page {
     css_left_out: Vec<String>,
     arrivals: usize,
     stale: bool,
+    /// The sheet's `@font-face` rules.
+    web_faces: Rc<[FontFace]>,
+    /// Web fonts asked for that are still downloading, for a page that does not wait.
+    fonts_pending: Vec<Box<str>>,
+    /// Downloads are waited for (one-shot output) rather than taken in later.
+    wait: bool,
+    /// Directory a local page's relative URLs resolve against.
+    base: Option<PathBuf>,
+}
+
+/// Moves a sheet's `@font-face` rules out, to be shared with the font matcher.
+fn take_faces(sheet: &mut Sheet) -> Rc<[FontFace]> {
+    Rc::from(std::mem::take(&mut sheet.fonts))
 }
 
 impl Page {
@@ -206,7 +220,8 @@ impl Page {
     fn parse(html: &str, base: Option<&Path>, defer: bool, site: Option<Arc<Site>>, wait: bool) -> Page {
         let mut dom = parse_html(html);
         let arrivals = site.as_ref().map_or(0, |s| s.arrivals());
-        let (sheet, css_units, css_left_out) = style_sheet(&mut dom, base, site.as_deref(), wait);
+        let (mut sheet, css_units, css_left_out) = style_sheet(&mut dom, base, site.as_deref(), wait);
+        let web_faces = take_faces(&mut sheet);
         let viewport_units = css_units || html.contains("vw") || html.contains("vh");
         let mut title = String::new();
         let mut scripts: Vec<Script> = Vec::new();
@@ -270,6 +285,10 @@ impl Page {
             css_left_out,
             arrivals,
             stale: false,
+            web_faces,
+            fonts_pending: Vec::new(),
+            wait,
+            base: base.map(Path::to_path_buf),
         };
         if let Some(site) = site {
             if defer {
@@ -480,28 +499,74 @@ impl Page {
         }
     }
 
-    /// Takes in the stylesheets and images that arrived since the last call, so the
-    /// next `update` restyles or lays the page out again. Returns how many
-    /// stylesheets and how many images arrived.
-    pub fn take_arrivals(&mut self) -> (usize, usize) {
-        let Some(site) = self.site.clone() else { return (0, 0) };
+    /// Takes in the stylesheets, images and web fonts that arrived since the last
+    /// call, so the next `update` restyles or lays the page out again. Returns
+    /// how many stylesheets, images and fonts arrived.
+    pub fn take_arrivals(&mut self, fonts: &mut Fonts) -> (usize, usize, usize) {
+        let Some(site) = self.site.clone() else { return (0, 0, 0) };
         let arrivals = site.arrivals();
         if arrivals == self.arrivals {
-            return (0, 0);
+            return (0, 0, 0);
         }
         self.arrivals = arrivals;
         let mut css = 0;
         if self.css_left_out.iter().any(|href| site.arrived(href)) {
-            let (sheet, units, left_out) = style_sheet(&mut self.dom, None, Some(&site), false);
+            let (mut sheet, units, left_out) = style_sheet(&mut self.dom, None, Some(&site), false);
             css = self.css_left_out.len().saturating_sub(left_out.len());
+            self.web_faces = take_faces(&mut sheet);
             self.sheet = sheet;
             self.viewport_units |= units;
             self.styles.clear();
             self.css_left_out = left_out;
         }
         let images = self.images.arrived();
-        self.stale |= images > 0;
-        (css, images)
+        let pending = std::mem::take(&mut self.fonts_pending);
+        let (arrived, waiting): (Vec<_>, Vec<_>) = pending.into_iter().partition(|url| site.arrived(url));
+        self.fonts_pending = waiting;
+        for url in &arrived {
+            fonts.provide(url, site.file_if_ready(url).flatten().and_then(|p| std::fs::read(p).ok()));
+        }
+        self.stale |= images + arrived.len() > 0;
+        (css, images, arrived.len())
+    }
+
+    /// Fetches the web fonts the last layout asked for: waiting for them when
+    /// the page waits for downloads, else taking in those already here and
+    /// leaving the rest to `take_arrivals`. True when a font was taken in.
+    fn fetch_fonts(&mut self, fonts: &mut Fonts) -> bool {
+        let wanted = fonts.take_wanted();
+        if wanted.is_empty() {
+            return false;
+        }
+        let read = |p: PathBuf| std::fs::read(p).ok();
+        let mut taken = false;
+        match &self.site {
+            Some(site) if self.wait => {
+                site.prefetch(&wanted.iter().map(|u| u.to_string()).collect::<Vec<_>>());
+                for url in &wanted {
+                    fonts.provide(url, site.file(url).and_then(read));
+                }
+                taken = true;
+            }
+            Some(site) => {
+                for url in wanted {
+                    match site.file_if_ready(&url) {
+                        Some(path) => {
+                            fonts.provide(&url, path.and_then(read));
+                            taken = true;
+                        }
+                        None => self.fonts_pending.push(url),
+                    }
+                }
+            }
+            None => {
+                for url in &wanted {
+                    fonts.provide(url, self.base.as_ref().and_then(|b| read(b.join(&**url))));
+                }
+                taken = true;
+            }
+        }
+        taken
     }
 
     /// The URL of a page opened from the web.
@@ -522,9 +587,16 @@ impl Page {
     }
 
     fn relayout(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
-        let mut old = std::mem::take(&mut self.layout);
-        old.record_boxes = self.record_boxes || self.js.is_some();
-        self.layout = layout(&self.dom, &self.styles, fonts, &mut self.images, vw, vh, old);
+        fonts.set_web_faces(&self.web_faces);
+        loop {
+            let mut old = std::mem::take(&mut self.layout);
+            old.record_boxes = self.record_boxes || self.js.is_some();
+            self.layout = layout(&self.dom, &self.styles, fonts, &mut self.images, vw, vh, old);
+            // Text measured with a stand-in face is measured again with the web font.
+            if !self.fetch_fonts(fonts) {
+                break;
+            }
+        }
         if self.js.is_some() {
             self.rects.clear();
             for i in self.layout.items.iter().filter(|i| matches!(i.kind, Kind::Box | Kind::Area)) {

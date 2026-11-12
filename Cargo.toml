@@ -17,6 +17,8 @@ memmap2 = "0.9"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 flate2 = "1"
+# WOFF2 web fonts are Brotli-compressed; a decoder-only, pure-Rust crate.
+brotli-decompressor = "6"
 
 # AVIF images are decoded by the system's ImageIO; these bind its CoreGraphics side.
 [target.'cfg(target_os = "macos")'.dependencies]
