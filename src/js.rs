@@ -24,6 +24,13 @@ const PRELUDE: &str = include_str!("prelude.js");
 const FIXED_RANDOM: &str = "{ let s = 0x9E3779B9; Math.random = () => { s = (s + 0x6D2B79F5) | 0; let t = Math.imul(s ^ (s >>> 15), 1 | s); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }";
 /// Stops runaway loops in page scripts instead of freezing the window.
 const LOOP_LIMIT: u64 = 20_000_000;
+/// Nested calls a script may make, about what Chrome allows for plain recursion.
+/// Calls made through native code (`map`, getters, `JSON.stringify`) also use
+/// the machine stack: on an 8 MB main thread the costliest measured pattern
+/// overflowed at about 13,500 of these, so the limit keeps that out of reach.
+const RECURSION_LIMIT: usize = 10_000;
+/// Values on the script stack across all those calls.
+const STACK_LIMIT: usize = 1_000_000;
 
 /// Page state that scripts can read and change.
 pub struct Host {
@@ -363,6 +370,8 @@ impl Js {
         };
         let mut ctx = builder.build().expect("create script context");
         ctx.runtime_limits_mut().set_loop_iteration_limit(LOOP_LIMIT);
+        ctx.runtime_limits_mut().set_recursion_limit(RECURSION_LIMIT);
+        ctx.runtime_limits_mut().set_stack_size_limit(STACK_LIMIT);
         for &(name, len, f) in NATIVES {
             ctx.register_global_callable(JsString::from(name), len, NativeFunction::from_fn_ptr(f)).expect("register native function");
         }
