@@ -883,8 +883,7 @@ pub fn query(dom: &mut Dom, root: NodeId, selector: &str, first_only: bool) -> V
 /// The `href` of the first element `query(dom, 0, "base[href]", true)` finds,
 /// found by the same walk without parsing and matching a selector.
 pub fn base_href(dom: &Dom) -> Option<&str> {
-    // A flat pass over the arena is far cheaper than the walk and rules out most documents.
-    if !dom.nodes.iter().any(|n| n.tag == atom::BASE) {
+    if !dom.has_base {
         return None;
     }
     let mut i = dom.nodes[0].first_child;
