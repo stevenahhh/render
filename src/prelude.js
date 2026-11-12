@@ -1473,6 +1473,16 @@
   protos.set('#document-fragment', DocumentFragment.prototype);
   protos.set('#shadow-root', ShadowRoot.prototype);
 
+  // document.all: every element of the document, in a collection browsers keep for old
+  // pages and make undetectable: falsy, of type "undefined", == undefined but !== undefined.
+  class HTMLAllCollection {
+    constructor() { illegal(); }
+    get length() { return document.getElementsByTagName('*').length; }
+    item(i) { return typeof i === 'string' ? this.namedItem(i) : document.getElementsByTagName('*')[i] || null; }
+    namedItem(name) { return document.getElementById(name) || document.getElementsByName(name)[0] || null; }
+  }
+  let allElements = null;
+
   class Document extends Node {
     constructor() { return newDocument(false); }
     get nodeType() { return 9; }
@@ -1534,6 +1544,7 @@
     get baseURI() { return baseURL(); }
     get location() { return this === document ? location : null; }
     get defaultView() { return this === document ? g : null; }
+    get all() { return this === document ? allElements || (allElements = __undetectable(HTMLAllCollection.prototype)) : undefined; }
     get currentScript() { return currentScript; }
     get visibilityState() { return pageHidden ? 'hidden' : 'visible'; }
     get hidden() { return pageHidden; }

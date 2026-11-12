@@ -11,6 +11,7 @@ use crate::net::{Site, Wake};
 use crate::page::Page;
 use crate::url::Url;
 use crate::{style, FxMap};
+use boa_engine::builtins::is_html_dda::IsHTMLDDA;
 use boa_engine::builtins::promise::{OperationType, Promise, PromiseState};
 use boa_engine::context::HostHooks;
 use boa_engine::job::PromiseJob;
@@ -547,6 +548,14 @@ fn view(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     Ok(js_array(v.iter().map(|v| JsValue::from(*v as f64)).collect(), ctx))
 }
 
+/// `__undetectable(proto)`: a new object of prototype `proto` with `[[IsHTMLDDA]]`, as
+/// `document.all` has: falsy, of type "undefined", equal to undefined and null without
+/// being either.
+fn undetectable(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+    let proto = a.get_or_undefined(0).as_object().map(|o| o.clone());
+    Ok(JsObject::from_proto_and_data(proto, IsHTMLDDA).into())
+}
+
 /// `__image(src)`: `[width, height]` of the image `src` names, looked up as layout
 /// looks images up; null when it cannot be had, 0 while it is still downloading.
 fn image(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
@@ -872,6 +881,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__rect", 1, rect),
     ("__view", 0, view),
     ("__image", 1, image),
+    ("__undetectable", 1, undetectable),
     ("__media", 1, media),
     ("__supports", 2, supports),
     ("__now", 0, now),
