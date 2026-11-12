@@ -17,6 +17,14 @@ pub const HAS_SCRIPT: u32 = 1;
 pub const HAS_CUSTOM: u32 = 2;
 pub const HAS_SHEET: u32 = 4;
 
+/// True for the `rel` of a link to a stylesheet the page applies: a list of
+/// tokens, compared ignoring ASCII case, with `stylesheet` and without
+/// `alternate`, which names a sheet applied only when the user picks it.
+pub fn is_stylesheet(rel: &str) -> bool {
+    let has = |token: &str| rel.split_ascii_whitespace().any(|t| t.eq_ignore_ascii_case(token));
+    has("stylesheet") && !has("alternate")
+}
+
 macro_rules! atoms {
     ($($name:ident = $s:expr),* $(,)?) => {
         #[allow(non_camel_case_types, clippy::upper_case_acronyms, dead_code)]
@@ -282,7 +290,7 @@ impl Dom {
         match self.nodes[n as usize].tag {
             atom::SCRIPT => HAS_SCRIPT,
             atom::STYLE => HAS_SHEET,
-            atom::LINK if self.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet")) => HAS_SHEET,
+            atom::LINK if self.attr(n, atom::REL).is_some_and(is_stylesheet) => HAS_SHEET,
             t if self.is_element(n) && self.atoms.name(t).contains('-') => HAS_CUSTOM,
             _ => 0,
         }
@@ -1120,6 +1128,14 @@ mod tests {
         dom.serialize(content, false, &mut html);
         assert_eq!(html, "<b>x</b>");
         assert_eq!(dom.nodes[copy as usize].parent, NONE);
+    }
+
+    #[test]
+    fn links_are_stylesheets_by_a_token_of_their_rel() {
+        let dom = parse_html("<link rel=stylesheet><link rel='preload stylesheet'><link rel=' Stylesheet  icon '><link rel='alternate stylesheet'><link rel=preload><link rel=stylesheets>");
+        let links: Vec<NodeId> = (0..dom.nodes.len() as NodeId).filter(|&n| dom.nodes[n as usize].tag == atom::LINK).collect();
+        let kinds: Vec<u32> = links.iter().map(|&n| dom.kind_of(n)).collect();
+        assert_eq!(kinds, [HAS_SHEET, HAS_SHEET, HAS_SHEET, 0, 0, 0]);
     }
 
     #[test]

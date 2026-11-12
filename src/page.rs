@@ -1,7 +1,7 @@
 //! A loaded document: DOM, stylesheet, computed styles and layout.
 
 use crate::css::{FontFace, Sheet};
-use crate::dom::{atom, parse_html, Atom, Dom, NodeId, HAS_SHEET, NONE};
+use crate::dom::{atom, is_stylesheet, parse_html, Atom, Dom, NodeId, HAS_SHEET, NONE};
 use crate::font::Fonts;
 use crate::url::Url;
 use crate::img::Images;
@@ -142,7 +142,7 @@ fn resource_srcs(html: &str, scripts: bool) -> (Vec<String>, Vec<String>) {
     let (mut css, mut out) = (Vec::new(), Vec::new());
     for n in 0..dom.nodes.len() as NodeId {
         match dom.nodes[n as usize].tag {
-            atom::LINK if dom.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet")) => {
+            atom::LINK if dom.attr(n, atom::REL).is_some_and(is_stylesheet) => {
                 css.extend(dom.attr(n, atom::HREF).map(str::to_string));
             }
             atom::SCRIPT if scripts => out.extend(dom.attr(n, atom::SRC).map(str::to_string)),
@@ -183,7 +183,7 @@ fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bo
                 sheet.add(&css, &mut dom.atoms, 1, "");
             }
             atom::LINK => {
-                let is_css = dom.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet"));
+                let is_css = dom.attr(n, atom::REL).is_some_and(is_stylesheet);
                 let href = dom.attr(n, atom::HREF).filter(|_| is_css);
                 let path = match (site, href) {
                     (Some(site), Some(h)) if !wait => site.file_if_ready(h).unwrap_or_else(|| {
@@ -532,7 +532,7 @@ impl Page {
             return;
         }
         if self.dom.nodes[n as usize].tag == atom::LINK && matches!(name, atom::REL | atom::HREF) {
-            let was_sheet = name == atom::REL && old.is_some_and(|r| r.eq_ignore_ascii_case("stylesheet"));
+            let was_sheet = name == atom::REL && old.is_some_and(is_stylesheet);
             if was_sheet || self.dom.kind_of(n) == HAS_SHEET {
                 self.sheet_changed();
                 return;
