@@ -144,3 +144,5 @@ computed-style.html	CS f margin-left=50px margin-right=50px height=40px
 computed-style.html	CS g display=grid g1 grid-column-start=2 grid-column-end=span 1 grid-row-start=1 grid-row-end=auto g2 grid-row-start=main grid-column-start=auto
 computed-style.html	CS fl float=right clear=both display=block cl clear=left float=none
 computed-style.html	CS live before:200px after:300px fontSize:20px brand:#f00 missing:empty
+bogus-comments.html	STATIC bogus-comments
+bogus-comments.html	BC nodes 8:?litS123S 3:a 8:x y 3:b 8:c template:2 inner:8:?x?

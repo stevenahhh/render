@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: bogus comments and platform errors</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<h1 data-m="STATIC bogus-comments">STATIC bogus-comments</h1>
+<div id="out"></div>
+<div id="src"><?lit$123$>a<!x y>b<!--c--></div>
+<template id="t"><p><?lit$9$><b></b><?lit$9$></p></template>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+function err(f){try{f();return 'none';}catch(e){return e.name+'/'+(e instanceof DOMException)+'/'+e.message.replace(/[()']/g,'');}}
+check('comments', function(){
+  var kids=Array.prototype.map.call(document.getElementById('src').childNodes,function(n){return n.nodeType+':'+(n.data||'').replace(/\$/g,'S');});
+  var w=document.createTreeWalker(document.getElementById('t').content,128),c=0;while(w.nextNode())c++;
+  var d=document.createElement('div');d.innerHTML='<?x?>y';
+  mark('BC nodes '+kids.join(' ')+' template:'+c+' inner:'+d.firstChild.nodeType+':'+d.firstChild.data);
+});
+</script>
+</body>
+</html>

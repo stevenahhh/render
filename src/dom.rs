@@ -748,7 +748,13 @@ impl<'a> Parser<'a> {
                     self.comment(&src[body..end]);
                     self.pos = after;
                 } else {
-                    self.pos = memchr(b'>', &b[lt..]).map_or(len, |o| lt + o + 1);
+                    let end = memchr(b'>', &b[lt..]).map_or(len, |o| lt + o);
+                    // `<!DOCTYPE>` is no node; any other `<!...>` is a bogus comment.
+                    if !b[lt + 2..end].get(..7).is_some_and(|d| d.eq_ignore_ascii_case(b"doctype")) {
+                        let src = self.src;
+                        self.comment(&src[lt + 2..end]);
+                    }
+                    self.pos = (end + 1).min(len);
                 }
             } else if nx == b'/' {
                 let ns = lt + 2;
@@ -764,7 +770,11 @@ impl<'a> Parser<'a> {
             } else if nx.is_ascii_alphabetic() {
                 self.start_tag();
             } else if nx == b'?' {
-                self.pos = memchr(b'>', &b[lt..]).map_or(len, |o| lt + o + 1);
+                // A bogus comment whose data keeps the `?`, as Lit's `<?lit$...$>` markers rely on.
+                let end = memchr(b'>', &b[lt..]).map_or(len, |o| lt + o);
+                let src = self.src;
+                self.comment(&src[lt + 1..end]);
+                self.pos = (end + 1).min(len);
             } else {
                 self.text("<");
                 self.pos = lt + 1;
@@ -1181,6 +1191,15 @@ mod tests {
         dom.serialize(div, false, &mut html);
         assert_eq!(html, "<!--hi-->a<!---->b");
         assert!(!dom.is_comment(dom.nodes[0].first_child), "a comment before <html> is left out");
+    }
+
+    #[test]
+    fn processing_instructions_and_bogus_declarations_become_comments() {
+        let dom = parse_html("<!DOCTYPE html><body><div><?lit$123$>a<!x y>b</div></body>");
+        let div = first(&dom, atom::DIV);
+        let mut html = String::new();
+        dom.serialize(div, false, &mut html);
+        assert_eq!(html, "<!--?lit$123$-->a<!--x y-->b");
     }
 
     #[test]
