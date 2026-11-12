@@ -158,7 +158,7 @@ pub enum FontSize {
     Smaller,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Gradient {
     /// CSS angle in degrees: 0 points up, 90 points right.
     pub angle: f32,
@@ -167,7 +167,7 @@ pub struct Gradient {
 
 /// The lines of a `grid-template-rows` track list: each line name with its
 /// 1-based line number, and how many lines there are.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct RowLines {
     pub names: Vec<(Box<str>, u16)>,
     pub count: u16,

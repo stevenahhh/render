@@ -1,6 +1,6 @@
 //! A loaded document: DOM, stylesheet, computed styles and layout.
 
-use crate::css::{Compound, FontFace, Pseudo, Sheet};
+use crate::css::{FontFace, Sheet};
 use crate::dom::{atom, parse_html, Atom, Dom, NodeId, HAS_SHEET, NONE};
 use crate::font::Fonts;
 use crate::url::Url;
@@ -8,12 +8,13 @@ use crate::img::Images;
 use crate::js::{Host, Js};
 use crate::FxMap;
 use crate::layout::{layout, Kind, Layout};
-use crate::style::{compute_styles, Style};
+use crate::style::{compute_styles, Dirty, Invalidation, Style, OWN};
 use crate::net::{Site, Wake};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
 
 /// How long a page shown progressively waits for its linked stylesheets after the
 /// HTML has arrived; later ones restyle the page when they come. The preload
@@ -243,8 +244,13 @@ pub struct Page {
     url: Url,
     /// CSS of the sheets the document adopted.
     adopted: String,
-    /// Attributes that some selector of `sheet` tests.
-    sheet_attrs: FxMap<Atom, ()>,
+    /// Elements to style again since the last update.
+    marks: Dirty,
+    /// What a change can restyle, worked out from `sheet` when first needed.
+    inval: Option<Invalidation>,
+    /// Every element is styled again at the next update: the sheet changed, or
+    /// no narrower set of elements is known to be enough.
+    restyle_all: bool,
     /// Set for a page opened from the web: its URL and downloaded resources.
     site: Option<Arc<Site>>,
     /// Keep every element's box in the layout. Set before the first `update`.
@@ -268,29 +274,6 @@ pub struct Page {
 /// The address of a page from the web, as scripts see it.
 fn web_url(site: &Site) -> Url {
     Url::parse(&site.url.to_string(), None).unwrap_or_default()
-}
-
-/// The attributes that some selector of `sheet` tests.
-fn selector_attrs(sheet: &Sheet) -> FxMap<Atom, ()> {
-    fn walk(c: &Compound, out: &mut FxMap<Atom, ()>) {
-        for a in &c.attrs {
-            out.insert(a.name, ());
-        }
-        for p in &c.pseudos {
-            match p {
-                Pseudo::Not(inner) => walk(inner, out),
-                Pseudo::Has(parts) => parts.iter().for_each(|part| walk(&part.c, out)),
-                _ => {}
-            }
-        }
-    }
-    let mut out = FxMap::default();
-    for sel in &sheet.sels {
-        for part in &sel.parts {
-            walk(&part.c, &mut out);
-        }
-    }
-    out
 }
 
 /// Moves a sheet's `@font-face` rules out, to be shared with the font matcher.
@@ -328,7 +311,6 @@ impl Page {
             dom.text_content(t, &mut title);
         }
         let scripts = scripts_of(&dom);
-        let sheet_attrs = selector_attrs(&sheet);
         let mut page = Page {
             dom,
             sheet,
@@ -351,7 +333,9 @@ impl Page {
             pending: Vec::new(),
             url,
             adopted: String::new(),
-            sheet_attrs,
+            marks: Dirty::default(),
+            inval: None,
+            restyle_all: false,
             site: site.clone(),
             record_boxes: false,
             css_left_out,
@@ -401,7 +385,9 @@ impl Page {
             pending: Vec::new(),
             url: Url::default(),
             adopted: String::new(),
-            sheet_attrs: FxMap::default(),
+            marks: Dirty::default(),
+            inval: None,
+            restyle_all: false,
             site: None,
             record_boxes: false,
             css_left_out: Vec::new(),
@@ -494,39 +480,86 @@ impl Page {
         Some(r)
     }
 
-    /// Notes a change to the document, which style and layout must catch up with.
-    fn touch(&mut self) {
-        self.styles.clear();
-        self.dirty = true;
-    }
-
     fn in_style(&self, n: NodeId) -> bool {
         let tag = |n: NodeId| self.dom.nodes[n as usize].tag;
         let parent = self.dom.nodes[n as usize].parent;
         tag(n) == atom::STYLE || (parent != NONE && tag(parent) == atom::STYLE)
     }
 
-    /// Notes a change of the attribute `name`. One that no selector tests changes
-    /// no style, so only the layout, which reads `src`, `width` and the like, is redone.
-    pub(crate) fn attr_changed(&mut self, n: NodeId, name: Atom) {
-        self.sheet_dirty |= matches!(self.dom.nodes[n as usize].tag, atom::LINK | atom::STYLE);
-        if self.sheet_dirty || self.sheet_attrs.contains_key(&name) || matches!(name, atom::CLASS | atom::ID | atom::STYLE | atom::HREF | atom::POSTER) {
-            self.touch();
-        } else {
-            self.stale = true;
-            self.dirty = true;
+    /// True for a node of an inline `<svg>`, which is drawn from its markup as a whole.
+    fn in_svg(&self, mut n: NodeId) -> bool {
+        while n != NONE {
+            if self.dom.nodes[n as usize].tag == atom::SVG {
+                return true;
+            }
+            n = self.dom.nodes[n as usize].parent;
         }
+        false
+    }
+
+    /// Marks the elements a change can restyle, as `mark` finds them with the
+    /// sheet's invalidation sets; everything when it finds no narrower set.
+    fn invalidate(&mut self, mark: impl FnOnce(&Invalidation, &mut Dirty, &Dom) -> bool) {
+        if self.restyle_all {
+            return;
+        }
+        let inval = self.inval.get_or_insert_with(|| Invalidation::new(&self.sheet));
+        if !mark(inval, &mut self.marks, &self.dom) {
+            self.restyle_all = true;
+        }
+    }
+
+    /// Notes a change to what the style sheet is built from: the text of the
+    /// document's `<style>` elements and the `rel` and `href` of its links.
+    fn sheet_changed(&mut self) {
+        self.sheet_dirty = true;
+        self.restyle_all = true;
+    }
+
+    /// Notes a change of the attribute `name`, which had the value `old`: the
+    /// elements whose selectors it can change are styled again, and the layout,
+    /// which reads `src`, `width` and the like, is redone for every attribute
+    /// but the class, id and inline style.
+    pub(crate) fn attr_changed(&mut self, n: NodeId, name: Atom, old: Option<&str>) {
+        self.dirty = true;
+        if !self.dom.connected(n) {
+            return;
+        }
+        if self.dom.nodes[n as usize].tag == atom::LINK && matches!(name, atom::REL | atom::HREF) {
+            let was_sheet = name == atom::REL && old.is_some_and(|r| r.eq_ignore_ascii_case("stylesheet"));
+            if was_sheet || self.dom.kind_of(n) == HAS_SHEET {
+                self.sheet_changed();
+                return;
+            }
+        }
+        if !matches!(name, atom::CLASS | atom::ID | atom::STYLE) || self.in_svg(n) {
+            self.stale = true;
+        }
+        let atoms = &self.dom.atoms;
+        let old: Vec<Atom> = match name {
+            atom::CLASS => old.map(|v| v.split_ascii_whitespace().filter_map(|c| atoms.get(c)).collect()).unwrap_or_default(),
+            atom::ID => old.and_then(|v| atoms.get(v)).into_iter().collect(),
+            _ => Vec::new(),
+        };
+        // Inline style, and a poster that makes a `<video>` show an image, are read
+        // when styling the element itself.
+        let own = name == atom::STYLE || (name == atom::POSTER && self.dom.nodes[n as usize].tag == atom::VIDEO);
+        self.invalidate(|inval, marks, dom| {
+            if own {
+                marks.mark(dom, n, OWN);
+            }
+            inval.attr_changed(marks, dom, n, name, &old)
+        });
     }
 
     /// Notes new data in a text or comment node: a new layout, and for the text
     /// of a `<style>` a new style sheet.
     pub(crate) fn text_changed(&mut self, n: NodeId) {
-        if self.in_style(n) {
-            self.sheet_dirty = true;
-            self.touch();
-        } else {
+        self.dirty = true;
+        if !self.in_style(n) {
             self.stale = true;
-            self.dirty = true;
+        } else if self.dom.connected(n) {
+            self.sheet_changed();
         }
     }
 
@@ -534,20 +567,34 @@ impl Page {
     /// Returns the kinds of node (`dom::HAS_*`) that this takes out of or brings
     /// into the document.
     pub(crate) fn moved(&mut self, n: NodeId) -> u32 {
-        self.touch();
-        self.sheet_dirty |= self.in_style(n);
+        self.dirty = true;
         if !self.dom.connected(n) {
             return 0;
         }
-        let kinds = self.dom.kinds_in(n);
-        self.sheet_dirty |= kinds & HAS_SHEET != 0;
+        // An `<html>` anywhere but at the root changes the size `rem` lengths
+        // resolve against for the elements after it.
+        let (mut kinds, mut root, mut c) = (0, false, n);
+        while c != NONE {
+            kinds |= self.dom.kind_of(c);
+            root |= self.dom.nodes[c as usize].tag == atom::HTML;
+            c = self.dom.next_in(c, n);
+        }
+        self.stale = true;
+        if kinds & HAS_SHEET != 0 || self.in_style(n) {
+            self.sheet_changed();
+        } else if root {
+            self.restyle_all = true;
+        } else {
+            let hover = self.hover;
+            self.invalidate(|inval, marks, dom| inval.child_moved(marks, dom, n, hover));
+        }
         kinds
     }
 
     pub(crate) fn adopt(&mut self, css: String) {
         self.adopted = css;
-        self.sheet_dirty = true;
-        self.touch();
+        self.sheet_changed();
+        self.dirty = true;
     }
 
     /// A node's border box `[x, y, w, h]` from a layout brought up to date first.
@@ -726,7 +773,7 @@ impl Page {
             css = self.css_left_out.len().saturating_sub(left_out.len());
             self.web_faces = take_faces(&mut sheet);
             self.sheet = sheet;
-            self.sheet_attrs = selector_attrs(&self.sheet);
+            self.inval = None;
             self.viewport_units |= units;
             self.styles.clear();
             self.css_left_out = left_out;
@@ -802,7 +849,7 @@ impl Page {
             let (mut sheet, units, left_out) = style_sheet(&mut self.dom, self.base.as_deref(), self.site.as_deref(), self.wait, &self.adopted);
             self.web_faces = take_faces(&mut sheet);
             self.sheet = sheet;
-            self.sheet_attrs = selector_attrs(&self.sheet);
+            self.inval = None;
             self.viewport_units |= units;
             self.css_left_out = left_out;
         }
@@ -816,6 +863,8 @@ impl Page {
         let composed = crate::shadow::compose(&mut self.dom);
         if restyle {
             self.styles = compute_styles(&self.dom, &self.sheet, vw, vh, self.hover);
+            self.marks.clear();
+            self.restyle_all = false;
         }
         self.relayout(fonts, vw, vh);
         if let Some(c) = composed {
@@ -824,6 +873,7 @@ impl Page {
     }
 
     fn relayout(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
+        self.stale = false;
         fonts.set_web_faces(&self.web_faces);
         loop {
             let mut old = std::mem::take(&mut self.layout);
@@ -856,10 +906,15 @@ impl Page {
     }
 
     /// Brings style and layout up to date for a viewport in CSS pixels.
-    /// Does nothing when the viewport is unchanged.
+    /// Does nothing when the viewport is unchanged and nothing changed.
     pub fn update(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
+        self.refresh(fonts, vw, vh);
+    }
+
+    /// `update`; true when styles or the layout changed.
+    fn refresh(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) -> bool {
         let resized = vw != self.vw || vh != self.vh;
-        let mut restyle = self.styles.is_empty() || (self.viewport_units && resized);
+        let mut restyle = self.styles.is_empty() || self.restyle_all || (self.viewport_units && resized);
         // Which media queries match changes only with the viewport or the sheet, and
         // a new sheet comes with a restyle: it is built first, to be the one matched.
         if restyle || resized {
@@ -870,11 +925,42 @@ impl Page {
             restyle |= sig != self.media_sig;
             self.media_sig = sig;
         }
-        if restyle || resized || std::mem::take(&mut self.stale) {
-            self.style_and_layout(fonts, vw, vh, restyle);
-        }
+        let changed = if restyle {
+            self.style_and_layout(fonts, vw, vh, true);
+            true
+        } else if !self.marks.is_empty() {
+            self.restyle_marked(fonts, vw, vh, resized)
+        } else if resized || self.stale {
+            self.style_and_layout(fonts, vw, vh, false);
+            true
+        } else {
+            false
+        };
         self.vw = vw;
         self.vh = vh;
+        changed
+    }
+
+    /// Styles again the elements marked since the last update, then lays the page
+    /// out again when a style changed. With shadow trees, whose composed form the
+    /// marks do not follow, every element is styled again instead.
+    fn restyle_marked(&mut self, fonts: &mut Fonts, vw: f32, vh: f32, resized: bool) -> bool {
+        let restyled = match crate::shadow::compose(&mut self.dom) {
+            Some(composed) => {
+                crate::shadow::restore(&mut self.dom, composed);
+                None
+            }
+            None => crate::style::restyle(&self.dom, &self.sheet, vw, vh, self.hover, &mut self.styles, &mut self.marks),
+        };
+        let Some(r) = restyled else {
+            self.style_and_layout(fonts, vw, vh, true);
+            return true;
+        };
+        let relayout = resized || self.stale || r.layout;
+        if relayout {
+            self.style_and_layout(fonts, vw, vh, false);
+        }
+        relayout
     }
 
     /// Records the hovered node; returns true when the page changed visually.
@@ -882,12 +968,12 @@ impl Page {
         if node == self.hover {
             return false;
         }
-        self.hover = node;
+        let old = std::mem::replace(&mut self.hover, node);
         if !self.sheet.uses_hover || self.styles.is_empty() {
             return false;
         }
-        self.style_and_layout(fonts, self.vw, self.vh, true);
-        true
+        self.invalidate(|inval, marks, dom| inval.hover_changed(marks, dom, old, node));
+        self.refresh(fonts, self.vw, self.vh)
     }
 
     /// Topmost element at a document position, or `NONE`.
@@ -932,3 +1018,4 @@ impl Page {
         self.layout.items.iter().find(|i| matches!(i.kind, Kind::Box | Kind::Text) && inside(i.node)).map(|i| i.y)
     }
 }
+

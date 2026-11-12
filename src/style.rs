@@ -9,7 +9,7 @@ pub type Vars = FxMap<Box<str>, Box<str>>;
 
 /// Computed style. Lengths are `Auto`, `Px`, `Pct` or `Calc` only; font
 /// relative and viewport units are already resolved.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Style {
     pub display: Display,
     pub position: Position,
@@ -1024,6 +1024,602 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
         i = dfs_next(dom, i, 0, descend);
     }
     styles
+}
+
+/// Marks on elements whose style must be computed again: what changed since the
+/// last pass, and while a pass runs, what it found depends on a style that changed.
+#[derive(Default)]
+pub struct Dirty {
+    flags: Vec<u8>,
+    marked: Vec<NodeId>,
+}
+
+/// The element's own style.
+pub const OWN: u8 = 1;
+/// The style of the element and of everything below it.
+pub const TREE: u8 = 2;
+/// Something below the element is marked.
+const BELOW: u8 = 4;
+/// Found while restyling: the element's style changed, so its children are styled again.
+const KIDS: u8 = 8;
+/// Found while restyling: everything below the element is styled again.
+const KID_TREES: u8 = 16;
+/// Set while restyling on the elements the pass reached.
+const SEEN: u8 = 32;
+
+impl Dirty {
+    pub fn is_empty(&self) -> bool {
+        self.marked.is_empty()
+    }
+
+    fn get(&self, n: NodeId) -> u8 {
+        self.flags.get(n as usize).copied().unwrap_or(0)
+    }
+
+    fn set(&mut self, n: NodeId, f: u8) {
+        let i = n as usize;
+        if i >= self.flags.len() {
+            self.flags.resize(i + 1, 0);
+        }
+        if self.flags[i] == 0 {
+            self.marked.push(n);
+        }
+        self.flags[i] |= f;
+    }
+
+    /// Marks element `n` with `OWN` or `TREE`, and the path to it from the root,
+    /// up to the first node already on a marked path: a node that moves is marked
+    /// again where it lands, so the path above a marked node is marked too.
+    pub fn mark(&mut self, dom: &Dom, n: NodeId, f: u8) {
+        self.set(n, f);
+        let mut p = dom.nodes[n as usize].parent;
+        while p != NONE && self.get(p) & BELOW == 0 {
+            self.set(p, BELOW);
+            p = dom.nodes[p as usize].parent;
+        }
+    }
+
+    pub fn clear(&mut self) {
+        for n in self.marked.drain(..) {
+            self.flags[n as usize] = 0;
+        }
+    }
+}
+
+/// What a `restyle` pass changed.
+#[derive(Default)]
+pub struct Restyled {
+    /// Some style changed.
+    pub layout: bool,
+}
+
+/// Styles again the elements `dirty` marks and, below them, those whose parent's
+/// style changed, keeping every other style in `styles`. Afterwards every element
+/// that `compute_styles` reaches has the style it computes. `None` when only
+/// styling every element again is known to give that: the root's font size, which
+/// `rem` lengths everywhere resolve against, changed, or the document holds more
+/// than its `<html>` element.
+pub fn restyle(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId, styles: &mut Vec<Style>, dirty: &mut Dirty) -> Option<Restyled> {
+    let root = dom.nodes[0].first_child;
+    if root == NONE || dom.nodes[root as usize].tag != atom::HTML || dom.nodes[root as usize].next != NONE {
+        return None;
+    }
+    styles.resize(dom.nodes.len(), Style::initial());
+    let chain = hover_chain(dom, hover);
+    let mut s = Styler::new(dom, sheet, vw, vh, &chain);
+    let mut out = Restyled::default();
+    let mut i = root;
+    while i != NONE {
+        let node = &dom.nodes[i as usize];
+        let (f, pf) = (dirty.get(i), dirty.get(node.parent));
+        let tree = f & TREE != 0 || pf & KID_TREES != 0;
+        let again = tree || f & OWN != 0 || pf & KIDS != 0;
+        if node.tag == atom::TEXT || (!again && f & BELOW == 0) {
+            i = dfs_next(dom, i, 0, false);
+            continue;
+        }
+        s.enter(node.parent);
+        dirty.set(i, SEEN);
+        if again {
+            let new = s.style(i, &styles[node.parent as usize]);
+            let old = &styles[i as usize];
+            if node.tag == atom::HTML && new.font_size != old.font_size {
+                return None;
+            }
+            // Elements below one that stops being shown keep no style, as a full
+            // pass leaves them. Below one that starts being shown they have none
+            // yet, and every style a pass computes differs from that.
+            let shown = |st: &Style| st.display != Display::None && node.tag != atom::SVG;
+            let hidden = shown(old) && !shown(&new);
+            if tree {
+                dirty.set(i, KID_TREES);
+            } else if *old != new {
+                dirty.set(i, KIDS);
+            }
+            out.layout |= *old != new;
+            styles[i as usize] = new;
+            if hidden {
+                unstyle_below(dom, styles, i);
+            }
+        }
+        if node.tag == atom::HTML {
+            s.ctx.root_fs = styles[i as usize].font_size;
+        }
+        s.push(i);
+        let st = &styles[i as usize];
+        let descend = st.display != Display::None && node.tag != atom::SVG && dirty.get(i) & (BELOW | KIDS | KID_TREES) != 0;
+        i = dfs_next(dom, i, 0, descend);
+    }
+    // A subtree the pass did not reach went where a full pass does not reach either:
+    // out of the document, into an `<svg>` or below an element that is not shown.
+    for k in 0..dirty.marked.len() {
+        let n = dirty.marked[k];
+        if dirty.get(n) & (TREE | SEEN) == TREE {
+            styles[n as usize] = Style::initial();
+            unstyle_below(dom, styles, n);
+        }
+    }
+    dirty.clear();
+    Some(out)
+}
+
+/// Gives the nodes below `n` the initial style that a pass leaves on nodes it does not reach.
+fn unstyle_below(dom: &Dom, styles: &mut [Style], n: NodeId) {
+    let mut c = dom.next_in(n, n);
+    while c != NONE {
+        styles[c as usize] = Style::initial();
+        c = dom.next_in(c, n);
+    }
+}
+
+/// Elements a change can restyle, told by their own compound: those with one of
+/// these names as tag, id or class, or with `all` every element.
+#[derive(Default)]
+pub struct Filter {
+    all: bool,
+    names: FxMap<Atom, ()>,
+}
+
+impl Filter {
+    /// Adds the elements a compound can match: those with its id, else its first
+    /// class, else its tag; every element when it names none of these.
+    fn add(&mut self, c: &Compound) {
+        let name = if c.id != 0 { c.id } else { c.classes.first().copied().unwrap_or(c.tag) };
+        if name == 0 {
+            self.all = true;
+        } else {
+            self.names.insert(name, ());
+        }
+    }
+
+    fn any(&self) -> bool {
+        self.all || !self.names.is_empty()
+    }
+
+    fn matches(&self, dom: &Dom, n: NodeId) -> bool {
+        if self.all {
+            return true;
+        }
+        let node = &dom.nodes[n as usize];
+        let has = |a: Atom| self.names.contains_key(&a);
+        has(node.tag) || (node.id != 0 && has(node.id)) || dom.classes_of(n).iter().any(|&c| has(c))
+    }
+}
+
+/// Elements reached from one element: its descendants, its following siblings,
+/// and the descendants of those, that pass each filter.
+#[derive(Default)]
+struct Reach {
+    desc: Filter,
+    sib: Filter,
+    sib_desc: Filter,
+}
+
+impl Reach {
+    fn add(&mut self, target: Target, subject: &Compound) {
+        match target {
+            Target::Desc => self.desc.add(subject),
+            Target::Sib => self.sib.add(subject),
+            Target::SibDesc => self.sib_desc.add(subject),
+            Target::Own => {}
+        }
+    }
+
+    fn any(&self) -> bool {
+        self.desc.any() || self.sib.any() || self.sib_desc.any()
+    }
+}
+
+/// What a change to one feature of an element can restyle.
+#[derive(Default)]
+pub struct Inv {
+    /// The element itself; the filter applies to a change that leaves its names alone.
+    own: Filter,
+    /// What other compounds of selectors reach from it.
+    reach: Reach,
+    /// Anchors of a `:has()` above it: those in a subject compound, restyled
+    /// themselves, and those in another compound, from which `far_reach` applies.
+    up: Filter,
+    far: Filter,
+    far_reach: Reach,
+    /// A `:has()` argument with a combinator matches through ancestors of any
+    /// height, so anchors can be below the element too: its whole subtree is
+    /// restyled, and with `far_tree` its following siblings' too.
+    up_tree: bool,
+    far_tree: bool,
+    /// Only restyling every element is known to be enough.
+    full: bool,
+}
+
+/// Where the elements that a feature in the `k`th compound of a selector (from the
+/// right) can restyle are, relative to the element that changed.
+#[derive(Clone, Copy)]
+enum Target {
+    Own,
+    Desc,
+    Sib,
+    SibDesc,
+}
+
+impl Target {
+    fn of(parts: &[Part], k: usize) -> Target {
+        if k == 0 {
+            return Target::Own;
+        }
+        match parts[k - 1].comb {
+            Comb::Descendant | Comb::Child => Target::Desc,
+            _ if parts[..k - 1].iter().any(|p| matches!(p.comb, Comb::Descendant | Comb::Child)) => Target::SibDesc,
+            _ => Target::Sib,
+        }
+    }
+}
+
+impl Inv {
+    fn add(&mut self, target: Target, subject: &Compound) {
+        match target {
+            Target::Own => self.own.add(subject),
+            _ => self.reach.add(target, subject),
+        }
+    }
+
+    fn any(&self) -> bool {
+        self.full || self.own.any() || self.reach.any() || self.up.any() || self.far.any() || self.up_tree || self.far_tree
+    }
+}
+
+/// What can change about an element while it stays where it is.
+#[derive(Clone, Copy)]
+enum Feature {
+    Class(Atom),
+    Id(Atom),
+    Attr(Atom),
+    Hover,
+    /// Its position among element siblings, which structural pseudo-classes test.
+    Position,
+    /// Whether it has children, which `:empty` tests.
+    Empty,
+}
+
+/// The features a compound tests, those inside `:not()` included.
+fn each_feature(c: &Compound, f: &mut impl FnMut(Feature)) {
+    for &class in &c.classes {
+        f(Feature::Class(class));
+    }
+    if c.id != 0 {
+        f(Feature::Id(c.id));
+    }
+    for a in &c.attrs {
+        f(Feature::Attr(a.name));
+    }
+    for p in &c.pseudos {
+        match p {
+            Pseudo::Not(inner) => each_feature(inner, f),
+            Pseudo::Hover => f(Feature::Hover),
+            Pseudo::FirstChild
+            | Pseudo::LastChild
+            | Pseudo::OnlyChild
+            | Pseudo::NthChild(..)
+            | Pseudo::NthLastChild(..)
+            | Pseudo::FirstOfType
+            | Pseudo::LastOfType
+            | Pseudo::NthOfType(..) => f(Feature::Position),
+            Pseudo::Empty => f(Feature::Empty),
+            Pseudo::Link => f(Feature::Attr(atom::HREF)),
+            Pseudo::Has(_) | Pseudo::Root | Pseudo::Never => {}
+        }
+    }
+}
+
+/// The arguments of a compound's `:has()`s, those inside `:not()` included.
+fn each_has<'c>(c: &'c Compound, f: &mut impl FnMut(&'c [Part])) {
+    for p in &c.pseudos {
+        match p {
+            Pseudo::Has(args) => f(args),
+            Pseudo::Not(inner) => each_has(inner, f),
+            _ => {}
+        }
+    }
+}
+
+/// False for a compound that never matches: one with an unsupported pseudo-class
+/// or a pseudo-element, which match nothing, or a `:has()` whose argument has one.
+fn can_match(c: &Compound) -> bool {
+    c.pseudos.iter().all(|p| match p {
+        Pseudo::Never => false,
+        Pseudo::Has(args) => args.iter().all(|a| can_match(&a.c)),
+        _ => true,
+    })
+}
+
+/// Which elements' styles can change when something about one element changes,
+/// worked out once per sheet from its selectors (Blink's invalidation sets): for a
+/// class, id or attribute of an element, for it entering or leaving the hover
+/// chain, and for children coming or going.
+#[derive(Default)]
+pub struct Invalidation {
+    by_class: FxMap<Atom, Inv>,
+    by_id: FxMap<Atom, Inv>,
+    by_attr: FxMap<Atom, Inv>,
+    hover: Inv,
+    position: Inv,
+    empty: Inv,
+    /// For a child that comes or goes: its following siblings, and their
+    /// descendants, that a sibling combinator reaches.
+    sib: Filter,
+    sib_desc: Filter,
+    /// The `:has()` anchors above it, as in `Inv`; with `moves_full` a `:has()`
+    /// nested in another, for which only a full restyle is known to be enough.
+    up: Filter,
+    far: Filter,
+    far_reach: Reach,
+    moves_full: bool,
+}
+
+/// Why an element is marked: its names changed, so `Inv::own` applies whatever
+/// its filter says; or something else about it, so the filter applies too.
+#[derive(Clone, Copy, PartialEq)]
+enum Why {
+    Names,
+    State,
+}
+
+impl Invalidation {
+    pub fn new(sheet: &Sheet) -> Invalidation {
+        let mut inv = Invalidation::default();
+        for sel in &sheet.sels {
+            let parts = &sel.parts;
+            if !parts.iter().all(|p| can_match(&p.c)) {
+                continue;
+            }
+            let subject = &parts[0].c;
+            for (k, part) in parts.iter().enumerate() {
+                let target = Target::of(parts, k);
+                match target {
+                    Target::Sib => inv.sib.add(subject),
+                    Target::SibDesc => inv.sib_desc.add(subject),
+                    Target::Own | Target::Desc => {}
+                }
+                each_feature(&part.c, &mut |f| inv.entry(f).add(target, subject));
+                each_has(&part.c, &mut |args| inv.add_has(target, (&part.c, subject), args));
+            }
+        }
+        inv
+    }
+
+    fn entry(&mut self, f: Feature) -> &mut Inv {
+        match f {
+            Feature::Class(a) => self.by_class.entry(a).or_default(),
+            Feature::Id(a) => self.by_id.entry(a).or_default(),
+            Feature::Attr(a) => self.by_attr.entry(a).or_default(),
+            Feature::Hover => &mut self.hover,
+            Feature::Position => &mut self.position,
+            Feature::Empty => &mut self.empty,
+        }
+    }
+
+    /// A `:has(args)` in compound `anchor`, which reaches the elements `at` from its own
+    /// element. The argument matches descendants of the anchor, so a change to an
+    /// element changes which anchors above it match, and with a combinator in the
+    /// argument, which matches through ancestors of any height, anchors below it too.
+    fn add_has(&mut self, at: Target, (anchor, subject): (&Compound, &Compound), args: &[Part]) {
+        let tree = args.len() > 1;
+        let mut nested = false;
+        for p in args {
+            each_has(&p.c, &mut |_| nested = true);
+        }
+        for p in args {
+            each_feature(&p.c, &mut |f| {
+                let e = self.entry(f);
+                match at {
+                    _ if nested => e.full = true,
+                    Target::Own => {
+                        e.up.add(anchor);
+                        e.up_tree |= tree;
+                    }
+                    _ => {
+                        e.far.add(anchor);
+                        e.far_reach.add(at, subject);
+                        e.far_tree |= tree;
+                    }
+                }
+            });
+        }
+        match at {
+            _ if nested => self.moves_full = true,
+            Target::Own => self.up.add(anchor),
+            _ => {
+                self.far.add(anchor);
+                self.far_reach.add(at, subject);
+            }
+        }
+    }
+
+    /// Marks what a change of element `n`'s attribute `name` can restyle; `old` are the
+    /// classes or the id it had, for a change of those. False when only a full
+    /// restyle is known to be enough.
+    pub fn attr_changed(&self, dirty: &mut Dirty, dom: &Dom, n: NodeId, name: Atom, old: &[Atom]) -> bool {
+        let mut ok = true;
+        let mut changed = |inv: Option<&Inv>| {
+            if let Some(inv) = inv {
+                ok &= mark(dirty, dom, n, inv, Why::Names);
+            }
+        };
+        match name {
+            atom::CLASS => {
+                let new = dom.classes_of(n);
+                for c in old.iter().filter(|c| !new.contains(c)).chain(new.iter().filter(|c| !old.contains(c))) {
+                    changed(self.by_class.get(c));
+                }
+            }
+            atom::ID => {
+                let new = dom.nodes[n as usize].id;
+                for id in old.iter().copied().chain([new]).filter(|&id| id != 0) {
+                    changed(self.by_id.get(&id));
+                }
+            }
+            _ => {}
+        }
+        changed(self.by_attr.get(&name));
+        ok
+    }
+
+    /// Marks what the hover moving from `old` to `new` can restyle.
+    pub fn hover_changed(&self, dirty: &mut Dirty, dom: &Dom, old: NodeId, new: NodeId) -> bool {
+        if !self.hover.any() {
+            return true;
+        }
+        let (a, b) = (hover_chain(dom, old), hover_chain(dom, new));
+        a.iter().filter(|e| !b.contains(e)).chain(b.iter().filter(|e| !a.contains(e))).all(|&e| mark(dirty, dom, e, &self.hover, Why::State))
+    }
+
+    /// Marks what `n` entering its parent, or being about to leave it, can restyle:
+    /// all of `n`, siblings that sibling combinators or structural pseudo-classes
+    /// tell from their neighbours, the parent for `:empty`, `:has()` anchors above
+    /// it, and the ancestors that enter or leave the hover chain with it.
+    pub fn child_moved(&self, dirty: &mut Dirty, dom: &Dom, n: NodeId, hover: NodeId) -> bool {
+        let p = dom.nodes[n as usize].parent;
+        if dom.is_element(n) {
+            dirty.mark(dom, n, TREE);
+            mark_following(dirty, dom, n, &self.sib, &self.sib_desc);
+            if self.position.full {
+                return false;
+            }
+            let mut c = dom.nodes[p as usize].first_child;
+            while c != NONE {
+                if dom.is_element(c) {
+                    // The :has() anchors above are marked once, below.
+                    if self.position.own.matches(dom, c) {
+                        dirty.mark(dom, c, OWN);
+                    }
+                    mark_reach(dirty, dom, c, &self.position.reach);
+                }
+                c = dom.nodes[c as usize].next;
+            }
+        }
+        if dom.is_element(p) && !mark(dirty, dom, p, &self.empty, Why::State) {
+            return false;
+        }
+        if self.moves_full {
+            return false;
+        }
+        mark_above(dirty, dom, p, (&self.up, &self.far), &self.far_reach);
+        if dom.is_element(n) && self.far.matches(dom, n) {
+            mark_reach(dirty, dom, n, &self.far_reach);
+        }
+        let mut h = hover;
+        while h != NONE && h != n {
+            h = dom.nodes[h as usize].parent;
+        }
+        if h == n {
+            let mut a = p;
+            while a != NONE && a != 0 {
+                if !mark(dirty, dom, a, &self.hover, Why::State) {
+                    return false;
+                }
+                a = dom.nodes[a as usize].parent;
+            }
+        }
+        true
+    }
+}
+
+/// Marks what a change described by `inv` to element `n` can restyle. False when
+/// only a full restyle is known to be enough.
+fn mark(dirty: &mut Dirty, dom: &Dom, n: NodeId, inv: &Inv, why: Why) -> bool {
+    if inv.full {
+        return false;
+    }
+    if inv.own.any() && (why == Why::Names || inv.own.matches(dom, n)) {
+        dirty.mark(dom, n, OWN);
+    }
+    mark_reach(dirty, dom, n, &inv.reach);
+    mark_above(dirty, dom, dom.nodes[n as usize].parent, (&inv.up, &inv.far), &inv.far_reach);
+    if inv.up_tree || inv.far_tree {
+        dirty.mark(dom, n, TREE);
+    }
+    if inv.far_tree {
+        let every = Filter { all: true, ..Filter::default() };
+        mark_following(dirty, dom, n, &Filter::default(), &every);
+    }
+    true
+}
+
+/// Marks what `reach` reaches from element `n`.
+fn mark_reach(dirty: &mut Dirty, dom: &Dom, n: NodeId, reach: &Reach) {
+    if reach.desc.all {
+        dirty.mark(dom, n, TREE);
+    } else if reach.desc.any() {
+        mark_below(dirty, dom, n, &reach.desc);
+    }
+    if reach.sib.any() || reach.sib_desc.any() {
+        mark_following(dirty, dom, n, &reach.sib, &reach.sib_desc);
+    }
+}
+
+fn mark_below(dirty: &mut Dirty, dom: &Dom, n: NodeId, filter: &Filter) {
+    let mut c = dom.next_in(n, n);
+    while c != NONE {
+        if dom.is_element(c) && filter.matches(dom, c) {
+            dirty.mark(dom, c, OWN);
+        }
+        c = dom.next_in(c, n);
+    }
+}
+
+fn mark_following(dirty: &mut Dirty, dom: &Dom, n: NodeId, sib: &Filter, sib_desc: &Filter) {
+    let mut s = dom.nodes[n as usize].next;
+    while s != NONE {
+        if dom.is_element(s) {
+            if sib.matches(dom, s) && sib.any() {
+                dirty.mark(dom, s, OWN);
+            }
+            if sib_desc.all {
+                dirty.mark(dom, s, TREE);
+            } else if sib_desc.any() {
+                mark_below(dirty, dom, s, sib_desc);
+            }
+        }
+        s = dom.nodes[s as usize].next;
+    }
+}
+
+/// Marks element `a` and its ancestors that pass `up`, and what `far_reach`
+/// reaches from those that pass `far`.
+fn mark_above(dirty: &mut Dirty, dom: &Dom, mut a: NodeId, (up, far): (&Filter, &Filter), far_reach: &Reach) {
+    if !up.any() && !far.any() {
+        return;
+    }
+    while a != NONE {
+        if dom.is_element(a) {
+            if up.matches(dom, a) {
+                dirty.mark(dom, a, OWN);
+            }
+            if far.matches(dom, a) {
+                mark_reach(dirty, dom, a, far_reach);
+            }
+        }
+        a = dom.nodes[a as usize].parent;
+    }
 }
 
 #[cfg(test)]
