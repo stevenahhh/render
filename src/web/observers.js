@@ -136,9 +136,14 @@
     looking = true;
     addTimer(look, 16, false, [], 'raf');
   };
+  // An entry's attributes are getters on its prototype, as in browsers: feature
+  // checks look for them there, and the IntersectionObserver polyfill replaces
+  // the native observer when they are missing.
+  const ENTRY = Symbol('entry');
   class IntersectionObserverEntry {
-    constructor(o) { Object.assign(this, o); }
+    constructor(o) { this[ENTRY] = o; }
   }
+  $.getters(IntersectionObserverEntry.prototype, Object.fromEntries(['time', 'rootBounds', 'boundingClientRect', 'intersectionRect', 'isIntersecting', 'isVisible', 'intersectionRatio', 'target'].map((k) => [k, function () { return this[ENTRY][k]; }])));
   class IntersectionObserver {
     constructor(callback, options = {}) {
       if (typeof callback !== 'function') throw new TypeError("Failed to construct 'IntersectionObserver': The callback provided as parameter 1 is not a function.");
