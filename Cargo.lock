@@ -164,7 +164,7 @@ dependencies = [
 [[package]]
 name = "boa_ast"
 version = "0.22.0"
-source = "git+https://github.com/stevenahhh/boa?branch=render-perf#6251761d6e1da5892004c4ef0bbe22065ab511b0"
+source = "git+https://github.com/stevenahhh/boa?branch=render-perf#4ffe4962d6fe016e21d5677f790af002446f5fdf"
 dependencies = [
  "bitflags 2.13.2",
  "boa_interner",
@@ -179,7 +179,7 @@ dependencies = [
 [[package]]
 name = "boa_engine"
 version = "0.22.0"
-source = "git+https://github.com/stevenahhh/boa?branch=render-perf#6251761d6e1da5892004c4ef0bbe22065ab511b0"
+source = "git+https://github.com/stevenahhh/boa?branch=render-perf#4ffe4962d6fe016e21d5677f790af002446f5fdf"
 dependencies = [
  "aligned-vec",
  "arrayvec",
@@ -206,6 +206,7 @@ dependencies = [
  "indexmap",
  "intrusive-collections",
  "itertools",
+ "libc",
  "num-bigint",
  "num-integer",
  "num-traits",
@@ -234,7 +235,7 @@ dependencies = [
 [[package]]
 name = "boa_gc"
 version = "0.22.0"
-source = "git+https://github.com/stevenahhh/boa?branch=render-perf#6251761d6e1da5892004c4ef0bbe22065ab511b0"
+source = "git+https://github.com/stevenahhh/boa?branch=render-perf#4ffe4962d6fe016e21d5677f790af002446f5fdf"
 dependencies = [
  "arrayvec",
  "boa_macros",
@@ -246,10 +247,11 @@ dependencies = [
 [[package]]
 name = "boa_interner"
 version = "0.22.0"
-source = "git+https://github.com/stevenahhh/boa?branch=render-perf#6251761d6e1da5892004c4ef0bbe22065ab511b0"
+source = "git+https://github.com/stevenahhh/boa?branch=render-perf#4ffe4962d6fe016e21d5677f790af002446f5fdf"
 dependencies = [
  "boa_gc",
  "boa_macros",
+ "boa_string",
  "hashbrown 0.17.1",
  "indexmap",
  "once_cell",
@@ -261,7 +263,7 @@ dependencies = [
 [[package]]
 name = "boa_macros"
 version = "0.22.0"
-source = "git+https://github.com/stevenahhh/boa?branch=render-perf#6251761d6e1da5892004c4ef0bbe22065ab511b0"
+source = "git+https://github.com/stevenahhh/boa?branch=render-perf#4ffe4962d6fe016e21d5677f790af002446f5fdf"
 dependencies = [
  "cfg-if",
  "cow-utils",
@@ -274,7 +276,7 @@ dependencies = [
 [[package]]
 name = "boa_parser"
 version = "0.22.0"
-source = "git+https://github.com/stevenahhh/boa?branch=render-perf#6251761d6e1da5892004c4ef0bbe22065ab511b0"
+source = "git+https://github.com/stevenahhh/boa?branch=render-perf#4ffe4962d6fe016e21d5677f790af002446f5fdf"
 dependencies = [
  "bitflags 2.13.2",
  "boa_ast",
@@ -291,7 +293,7 @@ dependencies = [
 [[package]]
 name = "boa_string"
 version = "0.22.0"
-source = "git+https://github.com/stevenahhh/boa?branch=render-perf#6251761d6e1da5892004c4ef0bbe22065ab511b0"
+source = "git+https://github.com/stevenahhh/boa?branch=render-perf#4ffe4962d6fe016e21d5677f790af002446f5fdf"
 dependencies = [
  "fast-float2",
  "itoa",
@@ -2362,7 +2364,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 [[package]]
 name = "small_btree"
 version = "0.1.0"
-source = "git+https://github.com/stevenahhh/boa?branch=render-perf#6251761d6e1da5892004c4ef0bbe22065ab511b0"
+source = "git+https://github.com/stevenahhh/boa?branch=render-perf#4ffe4962d6fe016e21d5677f790af002446f5fdf"
 dependencies = [
  "arrayvec",
 ]
@@ -2533,7 +2535,7 @@ dependencies = [
 [[package]]
 name = "tag_ptr"
 version = "0.1.0"
-source = "git+https://github.com/stevenahhh/boa?branch=render-perf#6251761d6e1da5892004c4ef0bbe22065ab511b0"
+source = "git+https://github.com/stevenahhh/boa?branch=render-perf#4ffe4962d6fe016e21d5677f790af002446f5fdf"
 
 [[package]]
 name = "tap"
