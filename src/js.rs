@@ -388,6 +388,18 @@ fn connected(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
     Ok(with(|h| live(&h.page.dom, n).map(|n| h.page.dom.connected(n))).unwrap_or(false).into())
 }
 
+/// `__define(name)`: notes a custom element definition, which `:defined` reads.
+fn define(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let name = str_arg(a, 0, ctx)?;
+    with(|h| {
+        let tag = h.page.dom.atoms.intern_lower(&name);
+        h.page.dom.defined.push(tag);
+        h.page.restyle_all();
+        Some(())
+    });
+    Ok(JsValue::undefined())
+}
+
 /// `__shadow(id)`: the shadow root of a host, or -1.
 fn shadow(_: &JsValue, a: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
     let n = id_arg(a, 0);
@@ -768,6 +780,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__connected", 1, connected),
     ("__attach_shadow", 1, attach_shadow),
     ("__shadow", 1, shadow),
+    ("__define", 1, define),
     ("__adopt", 1, adopt),
     ("__fetch", 6, fetch),
     ("__abort_fetch", 1, abort_fetch),

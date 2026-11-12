@@ -596,6 +596,12 @@ impl Page {
         kinds
     }
 
+    /// Notes a change that can restyle any element, such as a custom element definition.
+    pub(crate) fn restyle_all(&mut self) {
+        self.dirty = true;
+        self.restyle_all = true;
+    }
+
     pub(crate) fn adopt(&mut self, css: String) {
         self.adopted = css;
         self.sheet_changed();

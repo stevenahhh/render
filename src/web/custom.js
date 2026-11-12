@@ -167,6 +167,7 @@
       if (options && options.extends) d.extends = String(options.extends);
       defs.set(name, d);
       byCtor.set(ctor, d);
+      __define(name);
       $.ce = hooks;
       upgradeAll(__tagged(0, CUSTOM).filter((id) => __tag(id) === name));
       const resolve = waiting.get(name);

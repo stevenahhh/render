@@ -155,6 +155,8 @@ pub struct Dom {
     pub hosts: FxMap<NodeId, NodeId>,
     /// The shadow root of each shadow host.
     pub shadows: FxMap<NodeId, NodeId>,
+    /// The names of the custom elements scripts defined.
+    pub defined: Vec<Atom>,
 }
 
 impl Dom {
@@ -169,6 +171,7 @@ impl Dom {
             templates: FxMap::default(),
             hosts: FxMap::default(),
             shadows: FxMap::default(),
+            defined: Vec::new(),
         };
         d.new_node(atom::DOCUMENT);
         d
@@ -177,7 +180,7 @@ impl Dom {
     /// A document without even a root, standing in for one that is lent out.
     pub fn empty() -> Dom {
         let atoms = Interner { map: FxMap::default(), names: Vec::new(), scratch: String::new() };
-        Dom { nodes: Vec::new(), attrs: Vec::new(), classes: Vec::new(), text: String::new(), atoms, comments: FxMap::default(), templates: FxMap::default(), hosts: FxMap::default(), shadows: FxMap::default() }
+        Dom { nodes: Vec::new(), attrs: Vec::new(), classes: Vec::new(), text: String::new(), atoms, comments: FxMap::default(), templates: FxMap::default(), hosts: FxMap::default(), shadows: FxMap::default(), defined: Vec::new() }
     }
 
     fn new_node(&mut self, tag: Atom) -> NodeId {

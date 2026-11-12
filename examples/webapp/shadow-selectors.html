@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: shadow tree selectors</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}
+x-late:not(:defined){display:none} x-late:defined{display:block;width:41px}
+.theme x-ctx{display:block}</style>
+</head>
+<body>
+<h1 data-m="STATIC shadow-selectors">STATIC shadow-selectors</h1>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+function w(el){return Math.round(el.getBoundingClientRect().width);}
+</script>
+<x-host id="h1" class="big"><template shadowrootmode="open"><style>
+:host{display:block;width:301px}
+:host(.big){width:302px}
+:host(.nope){width:999px}
+:host-context(.theme){height:17px}
+::slotted(span){display:block;width:61px}
+::slotted(.wide){width:62px}
+slot[name=b]::slotted(*){display:block;width:63px}
+.inner{display:block;width:71px}
+</style><b class="inner" id="in">inner</b><slot></slot><slot name="b"></slot><slot name="c"><i id="fb">fallback</i></slot></template><span id="s1">one</span><span class="wide" id="s2">two</span><em slot="b" id="s3">three</em></x-host>
+<div class="theme"><x-host id="h2"><template shadowrootmode="open"><style>:host{display:block;width:150px}:host-context(.theme){width:151px}::slotted(*){width:5px}</style><slot></slot></template></x-host></div>
+<x-late id="late">late</x-late>
+<script>
+check('host', function(){
+  var h1=document.getElementById('h1'), h2=document.getElementById('h2');
+  mark('SS host width:'+w(h1)+' context:'+w(h2));
+});
+check('slotted', function(){
+  var r=document.getElementById('h1').shadowRoot;
+  mark('SS slotted span:'+w(document.getElementById('s1'))+' class:'+w(document.getElementById('s2'))+' named:'+w(document.getElementById('s3'))+' inner:'+w(r.getElementById('in'))+' fallback:'+(w(r.getElementById('fb'))===5?'styled':'plain'));
+});
+check('defined', function(){
+  var late=document.getElementById('late');
+  var before=w(late);
+  customElements.define('x-late', class extends HTMLElement {});
+  mark('SS defined before:'+before+' after:'+w(late)+' div:'+document.querySelectorAll('div:defined').length+' late:'+document.querySelectorAll('x-late:defined').length+' host:'+document.querySelectorAll('x-host:not(:defined)').length);
+});
+</script>
+</body>
+</html>

@@ -1696,6 +1696,8 @@ pub enum Pseudo {
     Hover,
     Link,
     Empty,
+    /// `:defined`: not a custom element, or one whose name is defined.
+    Defined,
     /// Unsupported pseudo-class or pseudo-element: never matches.
     Never,
 }
@@ -2001,6 +2003,7 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                     }
                     "link" | "any-link" => Pseudo::Link,
                     "empty" => Pseudo::Empty,
+                    "defined" => Pseudo::Defined,
                     _ => Pseudo::Never,
                 });
             }
