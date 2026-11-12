@@ -1,6 +1,7 @@
 //! CSS values, declaration parsing, selectors and the rule index.
 
 use crate::dom::{Atom, Interner};
+pub use crate::media::{media_matches, Media};
 use crate::FxMap;
 use std::borrow::Cow;
 use std::rc::Rc;
@@ -1953,62 +1954,38 @@ pub fn parse_selector_list(s: &str, atoms: &mut Interner) -> Vec<Vec<Part>> {
     SplitTop::new(s, b',').filter_map(|sel| parse_selector(sel.trim(), atoms, &mut hover)).map(|(parts, _)| parts).collect()
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct Media {
-    pub min_w: f32,
-    pub max_w: f32,
-    pub min_h: f32,
-    pub max_h: f32,
-    pub on: bool,
+/// False for a compound with a pseudo-class or pseudo-element this engine does
+/// not know, at any depth.
+fn supported(c: &Compound) -> bool {
+    c.pseudos.iter().all(|p| match p {
+        Pseudo::Never => false,
+        Pseudo::Not(inner) => supported(inner),
+        Pseudo::Has(parts) => parts.iter().all(|p| supported(&p.c)),
+        _ => true,
+    })
 }
 
-impl Media {
-    pub fn matches(&self, vw: f32, vh: f32) -> bool {
-        self.on && vw >= self.min_w && vw <= self.max_w && vh >= self.min_h && vh <= self.max_h
-    }
-}
-
-/// Evaluates a media query such as a `<source media>` attribute.
-pub fn media_matches(q: &str, vw: f32, vh: f32) -> bool {
-    parse_media(q, None).matches(vw, vh)
-}
-
-fn parse_media(q: &str, outer: Option<Media>) -> Media {
-    let q = q.to_ascii_lowercase();
-    let q = q.split(',').next().unwrap_or("").trim();
-    let mut m = outer.unwrap_or(Media { min_w: 0.0, max_w: f32::INFINITY, min_h: 0.0, max_h: f32::INFINITY, on: true });
-    if q.starts_with("not") || (q.contains("print") && !q.contains("screen")) {
-        m.on = false;
-    }
-    let mut rest = q;
-    while let Some(open) = rest.find('(') {
-        let Some(close) = rest[open..].find(')') else { break };
-        let feature = &rest[open + 1..open + close];
-        rest = &rest[open + close + 1..];
-        let Some((name, val)) = feature.split_once(':') else { continue };
-        let val = val.trim();
-        let px = match parse_len(val) {
-            Some(Len::Px(v)) => v,
-            Some(Len::Em(v)) | Some(Len::Rem(v)) => v * 16.0,
-            _ => f32::NAN,
+/// Whether an `@supports` condition holds for this engine: a declaration when it
+/// is parsed into something, as custom properties and `var()` values always are,
+/// and `selector()` when its selector is read and supported.
+fn supports(cond: &str, atoms: &mut Interner) -> bool {
+    let mut leaf = |t: &str| {
+        let holds = if let Some(sel) = t.strip_prefix("selector(").and_then(|r| r.strip_suffix(')')) {
+            let mut hover = false;
+            parse_selector(sel.trim(), atoms, &mut hover).is_some_and(|(parts, _)| parts.iter().all(|p| supported(&p.c)))
+        } else if let Some((name, value)) = t.split_once(':') {
+            let (name, value) = (name.trim().to_ascii_lowercase(), value.trim());
+            let mut out = Vec::new();
+            if !name.starts_with("--") && !value.contains("var(") {
+                parse_decl(&name, value, &mut out);
+            }
+            name.starts_with("--") || value.contains("var(") || !out.is_empty()
+        } else {
+            false
         };
-        match name.trim() {
-            "min-width" if !px.is_nan() => m.min_w = m.min_w.max(px),
-            "max-width" if !px.is_nan() => m.max_w = m.max_w.min(px),
-            "min-height" if !px.is_nan() => m.min_h = m.min_h.max(px),
-            "max-height" if !px.is_nan() => m.max_h = m.max_h.min(px),
-            "prefers-color-scheme" => m.on &= val == "light",
-            // One still frame is painted, so motion is always reduced.
-            "prefers-reduced-motion" => m.on &= val == "reduce",
-            // A desktop window with default accessibility settings and a mouse.
-            "prefers-contrast" | "prefers-reduced-transparency" | "prefers-reduced-data" => m.on &= val == "no-preference",
-            "forced-colors" | "inverted-colors" => m.on &= val == "none",
-            "hover" | "any-hover" => m.on &= val == "hover",
-            "pointer" | "any-pointer" => m.on &= val == "fine",
-            _ => {}
-        }
-    }
-    m
+        crate::media::Cond::Is(holds)
+    };
+    crate::media::condition(cond, &mut leaf, true).is_some_and(|c| c.eval(0.0, 0.0))
 }
 
 pub struct Rule {
@@ -2149,11 +2126,21 @@ impl Sheet {
                     continue;
                 }
                 if let Some(q) = prelude.strip_prefix("@media") {
-                    let outer = self.media.get(media as usize).copied();
-                    self.media.push(parse_media(q, outer));
+                    let own = Media::parse(q);
+                    let m = match self.media.get(media as usize) {
+                        Some(outer) => own.within(outer),
+                        None => own,
+                    };
+                    self.media.push(m);
                     let idx = self.media.len() as u32 - 1;
                     self.rules_in(s, i, idx, level, atoms, true);
-                } else if prelude.starts_with("@supports") || prelude.starts_with("@layer") {
+                } else if let Some(cond) = prelude.strip_prefix("@supports") {
+                    if supports(cond, atoms) {
+                        self.rules_in(s, i, media, level, atoms, true);
+                    } else {
+                        *i = skip_block(b, *i);
+                    }
+                } else if prelude.starts_with("@layer") {
                     self.rules_in(s, i, media, level, atoms, true);
                 } else if prelude.trim_end().eq_ignore_ascii_case("@font-face") {
                     let open = *i;
@@ -2260,6 +2247,30 @@ mod tests {
         assert_eq!(names, want);
         assert_eq!(sheet.rules.len(), 2, "an escaped newline is no escape in a name, so the third rule is dropped");
         assert_eq!((&*sheet.fonts[0].family, &*sheet.fonts[0].srcs[0].0), ("\u{5fae}\u{8f6f}", "a\"b.woff"));
+    }
+
+    #[test]
+    fn conditional_rules_nest_and_supports_asks_the_parser() {
+        let css = "@supports (display: grid) { @media (min-width: 1000px) { .a{width:1px} } }
+                   @supports (backdrop-filter: blur(2px)) { .b{width:2px} }
+                   @supports not (backdrop-filter: blur(2px)) { .c{width:3px} }
+                   @media (max-width: 100px), (min-width: 1000px) { @supports selector(:has(a)) or (foo: bar) { .d{width:4px} } }
+                   @supports selector(:focus-visible) { .e{width:5px} }
+                   @supports (--x: 1) and (color: var(--y)) { .f{width:6px} }
+                   @media (width <= 370px) { .g{width:7px} }";
+        let mut atoms = Interner::new();
+        let mut sheet = Sheet::default();
+        sheet.add(css, &mut atoms, 1, "");
+        let applied = |vw: f32| -> Vec<&str> {
+            let shown = |s: &&super::SelEntry| {
+                let m = sheet.rules[s.rule as usize].media;
+                m == u32::MAX || sheet.media[m as usize].matches(vw, 800.0)
+            };
+            sheet.sels.iter().filter(shown).map(|s| atoms.name(s.parts[0].c.classes[0])).collect()
+        };
+        assert_eq!(applied(1280.0), ["a", "c", "d", "f"]);
+        assert_eq!(applied(800.0), ["c", "f"]);
+        assert_eq!(applied(300.0), ["c", "f", "g"]);
     }
 
     #[test]
