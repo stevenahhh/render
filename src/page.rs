@@ -1364,6 +1364,55 @@ mod tests {
     }
 
     #[test]
+    fn modules_a_module_imports_with_import_calls_download_together() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::{Arc, Condvar, Mutex};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://127.0.0.1:{}/", listener.local_addr().unwrap().port());
+        // Modules asked for and not answered yet, and the most of them at once.
+        let state = Arc::new((Mutex::new((0usize, 0usize)), Condvar::new()));
+        let shared = state.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let state = shared.clone();
+                std::thread::spawn(move || {
+                    let mut conn = BufReader::new(stream.unwrap());
+                    loop {
+                        let mut request = String::new();
+                        while conn.read_line(&mut request).unwrap_or(0) > 0 && !request.ends_with("\r\n\r\n") {}
+                        let Some(path) = request.split_whitespace().nth(1).map(str::to_string) else { return };
+                        let body = match path.as_str() {
+                            "/" => "<script type=module src=a.js></script>".to_string(),
+                            // Each import() in a turn of its own, as pages load parts on demand.
+                            "/a.js" => "const root = document.documentElement;\n\
+                                setTimeout(() => import('./b.js').then((m) => root.setAttribute('data-b', m.v)), 0);\n\
+                                setTimeout(() => import('./c.js').then((m) => root.setAttribute('data-c', m.v)), 0);"
+                                .to_string(),
+                            _ => {
+                                let (lock, changed) = &*state;
+                                let mut s = lock.lock().unwrap();
+                                s.0 += 1;
+                                s.1 = s.1.max(s.0);
+                                changed.notify_all();
+                                // Held until both modules were asked for, or for a while.
+                                let mut s = changed.wait_timeout_while(s, std::time::Duration::from_millis(1500), |s| s.1 < 2).unwrap().0;
+                                s.0 -= 1;
+                                format!("export const v = '{}';", &path[1..2])
+                            }
+                        };
+                        let reply = format!("HTTP/1.1 200 OK\r\nContent-Type: text/javascript\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+                        conn.get_mut().write_all(reply.as_bytes()).unwrap();
+                    }
+                });
+            }
+        });
+        let mut page = Page::load_url(&origin, false).unwrap();
+        page.settle(&mut Fonts::new(), 800.0, 600.0, std::time::Duration::from_millis(100));
+        assert_eq!(query(&mut page.dom, 0, "[data-b=b][data-c=c]", false).len(), 1);
+        assert_eq!(state.0.lock().unwrap().1, 2);
+    }
+
+    #[test]
     fn images_a_script_names_download_together() {
         use std::io::{BufRead, BufReader, Write};
         use std::sync::{Arc, Condvar, Mutex};

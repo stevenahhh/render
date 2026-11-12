@@ -947,6 +947,8 @@ struct Modules {
     /// The URL of every parsed module, by the path it was parsed with.
     urls: RefCell<FxMap<PathBuf, String>>,
     modules: RefCell<FxMap<String, Module>>,
+    /// Modules whose imports a background walk has asked for (see `prefetch_graph`).
+    walked: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
 impl Modules {
@@ -981,11 +983,18 @@ impl Modules {
 
     /// Starts downloading the modules that `code`, found at `href`, imports, so
     /// they arrive together rather than one after another as the loader asks.
+    /// Modules it imports with `import("...")` are downloaded too, with what they
+    /// import in turn: the page may never ask for them, but when it does, each
+    /// `import()` would otherwise wait for its download in its own turn.
     fn prefetch_imports(&self, code: &[u8], href: &str) {
         let (Some(site), Ok(code)) = (&self.site, std::str::from_utf8(code)) else { return };
         let base = Url::parse(href, Some(&self.page));
         let urls = static_imports(code).into_iter().filter_map(|s| Url::parse(s, base.as_ref()).map(|u| u.href()));
         site.prefetch_later(urls.collect());
+        let dynamic: Vec<String> = dynamic_imports(code).into_iter().filter_map(|s| Url::parse(s, base.as_ref()).map(|u| u.href())).collect();
+        if !dynamic.is_empty() {
+            prefetch_graph(site.clone(), dynamic, self.walked.clone());
+        }
     }
 
     fn parse(&self, href: String, path: &Path, code: &[u8], ctx: &mut Context) -> JsResult<Module> {
@@ -1070,6 +1079,60 @@ fn static_imports(code: &str) -> Vec<&str> {
     out
 }
 
+/// The relative and absolute specifiers of a module's dynamic imports written as a
+/// string literal: `import("s")`, `import('s')`. As with `static_imports`, a match in
+/// a string or comment only costs a download nobody uses.
+fn dynamic_imports(code: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while let Some(i) = code[at..].find("import") {
+        let start = at + i;
+        at = start + "import".len();
+        let before = code[..start].bytes().next_back();
+        if before.is_some_and(|b| b.is_ascii_alphanumeric() || b"_$.".contains(&b)) {
+            continue;
+        }
+        let Some(rest) = code[at..].trim_start().strip_prefix('(') else { continue };
+        let rest = rest.trim_start();
+        let Some(quote) = rest.bytes().next().filter(|b| *b == b'"' || *b == b'\'') else { continue };
+        let Some(end) = rest[1..].find(quote as char) else { continue };
+        let specifier = &rest[1..1 + end];
+        if ["./", "../", "/", "http:", "https:"].iter().any(|p| specifier.starts_with(p)) {
+            out.push(specifier);
+        }
+    }
+    out
+}
+
+/// Most modules one page's background walks download ahead of an `import()`.
+const MAX_WALKED: usize = 64;
+
+/// Downloads the modules at `urls` in the background, then the modules each imports,
+/// statically or with a literal `import()`, and so on: the graph a dynamic import
+/// will load, fetched together like a static import's. `walked` keeps a page's walks
+/// from visiting a module twice. Nothing is parsed or run here; the loader still
+/// loads, links and evaluates a module only when the page imports it.
+fn prefetch_graph(site: Arc<Site>, urls: Vec<String>, walked: Arc<Mutex<std::collections::HashSet<String>>>) {
+    site.prefetch_later(urls.clone());
+    std::thread::spawn(move || {
+        let mut queue = std::collections::VecDeque::from(urls);
+        while let Some(href) = queue.pop_front() {
+            {
+                let mut seen = walked.lock().expect("walked modules");
+                if seen.len() >= MAX_WALKED || !seen.insert(href.clone()) {
+                    continue;
+                }
+            }
+            let Some(code) = site.file(&href).and_then(|path| std::fs::read(path).ok()) else { continue };
+            let Ok(code) = std::str::from_utf8(&code) else { continue };
+            let base = Url::parse(&href, None);
+            let next: Vec<String> = static_imports(code).into_iter().chain(dynamic_imports(code)).filter_map(|s| Url::parse(s, base.as_ref()).map(|u| u.href())).collect();
+            site.prefetch_later(next.clone());
+            queue.extend(next);
+        }
+    });
+}
+
 /// Keeps the promises that were rejected while nothing handled them, so they
 /// can be reported once the microtasks have had their chance.
 struct Rejections(Rc<RefCell<Vec<JsObject>>>);
@@ -1104,7 +1167,7 @@ impl Js {
     /// A script engine for the page at `url`; resources on the web are
     /// downloaded through `site`.
     pub fn new(url: &Url, site: Option<Arc<Site>>) -> Js {
-        let modules = Rc::new(Modules { page: url.clone(), site, urls: RefCell::default(), modules: RefCell::default() });
+        let modules = Rc::new(Modules { page: url.clone(), site, urls: RefCell::default(), modules: RefCell::default(), walked: Arc::default() });
         let rejected = Rc::new(RefCell::new(Vec::new()));
         let builder = Context::builder().module_loader(modules.clone()).host_hooks(Rc::new(Rejections(rejected.clone())));
         let mut ctx = builder.build().expect("create script context");
