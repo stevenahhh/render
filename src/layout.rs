@@ -30,7 +30,8 @@ pub enum Kind {
     Area,
 }
 
-/// `data` indexes `Layout::boxes` for boxes and `Layout::texts` for text.
+/// `data` indexes `Layout::boxes` for boxes and `Layout::texts` for text; for a
+/// clip, `Layout::boxes` for the corners that round it.
 #[derive(Clone, Copy, Debug)]
 pub struct Item {
     pub x: f32,
@@ -137,7 +138,8 @@ impl Layout {
                     (t.color, t.deco) = (s.color.with_opacity(o), s.deco);
                 }
                 Kind::Image => self.pictures[it.data as usize].alpha = o,
-                Kind::Clip | Kind::PopClip | Kind::Area => {}
+                Kind::Clip => self.boxes[it.data as usize].radius = s.radius,
+                Kind::PopClip | Kind::Area => {}
             }
         }
         true
@@ -155,10 +157,10 @@ impl Layout {
         for (i, (a, b)) in self.items.iter().zip(&other.items).enumerate() {
             let geometry = |it: &Item| [it.x, it.y, it.w, it.h].map(f32::to_bits);
             let data = match a.kind {
-                Kind::Box => format!("{:?}", self.boxes[a.data as usize]) == format!("{:?}", other.boxes[b.data as usize]),
+                Kind::Box | Kind::Clip => format!("{:?}", self.boxes[a.data as usize]) == format!("{:?}", other.boxes[b.data as usize]),
                 Kind::Text => self.texts[a.data as usize] == other.texts[b.data as usize],
                 Kind::Image => self.pictures[a.data as usize] == other.pictures[b.data as usize],
-                Kind::Clip | Kind::PopClip | Kind::Area => true,
+                Kind::PopClip | Kind::Area => true,
             };
             if a.kind != b.kind || a.node != b.node || geometry(a) != geometry(b) || !data {
                 return Some(format!("item {i}: {a:?}, expected {b:?}"));
@@ -533,6 +535,13 @@ impl<'a> Engine<'a> {
         self.push_deco(node, x, y, w, h, deco)
     }
 
+    /// The corners a clip inside `s`'s border box rounds its content with: `s`'s radii,
+    /// and `inset`, how far inside the border box the clip lies on each side.
+    fn clip_shape(&mut self, s: &Style, inset: [f32; 4]) -> u32 {
+        self.out.boxes.push(BoxDeco { bg: Color::TRANSPARENT, bw: inset, bc: [Color::TRANSPARENT; 4], radius: s.radius, grad: None });
+        self.out.boxes.len() as u32 - 1
+    }
+
     fn push_picture(&mut self, node: NodeId, x: f32, y: f32, w: f32, h: f32, pic: PicRef) {
         let data = self.out.pictures.len() as u32;
         self.out.pictures.push(pic);
@@ -764,7 +773,8 @@ impl<'a> Engine<'a> {
         };
         let bg = self.background_slot(n, s);
         let clip = if s.overflow_hidden {
-            self.out.items.push(Item { x: x + bl, y: y + bt, w: w - bl - br, h: 0.0, kind: Kind::Clip, node: n, data: 0 });
+            let data = self.clip_shape(s, s.bw);
+            self.out.items.push(Item { x: x + bl, y: y + bt, w: w - bl - br, h: 0.0, kind: Kind::Clip, node: n, data });
             self.mark() - 1
         } else {
             NONE

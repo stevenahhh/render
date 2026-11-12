@@ -342,6 +342,76 @@ fn draw_image(t: &mut Target, clip: Rect, pic: &Picture, r: Rect, opacity: f32) 
     }
 }
 
+/// The rounded corners of a clip: the pixels under each, as they were before what
+/// the clip holds was painted, and the shape that decides how much of each it keeps.
+struct Corners {
+    r: (f32, f32, f32, f32),
+    rad: [f32; 4],
+    saved: Vec<(Rect, Vec<u32>)>,
+}
+
+/// For the clip `it`, which lies at `r`, the corners it rounds, with the pixels under
+/// them inside `within` saved; `None` when its corners are square. The clip lies the
+/// insets of its shape inside its element's border box, whose radii shrink by as much.
+fn round_clip(t: &Target, l: &Layout, it: &Item, r: Rect, within: Rect, scale: f32) -> Option<Corners> {
+    let d = &l.boxes[it.data as usize];
+    let inset = d.bw.map(|v| v * scale);
+    let (w, h) = ((r.x1 - r.x0) as f32 + inset[1] + inset[3], (r.y1 - r.y0) as f32 + inset[0] + inset[2]);
+    let outer = radii(&d.radius, w, h, scale);
+    let rad = [
+        outer[0] - inset[0].max(inset[3]),
+        outer[1] - inset[0].max(inset[1]),
+        outer[2] - inset[2].max(inset[1]),
+        outer[3] - inset[2].max(inset[3]),
+    ]
+    .map(|v| v.max(0.0));
+    if rad.iter().all(|&v| v < 0.5) || r.is_empty() {
+        return None;
+    }
+    // Each corner within its quarter of the clip, where `rr_cov` reads its radius.
+    let z = rad.map(|v| v.ceil() as i32);
+    let (mx, my) = ((r.x0 + r.x1).div_euclid(2), (r.y0 + r.y1).div_euclid(2));
+    let regions = [
+        Rect { x0: r.x0, y0: r.y0, x1: (r.x0 + z[0]).min(mx), y1: (r.y0 + z[0]).min(my) },
+        Rect { x0: (r.x1 - z[1]).max(mx), y0: r.y0, x1: r.x1, y1: (r.y0 + z[1]).min(my) },
+        Rect { x0: (r.x1 - z[2]).max(mx), y0: (r.y1 - z[2]).max(my), x1: r.x1, y1: r.y1 },
+        Rect { x0: r.x0, y0: (r.y1 - z[3]).max(my), x1: (r.x0 + z[3]).min(mx), y1: r.y1 },
+    ];
+    let saved = regions
+        .into_iter()
+        .map(|q| q.intersect(within))
+        .filter(|q| !q.is_empty())
+        .map(|q| {
+            let mut px = Vec::with_capacity(q.area() as usize);
+            for y in q.y0..q.y1 {
+                px.extend_from_slice(&t.buf[(y * t.w + q.x0) as usize..(y * t.w + q.x1) as usize]);
+            }
+            (q, px)
+        })
+        .collect();
+    Some(Corners { r: (r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32), rad, saved })
+}
+
+impl Corners {
+    /// Keeps of what was painted under each corner as much as the rounded clip covers,
+    /// and of what was there before the rest.
+    fn apply(self, t: &mut Target) {
+        for (q, before) in self.saved {
+            let mut before = before.into_iter();
+            for y in q.y0..q.y1 {
+                for x in q.x0..q.x1 {
+                    let old = before.next().unwrap_or(0);
+                    let cov = rr_cov(x as f32 + 0.5, y as f32 + 0.5, self.r, self.rad);
+                    if cov < 1.0 {
+                        let p = &mut t.buf[(y * t.w + x) as usize];
+                        *p = blend(old, *p, (cov * 255.0 + 0.5) as u32);
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Paints the part of the document visible at `scroll` (CSS px) into `t`,
 /// which is `scale` device pixels per CSS px.
 pub fn paint(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Target, scroll: f32, scale: f32) {
@@ -403,15 +473,22 @@ pub fn paint_part(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Ta
         }
     }
     images.prepare(&wants);
-    let mut clips: Vec<Rect> = Vec::new();
+    let mut clips: Vec<(Rect, Option<Corners>)> = Vec::new();
     let mut clip = full;
     for it in &l.items {
         match it.kind {
             Kind::Clip => {
-                clips.push(clip);
-                clip = clip.intersect(dev(it));
+                let r = dev(it);
+                clips.push((clip, round_clip(t, l, it, r, clip.intersect(part), scale)));
+                clip = clip.intersect(r);
             }
-            Kind::PopClip => clip = clips.pop().unwrap_or(full),
+            Kind::PopClip => {
+                let (outer, corners) = clips.pop().unwrap_or((full, None));
+                if let Some(c) = corners {
+                    c.apply(t);
+                }
+                clip = outer;
+            }
             Kind::Area => {}
             _ if it.y + it.h < top || it.y > bottom || clip.is_empty() || (part != full && reach(l, it, dev(it), scale).intersect(part).is_empty()) => {}
             Kind::Box => draw_box(t, clip.intersect(part), &l.boxes[it.data as usize], dev(it), scale),
@@ -450,7 +527,7 @@ fn same_item(old: &Layout, a: &Item, new: &Layout, b: &Item) -> bool {
     }
     let (i, j) = (a.data as usize, b.data as usize);
     match a.kind {
-        Kind::Box => old.boxes[i] == new.boxes[j],
+        Kind::Box | Kind::Clip => old.boxes[i] == new.boxes[j],
         Kind::Text => {
             fn text(l: &Layout, t: TextRun) -> &str {
                 &l.text[t.start as usize..(t.start + t.len) as usize]
@@ -459,7 +536,7 @@ fn same_item(old: &Layout, a: &Item, new: &Layout, b: &Item) -> bool {
             TextRun { start: 0, ..r } == TextRun { start: 0, ..s } && text(old, r) == text(new, s)
         }
         Kind::Image => old.pictures[i] == new.pictures[j],
-        Kind::Clip | Kind::PopClip | Kind::Area => true,
+        Kind::PopClip | Kind::Area => true,
     }
 }
 
