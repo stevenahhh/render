@@ -2,7 +2,7 @@ use render::font::Fonts;
 use render::page::{Download, Page};
 use render::layout::Layout;
 use render::paint::{self, paint, scrollbar, Target};
-use render::present::{frames_run, timer_wake, Alarm, FrameClock, Presenter, Rect};
+use render::present::{frames_run, timer_wake, window_hidden, Alarm, FrameClock, Presenter, Rect, Sight};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -234,9 +234,9 @@ struct App {
     /// Wakes the event loop for the page's next timer, where the system has a run loop timer.
     alarm: Option<Alarm>,
     /// Since when the window has been covered or minimized, while it is.
-    hidden: Option<Instant>,
-    /// A frame was asked for while the window was hidden; it is painted once it is seen.
-    redraw_hidden: bool,
+    sight: Sight,
+    /// The system last reported the window covered or off screen.
+    occluded: bool,
     /// What the frame on screen was painted from, to repaint only what changes; `None`
     /// when the next frame is painted whole.
     last: Option<Shown>,
@@ -477,8 +477,7 @@ impl App {
     /// Asks for a frame. A hidden window paints none until it is seen again, except the
     /// page's first, which its held-back scripts wait for.
     fn request_redraw(&mut self) {
-        if self.hidden.is_some() && self.painted {
-            self.redraw_hidden = true;
+        if !self.sight.ask(!self.painted) {
             return;
         }
         if let Some(w) = &self.window {
@@ -486,19 +485,23 @@ impl App {
         }
     }
 
-    /// The window was covered or uncovered. The page's scripts see it, a hidden page
-    /// keeps only the surface on screen, and a page seen again paints what it missed.
-    fn set_hidden(&mut self, hidden: bool) {
-        if hidden == self.hidden.is_some() {
-            return;
+    /// Follows the window out of sight and back: covered, minimized or without pixels, as
+    /// the system reports it. The page's scripts see it, a hidden page keeps only the
+    /// surface on screen, and a page seen again paints what it missed.
+    fn update_sight(&mut self) {
+        let Some(window) = &self.window else { return };
+        let (size, minimized) = (window.inner_size(), window.is_minimized().unwrap_or(false));
+        let hidden = window_hidden(self.occluded, minimized, (size.width, size.height));
+        let Some(owed) = self.sight.set(hidden, Instant::now()) else { return };
+        if self.stats {
+            eprintln!("hidden {hidden}: occluded {}, minimized {minimized}, size {}x{}", self.occluded, size.width, size.height);
         }
-        self.hidden = hidden.then(Instant::now);
         self.page.set_hidden(&mut self.fonts, hidden);
         if hidden {
             if let Some(surface) = &mut self.surface {
                 surface.release_spares();
             }
-        } else if std::mem::take(&mut self.redraw_hidden) {
+        } else if owed {
             self.request_redraw();
         }
         if self.page.take_dirty() {
@@ -587,7 +590,7 @@ impl App {
         if self.clock.is_some() {
             page.frames_from_host(&mut self.fonts);
         }
-        page.set_hidden(&mut self.fonts, self.hidden.is_some());
+        page.set_hidden(&mut self.fonts, self.sight.hidden_since().is_some());
         if remember {
             self.history.push((self.path.clone(), self.scroll));
         }
@@ -814,6 +817,7 @@ impl ApplicationHandler for App {
             self.page.frames_from_host(&mut self.fonts);
         }
         self.window = Some(window);
+        self.update_sight();
         if self.stats {
             if let Some(start) = PROCESS_START.get() {
                 eprintln!("window ready: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
@@ -874,16 +878,14 @@ impl ApplicationHandler for App {
         // Painted right here: a redraw request made now would be served only on another
         // turn of the loop, since winit hands out redraws before this point.
         if self.page.take_dirty() {
-            if self.hidden.is_some() && self.painted {
-                self.redraw_hidden = true;
-            } else {
+            if self.sight.ask(!self.painted) {
                 self.redraw();
             }
         }
         if let Some(clock) = &mut self.clock {
-            clock.run(frames_run(self.page.wants_frame(&mut self.fonts), self.hidden.is_some()));
+            clock.run(frames_run(self.page.wants_frame(&mut self.fonts), self.sight.hidden_since().is_some()));
         }
-        let wake = next.map(|ms| timer_wake(Instant::now(), ms, self.hidden));
+        let wake = next.map(|ms| timer_wake(Instant::now(), ms, self.sight.hidden_since()));
         event_loop.set_control_flow(match &mut self.alarm {
             Some(alarm) => {
                 alarm.set(wake);
@@ -910,9 +912,22 @@ impl App {
     fn window_event_inner(&mut self, event_loop: &ActiveEventLoop, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::RedrawRequested => self.redraw(),
-            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => self.request_redraw(),
-            WindowEvent::Occluded(hidden) => self.set_hidden(hidden),
+            // A window minimized when it opened turns minimized only later, with no event of its own.
+            WindowEvent::RedrawRequested => {
+                self.update_sight();
+                if self.sight.ask(!self.painted) {
+                    self.redraw();
+                }
+            }
+            WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                self.update_sight();
+                self.request_redraw();
+            }
+            WindowEvent::Focused(_) => self.update_sight(),
+            WindowEvent::Occluded(occluded) => {
+                self.occluded = occluded;
+                self.update_sight();
+            }
             WindowEvent::ModifiersChanged(m) => self.mods = m.state(),
             WindowEvent::MouseWheel { delta, .. } => {
                 let dy = match delta {
@@ -1010,8 +1025,8 @@ fn run() -> Result<(), String> {
         surface: None,
         clock: None,
         alarm: Alarm::new(),
-        hidden: None,
-        redraw_hidden: false,
+        sight: Sight::default(),
+        occluded: false,
         last: None,
         damages: VecDeque::new(),
         scroll: 0.0,

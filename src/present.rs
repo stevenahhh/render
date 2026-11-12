@@ -24,6 +24,46 @@ pub fn timer_wake(now: Instant, ms: f64, hidden: Option<Instant>) -> Instant {
     }
 }
 
+/// Whether nobody can see the window, from what the system reports without any input:
+/// covered by other windows or off screen (`occluded`), minimized, or with no pixels.
+pub fn window_hidden(occluded: bool, minimized: bool, size: (u32, u32)) -> bool {
+    occluded || minimized || size.0 == 0 || size.1 == 0
+}
+
+/// Whether the window is hidden, since when, and whether a frame was asked for meanwhile.
+#[derive(Default)]
+pub struct Sight {
+    since: Option<Instant>,
+    owed: bool,
+}
+
+impl Sight {
+    /// Since when the window has been hidden, while it is.
+    pub fn hidden_since(&self) -> Option<Instant> {
+        self.since
+    }
+
+    /// Records whether the window is hidden now. `None` when that did not change; on a
+    /// change, whether a frame asked for while hidden is now owed and must be painted.
+    pub fn set(&mut self, hidden: bool, now: Instant) -> Option<bool> {
+        if hidden == self.since.is_some() {
+            return None;
+        }
+        self.since = hidden.then_some(now);
+        Some(!hidden && std::mem::take(&mut self.owed))
+    }
+
+    /// A frame is asked for: true when it is painted now. A hidden window paints only the
+    /// page's first frame (`first`), which held-back scripts wait for; the others are owed.
+    pub fn ask(&mut self, first: bool) -> bool {
+        if self.since.is_some() && !first {
+            self.owed = true;
+            return false;
+        }
+        true
+    }
+}
+
 /// Whether the display link runs: only while animation frame callbacks wait and the
 /// window can be seen. A hidden page gets no frames, as in browsers.
 pub fn frames_run(wanted: bool, hidden: bool) -> bool {
@@ -513,7 +553,7 @@ mod imp {
 
 #[cfg(test)]
 mod tests {
-    use super::{frames_run, timer_wake};
+    use super::{frames_run, timer_wake, window_hidden, Sight};
     use std::time::{Duration, Instant};
 
     #[test]
@@ -546,5 +586,39 @@ mod tests {
         assert!(!frames_run(true, true));
         assert!(!frames_run(false, false));
         assert!(!frames_run(false, true));
+    }
+
+    #[test]
+    fn a_window_is_hidden_when_occluded_minimized_or_without_pixels() {
+        for occluded in [false, true] {
+            for minimized in [false, true] {
+                for size in [(800, 600), (0, 600), (800, 0), (0, 0)] {
+                    let empty = size.0 == 0 || size.1 == 0;
+                    assert_eq!(window_hidden(occluded, minimized, size), occluded || minimized || empty, "{occluded} {minimized} {size:?}");
+                }
+            }
+        }
+        assert!(!window_hidden(false, false, (1, 1)));
+    }
+
+    #[test]
+    fn a_frame_asked_for_while_hidden_is_painted_once_the_window_is_seen_again() {
+        let (mut sight, t0) = (Sight::default(), Instant::now());
+        assert!(sight.ask(false));
+        assert_eq!(sight.set(false, t0), None);
+        assert_eq!(sight.set(true, t0), Some(false));
+        assert_eq!(sight.hidden_since(), Some(t0));
+        // Staying hidden keeps the time it was hidden at, which timers count whole seconds from.
+        assert_eq!(sight.set(true, t0 + Duration::from_secs(3)), None);
+        assert_eq!(sight.hidden_since(), Some(t0));
+        assert!(sight.ask(true), "the page's first frame is painted even while hidden");
+        assert!(!sight.ask(false));
+        assert!(!sight.ask(false));
+        assert_eq!(sight.set(false, t0 + Duration::from_secs(5)), Some(true), "seen again: one repaint");
+        assert_eq!(sight.hidden_since(), None);
+        assert!(sight.ask(false));
+        // Hidden and shown again with nothing asked for meanwhile: nothing to repaint.
+        assert_eq!(sight.set(true, t0), Some(false));
+        assert_eq!(sight.set(false, t0), Some(false));
     }
 }
