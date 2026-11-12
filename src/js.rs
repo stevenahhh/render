@@ -442,6 +442,23 @@ fn view(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     Ok(js_array(v.iter().map(|v| JsValue::from(*v as f64)).collect(), ctx))
 }
 
+/// `__image(src)`: `[width, height]` of the image `src` names, looked up as layout
+/// looks images up; null when it cannot be had, 0 while it is still downloading.
+fn image(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let src = str_arg(a, 0, ctx)?;
+    let found = with(|h| {
+        let images = &mut h.page.images;
+        let misses = images.misses();
+        let id = images.file(&src);
+        Some((id.map(|id| images.size(id)), images.misses() != misses))
+    });
+    Ok(match found {
+        Some((Some((w, h)), _)) => js_array(vec![JsValue::from(w as f64), JsValue::from(h as f64)], ctx),
+        Some((None, true)) => JsValue::from(0),
+        _ => JsValue::null(),
+    })
+}
+
 /// `__media(query)`: whether a media query matches the current viewport.
 fn media(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let q = str_arg(a, 0, ctx)?;
@@ -745,6 +762,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__tagged", 2, tagged),
     ("__rect", 1, rect),
     ("__view", 0, view),
+    ("__image", 1, image),
     ("__media", 1, media),
     ("__supports", 2, supports),
     ("__now", 0, now),

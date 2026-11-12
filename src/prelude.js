@@ -675,6 +675,7 @@
     const tag = el[TAG];
     if (tag === 'script' && value !== null && name.toLowerCase() === 'src') prepareScript(el);
     else if (tag === 'link' && name.toLowerCase() === 'href') linkInserted(el);
+    else if (tag === 'img' && /^(src|srcset)$/i.test(name)) imageChanged(el);
   };
   $.setAttr = setAttr;
 
@@ -764,6 +765,25 @@
       const url = href === null ? null : resolveURL(href);
       fire(l, url !== null && __load(url, false) !== null ? 'load' : 'error');
     }, 0, false, []);
+  };
+  // An <img> that a script gives a source loads it, and a task then fires `load` or
+  // `error` at it, as in browsers: pages often show an image only once it loaded.
+  // One-shot output waits for the download; the window looks again on each turn.
+  const loadingImages = new Map();
+  const imageSource = (id) => {
+    const src = __attr(id, 'src');
+    const set = src ? null : __attr(id, 'srcset');
+    return set ? set.split(',')[0].trim().split(/\s+/)[0] : src;
+  };
+  const imageLoaded = (img, src) => {
+    if (imageSource(img[ID]) !== src) return;
+    const got = src === '' ? null : /^data:/i.test(src) ? [] : __image(src);
+    if (got === 0) loadingImages.set(img, src);
+    else fire(img, got === null ? 'error' : 'load');
+  };
+  const imageChanged = (img) => {
+    const src = imageSource(img[ID]);
+    if (src !== null) addTimer(() => imageLoaded(img, src), 0, false, []);
   };
 
 
@@ -1768,6 +1788,11 @@
   // Runs the earliest due task. Returns 0 after running one, else milliseconds
   // until the next, or -1 when there is none.
   const tick = () => {
+    for (const [img, src] of loadingImages) {
+      if (__image(src) === 0) continue;
+      loadingImages.delete(img);
+      addTimer(() => imageLoaded(img, src), 0, false, []);
+    }
     if (!tasks.length) return -1;
     let best = 0;
     for (let i = 1; i < tasks.length; i++) {
