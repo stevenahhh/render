@@ -452,7 +452,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         }
         Decl::BgPos(x, y) => st.bg_pos = [r(x), r(y)],
         Decl::ClipText(v) => st.clip_text = v,
-        Decl::Visible(v) => st.visible = v,
+        Decl::Visible(v) => st.visible = v.unwrap_or(parent.visible),
         Decl::Opacity(v) => st.own_opacity = v,
         Decl::Pointer(v) => st.pointer = v,
         Decl::Fill(c) => st.fill = c.unwrap_or(st.color),
@@ -1753,6 +1753,14 @@ mod tests {
         for (sel, want) in cases {
             assert_eq!(ids(&mut page, sel), want, "{sel}");
         }
+    }
+
+    #[test]
+    fn visibility_keywords_follow_the_cascade_and_the_parent() {
+        let html = "<style>.h{visibility:hidden} .in{visibility:inherit} .un{visibility:unset} .init{visibility:initial} .bad{visibility:nonsense}</style>\
+                    <div><p class='h in'></p><p class='h init'></p><p class='h bad'></p></div>\
+                    <div class=h><p class=in></p><p class=un></p><p class=init></p></div>";
+        assert_eq!(styles_of(html, "p").iter().map(|s| s.visible).collect::<Vec<_>>(), [true, true, false, false, false, true]);
     }
 
     #[test]

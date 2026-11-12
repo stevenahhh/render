@@ -285,7 +285,8 @@ pub enum Decl {
     RowGap(Len),
     ColGap(Len),
     Overflow(bool),
-    Visible(bool),
+    /// `None` is the parent's.
+    Visible(Option<bool>),
     Opacity(f32),
     Pointer(bool),
     Translate(Len, Len),
@@ -1414,7 +1415,13 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "overflow" | "overflow-x" | "overflow-y" => {
             push(Some(D::Overflow(tokens(v).any(|t| t != "visible"))))
         }
-        "visibility" => push(Some(D::Visible(v == "visible"))),
+        "visibility" => push(match v {
+            "visible" | "initial" => Some(D::Visible(Some(true))),
+            "hidden" | "collapse" => Some(D::Visible(Some(false))),
+            // An inherited property: unset and revert take the parent's value too.
+            "inherit" | "unset" | "revert" | "revert-layer" => Some(D::Visible(None)),
+            _ => None,
+        }),
         "opacity" => push(
             match v.strip_suffix('%') {
                 Some(p) => num(p).map(|n| n / 100.0),
