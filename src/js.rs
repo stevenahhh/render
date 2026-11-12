@@ -1206,6 +1206,9 @@ impl Js {
         let rejected = Rc::new(RefCell::new(Vec::new()));
         let builder = Context::builder().module_loader(modules.clone()).host_hooks(Rc::new(Rejections(rejected.clone())));
         let mut ctx = builder.build().expect("create script context");
+        // Folding and pruning the syntax tree of every script costs more than it saves:
+        // page scripts mostly run once.
+        ctx.set_optimizer_options(boa_engine::optimizer::OptimizerOptions::empty());
         ctx.runtime_limits_mut().set_loop_iteration_limit(LOOP_LIMIT);
         ctx.runtime_limits_mut().set_recursion_limit(RECURSION_LIMIT);
         ctx.runtime_limits_mut().set_stack_size_limit(STACK_LIMIT);
