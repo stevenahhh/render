@@ -346,6 +346,8 @@ pub enum Decl {
     Translate(Len, Len),
     /// A `transform` that scales to nothing on some axis, so that nothing is drawn.
     ScaledAway(bool),
+    /// `clip` (0) or `clip-path` (1) cuts the element to nothing.
+    CutAway(u8, bool),
     /// `None` is auto.
     ZIndex(Option<i32>),
     /// Column count, and whether the tracks share the width evenly.
@@ -577,6 +579,42 @@ fn split_products<'a>(t: &'a str, out: &mut Vec<&'a str>) {
     if start < t.len() {
         out.push(&t[start..]);
     }
+}
+
+/// Whether `clip: rect(top, right, bottom, left)` leaves nothing of the box; an `auto`
+/// side is the box's own.
+fn clip_is_empty(v: &str) -> bool {
+    let Some(args) = v.strip_prefix("rect(").and_then(|r| r.strip_suffix(')')) else { return false };
+    let px: Vec<Option<f32>> = args
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|t| !t.is_empty())
+        .map(|t| if let Some(Len::Px(v)) = parse_len(t) { Some(v) } else { None })
+        .collect();
+    let [t, r, b, l] = px[..] else { return false };
+    matches!((t, b), (Some(t), Some(b)) if b <= t) || matches!((l, r), (Some(l), Some(r)) if r <= l)
+}
+
+/// Whether `clip-path: inset()` leaves nothing of the box, from its percentages; other
+/// lengths but 0 depend on the box and count as leaving some.
+fn inset_is_empty(v: &str) -> bool {
+    let Some(args) = v.strip_prefix("inset(").and_then(|r| r.strip_suffix(')')) else { return false };
+    let pct: Option<Vec<f32>> = args
+        .split_whitespace()
+        .take_while(|t| *t != "round")
+        .map(|t| match parse_len(t) {
+            Some(Len::Pct(p)) => Some(p),
+            Some(Len::Px(v)) if v == 0.0 => Some(0.0),
+            _ => None,
+        })
+        .collect();
+    let [t, r, b, l] = match pct.as_deref() {
+        Some(&[a]) => [a; 4],
+        Some(&[a, b]) => [a, b, a, b],
+        Some(&[a, b, c]) => [a, b, c, b],
+        Some(&[a, b, c, d]) => [a, b, c, d],
+        _ => return false,
+    };
+    t + b >= 100.0 || l + r >= 100.0
 }
 
 /// Whether a `transform` value scales to nothing on some axis. Other scale factors are
@@ -1619,6 +1657,8 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             out.push(D::Translate(x, y));
             out.push(D::ScaledAway(scaled_away(v)));
         }
+        "clip" => out.push(D::CutAway(0, clip_is_empty(v))),
+        "clip-path" | "-webkit-clip-path" => out.push(D::CutAway(1, inset_is_empty(v))),
         "fill" => match v {
             "none" => out.push(D::Fill(Some(Color::TRANSPARENT))),
             "currentcolor" => out.push(D::Fill(None)),

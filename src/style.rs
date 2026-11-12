@@ -44,6 +44,9 @@ pub struct Style {
     pub translate: [Len; 2],
     /// `transform` scales the element to nothing: it is drawn as with opacity 0.
     pub scaled_away: bool,
+    /// `clip` (bit 0, for absolutely positioned boxes) or `clip-path` (bit 1) cuts the
+    /// element to nothing: it is drawn as with opacity 0.
+    pub cut_away: u8,
     /// `display: contents` inside a flex container: the box is skipped and
     /// its children become flex items of that container.
     pub contents: bool,
@@ -189,6 +192,7 @@ impl Style {
             overflow_hidden: false,
             translate: [Len::Px(0.0); 2],
             scaled_away: false,
+            cut_away: 0,
             contents: false,
             z: 0,
             z_set: false,
@@ -560,6 +564,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::Fill(c) => st.fill = c.unwrap_or(st.color),
         Decl::Translate(x, y) => st.translate = [r(x), r(y)],
         Decl::ScaledAway(b) => st.scaled_away = b,
+        Decl::CutAway(i, b) => st.cut_away = st.cut_away & !(1 << i) | (b as u8) << i,
         Decl::ZIndex(z) => (st.z, st.z_set) = (z.unwrap_or(0), z.is_some()),
         Decl::GridCols(n, even) => (st.grid_cols, st.grid_even) = (n, even),
         Decl::GridFlowCol(v) => st.grid_flow_col = v,
@@ -1212,7 +1217,8 @@ fn finish(st: &mut Style, parent: &Style, root: bool, replaced: bool) {
     if st.clip_text {
         text_from_background(st);
     }
-    st.opacity = if st.scaled_away { 0.0 } else { parent.opacity * st.own_opacity };
+    let cut = st.cut_away & 2 != 0 || (st.cut_away & 1 != 0 && matches!(st.position, Position::Absolute | Position::Fixed));
+    st.opacity = if st.scaled_away || cut { 0.0 } else { parent.opacity * st.own_opacity };
     let parent_flex = matches!(parent.display, Display::Flex | Display::InlineFlex);
     if st.display == Display::Inherit {
         st.display = match parent.display {
@@ -2016,6 +2022,14 @@ mod tests {
                     <div><p class='h in'></p><p class='h init'></p><p class='h bad'></p></div>\
                     <div class=h><p class=in></p><p class=un></p><p class=init></p></div>";
         assert_eq!(styles_of(html, "p").iter().map(|s| s.visible).collect::<Vec<_>>(), [true, true, false, false, false, true]);
+    }
+
+    #[test]
+    fn clip_and_clip_path_that_leave_nothing_draw_nothing() {
+        let html = "<style>p{position:absolute} .a{clip:rect(0 0 0 0)} .b{position:static;clip:rect(0 0 0 0)} .c{clip:rect(0,10px,10px,0)} .d{clip-path:inset(50%)} .e{clip-path:inset(0px 0px 99.9% 99.9%)}</style>\
+                    <p class=a></p><p class=b></p><p class=c></p><p class=d></p><p class=e></p>";
+        let s = styles_of(html, "p");
+        assert_eq!(s.iter().map(|s| s.opacity).collect::<Vec<_>>(), [0.0, 1.0, 1.0, 0.0, 1.0]);
     }
 
     #[test]

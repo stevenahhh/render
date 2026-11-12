@@ -162,8 +162,9 @@ impl Element<'_> {
             "font-weight" => s.weight.to_string(),
             "color" => color(s.color),
             "background-color" => color(s.bg),
-            // A transform that scales the element to nothing draws it with opacity 0, which is not its own.
-            "opacity" if s.scaled_away => num(s.own_opacity),
+            // A transform, clip or clip-path that leaves nothing of the element draws it with
+            // opacity 0, which is not its own.
+            "opacity" if s.scaled_away || s.cut_away != 0 => num(s.own_opacity),
             "opacity" => num(self.parent.map_or(s.opacity, |(p, _)| if p.opacity > 0.0 { s.opacity / p.opacity } else { 1.0 })),
             "overflow" | "overflow-x" | "overflow-y" => (if s.overflow_hidden { "hidden" } else { "visible" }).to_string(),
             "transform" => {
