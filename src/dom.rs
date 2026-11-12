@@ -11,6 +11,12 @@ pub type Atom = u32;
 pub type NodeId = u32;
 pub const NONE: u32 = u32::MAX;
 
+/// What `Dom::kind_of` reports about a node: a `<script>`, an element that may
+/// be a custom element, a `<style>` or stylesheet `<link>`.
+pub const HAS_SCRIPT: u32 = 1;
+pub const HAS_CUSTOM: u32 = 2;
+pub const HAS_SHEET: u32 = 4;
+
 macro_rules! atoms {
     ($($name:ident = $s:expr),* $(,)?) => {
         #[allow(non_camel_case_types, clippy::upper_case_acronyms, dead_code)]
@@ -44,6 +50,8 @@ atoms! {
     VALUE = "value", PLACEHOLDER = "placeholder", ALT = "alt", WIDTH = "width",
     HEIGHT = "height", START = "start", SRC = "src", SRCSET = "srcset", MEDIA = "media",
     PICTURE = "picture", NOSCRIPT = "noscript", SVG = "svg", VIDEO = "video", POSTER = "poster",
+    COMMENT = "#comment", FRAGMENT = "#document-fragment", TEMPLATE = "template", SHADOW = "#shadow-root",
+    SLOT = "slot",
 }
 
 pub struct Interner {
@@ -94,6 +102,11 @@ impl Interner {
     pub fn name(&self, a: Atom) -> &str {
         &self.names[a as usize]
     }
+
+    /// The atom of `s` if it was ever interned, without interning it.
+    pub fn get(&self, s: &str) -> Option<Atom> {
+        self.map.get(s).copied()
+    }
 }
 
 pub struct Node {
@@ -125,6 +138,15 @@ pub struct Dom {
     pub classes: Vec<Atom>,
     pub text: String,
     pub atoms: Interner,
+    /// Comments are text nodes without text of their own, so style and layout
+    /// pass over them; their data is kept here, as (start, len) in `text`.
+    pub comments: FxMap<NodeId, (u32, u32)>,
+    /// The content of each `<template>`: a fragment outside the tree.
+    pub templates: FxMap<NodeId, NodeId>,
+    /// The template each content fragment belongs to, and the host of each shadow root.
+    pub hosts: FxMap<NodeId, NodeId>,
+    /// The shadow root of each shadow host.
+    pub shadows: FxMap<NodeId, NodeId>,
 }
 
 impl Dom {
@@ -135,9 +157,19 @@ impl Dom {
             classes: Vec::new(),
             text: String::with_capacity(cap),
             atoms: Interner::new(),
+            comments: FxMap::default(),
+            templates: FxMap::default(),
+            hosts: FxMap::default(),
+            shadows: FxMap::default(),
         };
         d.new_node(atom::DOCUMENT);
         d
+    }
+
+    /// A document without even a root, standing in for one that is lent out.
+    pub fn empty() -> Dom {
+        let atoms = Interner { map: FxMap::default(), names: Vec::new(), scratch: String::new() };
+        Dom { nodes: Vec::new(), attrs: Vec::new(), classes: Vec::new(), text: String::new(), atoms, comments: FxMap::default(), templates: FxMap::default(), hosts: FxMap::default(), shadows: FxMap::default() }
     }
 
     fn new_node(&mut self, tag: Atom) -> NodeId {
@@ -175,7 +207,157 @@ impl Dom {
     #[inline]
     pub fn is_element(&self, n: NodeId) -> bool {
         let t = self.nodes[n as usize].tag;
-        t != atom::TEXT && t != atom::DOCUMENT
+        t != atom::TEXT && t != atom::DOCUMENT && t != atom::FRAGMENT && t != atom::SHADOW
+    }
+
+    pub fn is_comment(&self, n: NodeId) -> bool {
+        self.nodes[n as usize].tag == atom::TEXT && self.comments.contains_key(&n)
+    }
+
+    /// The data of a text or comment node.
+    pub fn data_of(&self, n: NodeId) -> &str {
+        match self.comments.get(&n) {
+            Some(&(s, l)) => &self.text[s as usize..(s + l) as usize],
+            None => self.text_of(n),
+        }
+    }
+
+    pub fn set_data(&mut self, n: NodeId, s: &str) {
+        if self.is_comment(n) {
+            let start = self.text.len() as u32;
+            self.text.push_str(s);
+            self.comments.insert(n, (start, s.len() as u32));
+        } else {
+            self.set_text(n, s);
+        }
+    }
+
+    pub fn create_comment(&mut self, s: &str) -> NodeId {
+        let n = self.new_node(atom::TEXT);
+        let start = self.text.len() as u32;
+        self.text.push_str(s);
+        self.comments.insert(n, (start, s.len() as u32));
+        n
+    }
+
+    /// The content fragment of a `<template>`, made on first use for one a script created.
+    pub fn template_content(&mut self, n: NodeId) -> NodeId {
+        if let Some(&c) = self.templates.get(&n) {
+            return c;
+        }
+        let c = self.new_node(atom::FRAGMENT);
+        self.templates.insert(n, c);
+        self.hosts.insert(c, n);
+        c
+    }
+
+    /// The node after `n` in a depth-first walk of the subtree of `root`.
+    pub fn next_in(&self, n: NodeId, root: NodeId) -> NodeId {
+        let node = &self.nodes[n as usize];
+        if node.first_child != NONE {
+            return node.first_child;
+        }
+        let mut c = n;
+        while c != root && c != NONE {
+            let next = self.nodes[c as usize].next;
+            if next != NONE {
+                return next;
+            }
+            c = self.nodes[c as usize].parent;
+        }
+        NONE
+    }
+
+    /// The first element below `root` whose id is `id`, in tree order.
+    pub fn by_id(&self, root: NodeId, id: &str) -> NodeId {
+        let Some(want) = self.atoms.get(id).filter(|&a| a != 0) else { return NONE };
+        let mut n = self.next_in(root, root);
+        while n != NONE && !(self.nodes[n as usize].id == want && self.is_element(n)) {
+            n = self.next_in(n, root);
+        }
+        n
+    }
+
+    pub fn kind_of(&self, n: NodeId) -> u32 {
+        match self.nodes[n as usize].tag {
+            atom::SCRIPT => HAS_SCRIPT,
+            atom::STYLE => HAS_SHEET,
+            atom::LINK if self.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet")) => HAS_SHEET,
+            t if self.is_element(n) && self.atoms.name(t).contains('-') => HAS_CUSTOM,
+            _ => 0,
+        }
+    }
+
+    /// The kinds of all nodes in the subtree of `n`, `n` included.
+    pub fn kinds_in(&self, n: NodeId) -> u32 {
+        let (mut kinds, mut c) = (0, n);
+        while c != NONE {
+            kinds |= self.kind_of(c);
+            c = self.next_in(c, n);
+        }
+        kinds
+    }
+
+    /// A shadow root for `host`, outside the tree like a template's content.
+    pub fn attach_shadow(&mut self, host: NodeId) -> NodeId {
+        let root = self.new_node(atom::SHADOW);
+        self.shadows.insert(host, root);
+        self.hosts.insert(root, host);
+        root
+    }
+
+    /// True when `n` is in the document, counting shadow trees of hosts that are.
+    pub fn connected(&self, n: NodeId) -> bool {
+        let mut root = self.root_of(n);
+        while self.nodes[root as usize].tag == atom::SHADOW {
+            match self.hosts.get(&root) {
+                Some(&host) => root = self.root_of(host),
+                None => return false,
+            }
+        }
+        root == 0
+    }
+
+    /// The root of the tree `n` is in: the document when it is connected.
+    pub fn root_of(&self, mut n: NodeId) -> NodeId {
+        while self.nodes[n as usize].parent != NONE {
+            n = self.nodes[n as usize].parent;
+        }
+        n
+    }
+
+    /// A copy of `n` with its attributes, and with `deep` its descendants and template content.
+    pub fn clone_node(&mut self, n: NodeId, deep: bool) -> NodeId {
+        let (tag, id, text, classes, (s, c)) = {
+            let src = &self.nodes[n as usize];
+            (src.tag, src.id, src.text, src.classes, src.attrs)
+        };
+        let m = self.new_node(tag);
+        // Attribute values change in place, so the copy gets entries of its own.
+        let start = self.attrs.len() as u32;
+        for i in s..s + c {
+            let a = Attr { name: self.attrs[i as usize].name, value: self.attrs[i as usize].value };
+            self.attrs.push(a);
+        }
+        let node = &mut self.nodes[m as usize];
+        (node.id, node.text, node.classes, node.attrs) = (id, text, classes, (start, c));
+        if let Some(&d) = self.comments.get(&n) {
+            self.comments.insert(m, d);
+        }
+        if deep {
+            if let Some(&content) = self.templates.get(&n) {
+                let copy = self.clone_node(content, true);
+                self.templates.insert(m, copy);
+                self.hosts.insert(copy, m);
+            }
+            let mut k = self.nodes[n as usize].first_child;
+            while k != NONE {
+                let copy = self.clone_node(k, true);
+                self.append(m, copy);
+                k = self.nodes[k as usize].next;
+            }
+        }
+        m
     }
 
     /// True for an element whose content is an image: `<img>`, inline `<svg>`,
@@ -329,12 +511,18 @@ impl Dom {
             let c = self.nodes[n as usize].first_child;
             self.detach(c);
         }
-        Parser { src: html, b: html.as_bytes(), pos: 0, dom: self, stack: vec![n, n, n], html: n, head: NONE, body: n, fragment: true }.run();
+        Parser { src: html, b: html.as_bytes(), pos: 0, dom: self, stack: vec![n, n, n], html: n, head: NONE, body: n, fragment: true, templates: 0 }.run();
     }
 
     /// Serializes a node (`outer`) or only its children back to HTML.
     pub fn serialize(&self, n: NodeId, outer: bool, out: &mut String) {
         let node = &self.nodes[n as usize];
+        if let Some(&(s, l)) = self.comments.get(&n) {
+            out.push_str("<!--");
+            out.push_str(&self.text[s as usize..(s + l) as usize]);
+            out.push_str("-->");
+            return;
+        }
         if node.tag == atom::TEXT {
             let raw = matches!(self.nodes.get(node.parent as usize).map(|p| p.tag), Some(atom::SCRIPT | atom::STYLE));
             for c in self.text_of(n).chars() {
@@ -348,6 +536,7 @@ impl Dom {
             return;
         }
         let name = self.atoms.name(node.tag);
+        let outer = outer && !matches!(node.tag, atom::FRAGMENT | atom::DOCUMENT);
         if outer {
             out.push('<');
             out.push_str(name);
@@ -365,7 +554,10 @@ impl Dom {
                 return;
             }
         }
-        let mut c = node.first_child;
+        let mut c = match self.templates.get(&n) {
+            Some(&content) => self.nodes[content as usize].first_child,
+            None => node.first_child,
+        };
         while c != NONE {
             self.serialize(c, true, out);
             c = self.nodes[c as usize].next;
@@ -393,7 +585,7 @@ impl Dom {
 
 pub fn parse_html(src: &str) -> Dom {
     let mut dom = Dom::new(src.len());
-    Parser { src, b: src.as_bytes(), pos: 0, dom: &mut dom, stack: vec![0], html: NONE, head: NONE, body: NONE, fragment: false }.run();
+    Parser { src, b: src.as_bytes(), pos: 0, dom: &mut dom, stack: vec![0], html: NONE, head: NONE, body: NONE, fragment: false, templates: 0 }.run();
     dom
 }
 
@@ -409,6 +601,9 @@ struct Parser<'a> {
     html: NodeId,
     head: NodeId,
     body: NodeId,
+    /// Template contents open on the stack. Inside one there is no implied
+    /// `<head>` or `<body>`, and end tags do not reach past it.
+    templates: u32,
 }
 
 #[inline]
@@ -423,7 +618,7 @@ fn is_void(t: Atom) -> bool {
 
 fn is_head_tag(t: Atom) -> bool {
     use atom::*;
-    matches!(t, TITLE | META | LINK | STYLE | SCRIPT | BASE)
+    matches!(t, TITLE | META | LINK | STYLE | SCRIPT | BASE | TEMPLATE)
 }
 
 fn closes_p(t: Atom) -> bool {
@@ -455,11 +650,20 @@ impl<'a> Parser<'a> {
             }
             let nx = if lt + 1 < len { b[lt + 1] } else { 0 };
             if nx == b'!' {
-                self.pos = if b[lt..].starts_with(b"<!--") {
-                    memmem::find(&b[lt + 4..], b"-->").map_or(len, |o| lt + 4 + o + 3)
+                if b[lt..].starts_with(b"<!--") {
+                    let body = lt + 4;
+                    // `<!-->` and `<!--->` are empty comments.
+                    let (end, after) = match &b[body..] {
+                        [b'>', ..] => (body, body + 1),
+                        [b'-', b'>', ..] => (body, body + 2),
+                        rest => memmem::find(rest, b"-->").map_or((len, len), |o| (body + o, body + o + 3)),
+                    };
+                    let src = self.src;
+                    self.comment(&src[body..end]);
+                    self.pos = after;
                 } else {
-                    memchr(b'>', &b[lt..]).map_or(len, |o| lt + o + 1)
-                };
+                    self.pos = memchr(b'>', &b[lt..]).map_or(len, |o| lt + o + 1);
+                }
             } else if nx == b'/' {
                 let ns = lt + 2;
                 let mut e = ns;
@@ -517,9 +721,19 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn comment(&mut self, data: &str) {
+        let parent = *self.stack.last().unwrap();
+        // Layout finds <html> as the document's first child, so comments around it are left out.
+        if parent == 0 && !self.fragment {
+            return;
+        }
+        let n = self.dom.create_comment(data);
+        self.dom.append(parent, n);
+    }
+
     fn text(&mut self, t: &str) {
         let ws = t.bytes().all(|c| c.is_ascii_whitespace());
-        if self.stack.len() <= 2 || self.body == NONE {
+        if self.templates == 0 && (self.stack.len() <= 2 || self.body == NONE) {
             // Outside <body>: whitespace is insignificant, real text opens the body.
             if ws {
                 return;
@@ -622,7 +836,7 @@ impl<'a> Parser<'a> {
         let classes = (class_start, self.dom.classes.len() as u32 - class_start);
 
         match tag {
-            atom::HTML | atom::HEAD | atom::BODY if self.fragment => return,
+            atom::HTML | atom::HEAD | atom::BODY if self.fragment || self.templates > 0 => return,
             atom::HTML => {
                 self.ensure_html();
                 self.set_attrs(self.html, attrs, classes, id);
@@ -641,7 +855,9 @@ impl<'a> Parser<'a> {
             }
             _ => {}
         }
-        if self.body == NONE && is_head_tag(tag) {
+        if self.templates > 0 {
+            // Inside template content: no implied head or body.
+        } else if self.body == NONE && is_head_tag(tag) {
             self.ensure_head_open();
         } else {
             self.ensure_body_open();
@@ -657,6 +873,13 @@ impl<'a> Parser<'a> {
         }
         let parent = *self.stack.last().unwrap();
         self.dom.append(parent, n);
+        if tag == atom::TEMPLATE {
+            let content = self.dom.template_content(n);
+            self.stack.push(n);
+            self.stack.push(content);
+            self.templates += 1;
+            return;
+        }
 
         let in_svg = || tag == atom::SVG || self.stack.iter().any(|&s| self.dom.nodes[s as usize].tag == atom::SVG);
         if is_void(tag) || (self_closing && in_svg()) {
@@ -716,7 +939,7 @@ impl<'a> Parser<'a> {
                 self.stack.truncate(i);
                 return;
             }
-            if bounds.contains(&t) {
+            if bounds.contains(&t) || t == atom::FRAGMENT {
                 return;
             }
         }
@@ -752,7 +975,7 @@ impl<'a> Parser<'a> {
         match tag {
             atom::HTML | atom::BODY => return,
             atom::HEAD => {
-                if self.body == NONE && self.stack.len() > 2 {
+                if self.templates == 0 && self.body == NONE && self.stack.len() > 2 {
                     self.stack.truncate(2);
                 }
                 return;
@@ -760,8 +983,13 @@ impl<'a> Parser<'a> {
             _ => {}
         }
         for i in (3..self.stack.len()).rev() {
-            if self.dom.nodes[self.stack[i] as usize].tag == tag {
+            let t = self.dom.nodes[self.stack[i] as usize].tag;
+            if t == tag {
+                self.templates -= (tag == atom::TEMPLATE) as u32;
                 self.stack.truncate(i);
+                return;
+            }
+            if t == atom::FRAGMENT && tag != atom::TEMPLATE {
                 return;
             }
         }
@@ -838,4 +1066,75 @@ fn entity(name: &[u8]) -> Option<char> {
         b"para" => '\u{b6}',
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{atom, parse_html, NodeId, HAS_CUSTOM, HAS_SCRIPT, HAS_SHEET, NONE};
+
+    fn first(dom: &super::Dom, tag: u32) -> NodeId {
+        (0..dom.nodes.len() as NodeId).find(|&n| dom.nodes[n as usize].tag == tag).unwrap()
+    }
+
+    #[test]
+    fn comments_are_kept_but_hold_no_text() {
+        let dom = parse_html("<!-- top --><html><body><div><!--hi-->a<!---->b</div></body></html>");
+        let div = first(&dom, atom::DIV);
+        let c = dom.nodes[div as usize].first_child;
+        assert!(dom.is_comment(c));
+        assert_eq!((dom.data_of(c), dom.text_of(c)), ("hi", ""));
+        let mut text = String::new();
+        dom.text_content(div, &mut text);
+        assert_eq!(text, "ab");
+        let mut html = String::new();
+        dom.serialize(div, false, &mut html);
+        assert_eq!(html, "<!--hi-->a<!---->b");
+        assert!(!dom.is_comment(dom.nodes[0].first_child), "a comment before <html> is left out");
+    }
+
+    #[test]
+    fn template_content_is_outside_the_tree() {
+        let dom = parse_html("<body><template id=t><li>A</li><li>B</li></template><p>after</p></body>");
+        let t = first(&dom, atom::TEMPLATE);
+        assert_eq!(dom.nodes[t as usize].first_child, NONE);
+        let content = dom.templates[&t];
+        assert_eq!((dom.nodes[content as usize].tag, dom.hosts[&content]), (atom::FRAGMENT, t));
+        assert_eq!(dom.kinds_in(content), 0);
+        let p = first(&dom, atom::P);
+        assert_eq!(dom.nodes[p as usize].parent, dom.nodes[t as usize].parent, "the template closes at its end tag");
+        let mut html = String::new();
+        dom.serialize(t, true, &mut html);
+        assert_eq!(html, "<template id=\"t\"><li>A</li><li>B</li></template>");
+    }
+
+    #[test]
+    fn clones_copy_attributes_and_template_content() {
+        let mut dom = parse_html("<body><template class=x><b>x</b></template></body>");
+        let t = first(&dom, atom::TEMPLATE);
+        let copy = dom.clone_node(t, true);
+        dom.set_attr(t, "class", Some("changed"));
+        assert_eq!(dom.attr(copy, atom::CLASS), Some("x"));
+        let content = dom.templates[&copy];
+        assert_ne!(content, dom.templates[&t]);
+        let mut html = String::new();
+        dom.serialize(content, false, &mut html);
+        assert_eq!(html, "<b>x</b>");
+        assert_eq!(dom.nodes[copy as usize].parent, NONE);
+    }
+
+    #[test]
+    fn finds_ids_kinds_and_connected_nodes() {
+        let mut dom = parse_html("<body><div id=a><x-el></x-el><script></script><style></style></div></body>");
+        let div = first(&dom, atom::DIV);
+        assert_eq!(dom.by_id(0, "a"), div);
+        assert_eq!(dom.by_id(0, "missing"), NONE);
+        assert_eq!(dom.kinds_in(div), HAS_CUSTOM | HAS_SCRIPT | HAS_SHEET);
+        let root = dom.attach_shadow(div);
+        let inner = dom.create_element("span");
+        dom.insert_before(root, inner, NONE);
+        assert!(dom.connected(inner));
+        assert_eq!(dom.root_of(inner), root);
+        dom.detach(div);
+        assert!(!dom.connected(inner));
+    }
 }

@@ -20,9 +20,10 @@ use winit::window::{CursorIcon, Window, WindowId};
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-/// Page time that one-shot output (--screenshot, --boxes) lets scripts run
-/// before the frame is taken. Component frameworks such as apple.com's mount
-/// their components after about half a second of timers and animation frames.
+/// Idle page time that one-shot output (--screenshot, --boxes) lets pass between
+/// script tasks before the frame is taken; the tasks themselves do not count.
+/// Component frameworks such as apple.com's mount their components after about
+/// half a second of timers and animation frames.
 const SETTLE: Duration = Duration::from_millis(1000);
 
 const USAGE: &str = "usage: render <file.html | http(s) URL> [options]
@@ -120,9 +121,10 @@ fn device_size(a: &Args) -> (usize, usize) {
 fn screenshot(a: &Args, out: &Path) -> std::io::Result<()> {
     let mut fonts = Fonts::new();
     let mut page = Page::load(&a.path)?;
+    page.run_pending(&mut fonts, a.width, a.height);
     if a.scroll > 0.0 {
         page.update(&mut fonts, a.width, a.height);
-        page.scroll_to(a.scroll.clamp(0.0, (page.layout.height - a.height).max(0.0)));
+        page.scroll_to(&mut fonts, a.scroll.clamp(0.0, (page.layout.height - a.height).max(0.0)));
     }
     page.settle(&mut fonts, a.width, a.height, SETTLE);
     if let Some(sel) = &a.inspect {
@@ -624,7 +626,7 @@ impl ApplicationHandler for App {
         // Once a frame is on screen, run the held-back scripts one per turn of the
         // loop, so input and repaints are served in between.
         if self.painted {
-            if let Some(left) = self.page.run_deferred() {
+            if let Some(left) = self.page.run_deferred(&mut self.fonts) {
                 if self.page.take_dirty() {
                     self.request_redraw();
                 }
@@ -637,7 +639,7 @@ impl ApplicationHandler for App {
                 return;
             }
         }
-        let next = self.page.tick();
+        let next = self.page.tick(&mut self.fonts);
         if self.page.take_dirty() {
             self.request_redraw();
         }
@@ -671,7 +673,7 @@ impl ApplicationHandler for App {
                 self.address = None;
                 let node = self.page.hit(self.mouse.0, self.mouse.1 + self.scroll);
                 let href = self.page.link(node).map(str::to_string);
-                let cancelled = self.page.click(node);
+                let cancelled = self.page.click(&mut self.fonts, node);
                 if self.page.take_dirty() {
                     self.request_redraw();
                 }

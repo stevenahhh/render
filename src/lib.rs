@@ -9,6 +9,7 @@ pub mod layout;
 pub mod net;
 pub mod page;
 pub mod paint;
+pub mod shadow;
 pub mod style;
 pub mod url;
 pub mod webfont;

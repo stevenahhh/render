@@ -1,8 +1,9 @@
 //! A loaded document: DOM, stylesheet, computed styles and layout.
 
 use crate::css::{FontFace, Sheet};
-use crate::dom::{atom, parse_html, Dom, NodeId, NONE};
+use crate::dom::{atom, parse_html, Dom, NodeId, HAS_SHEET, NONE};
 use crate::font::Fonts;
+use crate::url::Url;
 use crate::img::Images;
 use crate::js::{Host, Js};
 use crate::FxMap;
@@ -22,6 +23,11 @@ use std::time::{Duration, Instant};
 /// twice that, while keeping a page whose HTML arrives within half a second
 /// well inside a two-second first frame.
 const CSS_BUDGET: Duration = Duration::from_millis(1000);
+
+/// Most wall-clock time `settle` gives a page after its scripts ran. An app that
+/// starts from timers (YouTube's needs several seconds of script in this engine)
+/// finishes well within it; a page that keeps working without end is stopped.
+const SETTLE_CAP: Duration = Duration::from_secs(15);
 
 /// Built-in defaults, applied below every author rule.
 const UA_CSS: &str = "
@@ -78,7 +84,47 @@ option { display: none }
 option:first-child { display: inline }
 ";
 
-type Script = (String, String, Option<std::path::PathBuf>);
+/// A script of the page, waiting for its turn.
+struct Script {
+    node: NodeId,
+    /// `src` as written, empty for code in the page.
+    src: String,
+    /// The code of a script in the page.
+    code: String,
+    module: bool,
+}
+
+fn has_attr(dom: &Dom, n: NodeId, name: &str) -> bool {
+    dom.atoms.get(name).is_some_and(|a| dom.attr(n, a).is_some())
+}
+
+/// The page's scripts in the order a browser runs them: those that block the
+/// parser in document order, then deferred, async and module scripts, which run
+/// after the document is parsed. `nomodule` scripts are for browsers without modules.
+fn scripts_of(dom: &Dom) -> Vec<Script> {
+    let (mut now, mut later) = (Vec::new(), Vec::new());
+    let mut n = 0;
+    while n != NONE {
+        if dom.nodes[n as usize].tag == atom::SCRIPT {
+            let ty = dom.attr(n, atom::TYPE).unwrap_or("").trim().to_ascii_lowercase();
+            let module = ty == "module";
+            let classic = ty.is_empty() || ty.contains("javascript");
+            if module || (classic && !has_attr(dom, n, "nomodule")) {
+                let src = dom.attr(n, atom::SRC);
+                let mut code = String::new();
+                if src.is_none() {
+                    dom.text_content(n, &mut code);
+                }
+                let deferred = module || (src.is_some() && (has_attr(dom, n, "defer") || has_attr(dom, n, "async")));
+                let script = Script { node: n, src: src.unwrap_or("").to_string(), code, module };
+                if deferred { later.push(script) } else { now.push(script) }
+            }
+        }
+        n = dom.next_in(n, 0);
+    }
+    now.extend(later);
+    now
+}
 
 /// The stylesheet references in a document, then its image and (when asked)
 /// script references, so they can be downloaded together before the page is built.
@@ -106,14 +152,22 @@ fn resource_srcs(html: &str, scripts: bool) -> (Vec<String>, Vec<String>) {
 }
 
 /// The page's style sheet: built-in defaults, then every `<style>` and linked
-/// stylesheet in document order. With `wait` a linked one is downloaded first;
-/// without, one still downloading is left out. Returns the sheet, whether its CSS
-/// uses viewport units, and the stylesheets left out.
-fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bool) -> (Sheet, bool, Vec<String>) {
+/// stylesheet in the document, in document order. With `wait` a linked one is
+/// downloaded first; without, one still downloading is left out. Returns the
+/// sheet, whether its CSS uses viewport units, and the stylesheets left out.
+fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bool, adopted: &str) -> (Sheet, bool, Vec<String>) {
     let mut sheet = Sheet::default();
     sheet.add(UA_CSS, &mut dom.atoms, 0, "");
     let (mut viewport_units, mut left_out) = (false, Vec::new());
-    for n in 0..dom.nodes.len() as NodeId {
+    let mut owners = Vec::new();
+    let mut n = 0;
+    while n != NONE {
+        if dom.kind_of(n) == HAS_SHEET {
+            owners.push(n);
+        }
+        n = dom.next_in(n, 0);
+    }
+    for n in owners {
         match dom.nodes[n as usize].tag {
             atom::STYLE => {
                 let mut css = String::new();
@@ -145,6 +199,8 @@ fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bo
             _ => {}
         }
     }
+    sheet.add(adopted, &mut dom.atoms, 1, "");
+    crate::shadow::add_scoped_sheets(dom, &mut sheet);
     sheet.finish();
     (sheet, viewport_units, left_out)
 }
@@ -170,13 +226,23 @@ pub struct Page {
     vw: f32,
     vh: f32,
     hover: NodeId,
-    /// Present once the page has run a script.
+    /// Present for a page with scripts, except while it is lent to them.
     js: Option<Js>,
+    /// The page has scripts, which read the boxes of the layout.
+    scripted: bool,
     rects: FxMap<u32, [f32; 4]>,
     scroll: f32,
     dirty: bool,
-    /// Scripts still to run, in document order: `(name, code, module path)`.
-    deferred: Vec<Script>,
+    /// A script changed a `<style>` or stylesheet `<link>`.
+    sheet_dirty: bool,
+    /// The viewport scripts see, until a frame of another size is laid out.
+    script_size: (f32, f32),
+    /// Scripts still to run, in the order they run.
+    pending: Vec<Script>,
+    /// The page's address: its URL, or the `file:` URL of a local page.
+    url: Url,
+    /// CSS of the sheets the document adopted.
+    adopted: String,
     /// Set for a page opened from the web: its URL and downloaded resources.
     site: Option<Arc<Site>>,
     /// Keep every element's box in the layout. Set before the first `update`.
@@ -197,72 +263,46 @@ pub struct Page {
     base: Option<PathBuf>,
 }
 
+/// The address of a page from the web, as scripts see it.
+fn web_url(site: &Site) -> Url {
+    Url::parse(&site.url.to_string(), None).unwrap_or_default()
+}
+
 /// Moves a sheet's `@font-face` rules out, to be shared with the font matcher.
 fn take_faces(sheet: &mut Sheet) -> Rc<[FontFace]> {
     Rc::from(std::mem::take(&mut sheet.fonts))
 }
 
 impl Page {
-    /// Parses HTML and every stylesheet it references. `base` is the
-    /// directory that relative `<link href>` paths resolve against.
+    /// Parses HTML and every stylesheet it references, and runs its scripts.
+    /// `base` is the directory that relative paths resolve against.
     pub fn from_html(html: &str, base: Option<&Path>) -> Page {
-        Page::parse(html, base, false, None, true)
+        let url = base.map_or_else(|| Url::parse("about:blank", None).unwrap_or_default(), |b| Url::from_path(&b.join("index.html")));
+        let mut page = Page::parse(html, url, base, false, None, true);
+        page.run_pending(&mut Fonts::new(), 1024.0, 768.0);
+        page
     }
 
-    /// With `defer`, every script is kept for `run_deferred`, so the time to the
-    /// first frame does not depend on how much script a page carries. The scripts
-    /// still run in document order.
+    /// Scripts are kept for `run_scripts` or, one at a time, for `run_deferred`,
+    /// so the time to the first frame does not depend on how much script a page
+    /// carries. A page shown in the window (`defer`) rolls its own dice; one-shot
+    /// output is repeatable.
     ///
     /// With `site`, stylesheets, scripts and images are downloaded from the web.
     ///
     /// Without `wait` (for a page from the web), nothing waits for a download: a
     /// stylesheet or image that has not arrived is left out until it does.
-    fn parse(html: &str, base: Option<&Path>, defer: bool, site: Option<Arc<Site>>, wait: bool) -> Page {
+    fn parse(html: &str, url: Url, base: Option<&Path>, defer: bool, site: Option<Arc<Site>>, wait: bool) -> Page {
         let mut dom = parse_html(html);
         let arrivals = site.as_ref().map_or(0, |s| s.arrivals());
-        let (mut sheet, css_units, css_left_out) = style_sheet(&mut dom, base, site.as_deref(), wait);
+        let (mut sheet, css_units, css_left_out) = style_sheet(&mut dom, base, site.as_deref(), wait, "");
         let web_faces = take_faces(&mut sheet);
         let viewport_units = css_units || html.contains("vw") || html.contains("vh");
         let mut title = String::new();
-        let mut scripts: Vec<Script> = Vec::new();
-        for n in 0..dom.nodes.len() as NodeId {
-            match dom.nodes[n as usize].tag {
-                atom::SCRIPT => {
-                    let ty = dom.attr(n, atom::TYPE).unwrap_or("");
-                    if !(ty.is_empty() || ty.contains("javascript") || ty == "module") {
-                        continue;
-                    }
-                    let module = ty == "module";
-                    match dom.attr(n, atom::SRC) {
-                        Some(src) => {
-                            if site.is_some() && defer {
-                                // Downloaded when it is about to run. An empty path marks a module.
-                                scripts.push((src.to_string(), String::new(), module.then(std::path::PathBuf::new)));
-                                continue;
-                            }
-                            let file = match &site {
-                                Some(site) => site.file(src),
-                                None => base.map(|b| b.join(src)),
-                            };
-                            let code = file.as_ref().and_then(|f| std::fs::read(f).ok());
-                            let module = file.filter(|_| module).and_then(|f| std::fs::canonicalize(f).ok());
-                            match code {
-                                Some(c) => scripts.push((src.to_string(), String::from_utf8_lossy(&c).into_owned(), module)),
-                                None => eprintln!("[js] cannot read script {src}"),
-                            }
-                        }
-                        None => {
-                            let mut code = String::new();
-                            dom.text_content(n, &mut code);
-                            let _ = module;
-                            scripts.push(("inline script".to_string(), code, None));
-                        }
-                    }
-                }
-                atom::TITLE if title.is_empty() => dom.text_content(n, &mut title),
-                _ => {}
-            }
+        if let Some(t) = (0..dom.nodes.len() as NodeId).find(|&n| dom.nodes[n as usize].tag == atom::TITLE) {
+            dom.text_content(t, &mut title);
         }
+        let scripts = scripts_of(&dom);
         let mut page = Page {
             dom,
             sheet,
@@ -276,10 +316,15 @@ impl Page {
             vh: -1.0,
             hover: NONE,
             js: None,
+            scripted: !scripts.is_empty(),
             rects: FxMap::default(),
             scroll: 0.0,
             dirty: false,
-            deferred: Vec::new(),
+            sheet_dirty: false,
+            script_size: (1024.0, 768.0),
+            pending: Vec::new(),
+            url,
+            adopted: String::new(),
             site: site.clone(),
             record_boxes: false,
             css_left_out,
@@ -292,45 +337,91 @@ impl Page {
         };
         if let Some(site) = site {
             if defer {
-                let later = scripts.iter().filter(|s| s.1.is_empty() && s.0 != "inline script").map(|s| s.0.clone());
+                let later = scripts.iter().filter(|s| !s.src.is_empty()).map(|s| s.src.clone());
                 site.prefetch_later(later.collect());
             }
             page.images.fetch_from(site, wait);
         }
         if !scripts.is_empty() {
-            let js = Js::new(base, page.site.clone());
-            // Only the window defers: there a page may roll its dice. One-shot output is repeatable.
+            let js = Js::new(&page.url, page.site.clone());
             page.js = Some(if defer { js } else { js.repeatable() });
-            if defer {
-                page.deferred = scripts;
-            } else {
-                page.run_scripts(&scripts, true);
-            }
+            page.pending = scripts;
         }
         page
     }
 
-    /// Runs scripts in order; `last` also fires the load event.
-    fn run_scripts(&mut self, scripts: &[Script], last: bool) {
-        let site = self.site.clone();
-        self.with_js(|js| {
-            for (name, code, module) in scripts {
-                let fetched;
-                let (code, module) = match &site {
-                    Some(site) if code.is_empty() && name != "inline script" => {
-                        let Some(file) = site.file(name) else {
-                            eprintln!("[js] cannot read script {name}");
-                            continue;
-                        };
-                        let text = String::from_utf8_lossy(&std::fs::read(&file).unwrap_or_default()).into_owned();
-                        fetched = (text, module.as_ref().and_then(|_| std::fs::canonicalize(&file).ok()));
-                        (&fetched.0, &fetched.1)
-                    }
-                    _ => (code, module),
-                };
-                match module {
-                    Some(path) => js.eval_module(code, name, path),
-                    None => drop(js.eval(code, name)),
+    /// A page with nothing in it, standing in for one that is lent to its scripts.
+    fn placeholder() -> Page {
+        Page {
+            dom: Dom::empty(),
+            sheet: Sheet::default(),
+            styles: Vec::new(),
+            layout: Layout::default(),
+            images: Images::default(),
+            title: String::new(),
+            viewport_units: false,
+            media_sig: 0,
+            vw: -1.0,
+            vh: -1.0,
+            hover: NONE,
+            js: None,
+            scripted: false,
+            rects: FxMap::default(),
+            scroll: 0.0,
+            dirty: false,
+            sheet_dirty: false,
+            script_size: (0.0, 0.0),
+            pending: Vec::new(),
+            url: Url::default(),
+            adopted: String::new(),
+            site: None,
+            record_boxes: false,
+            css_left_out: Vec::new(),
+            arrivals: 0,
+            stale: false,
+            web_faces: Rc::from([]),
+            fonts_pending: Vec::new(),
+            wait: false,
+            base: None,
+        }
+    }
+
+    /// The code of an external classic script, read from disk or the web.
+    fn script_code(&self, src: &str) -> Option<(String, String)> {
+        let url = Url::parse(src, Some(&self.url))?;
+        let file = match &self.site {
+            Some(site) => site.file(src),
+            None => url.to_path(),
+        };
+        let code = std::fs::read(file?).ok()?;
+        Some((String::from_utf8_lossy(&code).into_owned(), url.href()))
+    }
+
+    /// Runs the first `count` waiting scripts in order; with `last` the load event follows.
+    fn run_scripts(&mut self, fonts: &mut Fonts, count: usize, last: bool) {
+        let scripts: Vec<Script> = self.pending.drain(..count.min(self.pending.len())).collect();
+        let page_url = self.url.href();
+        let mut runs = Vec::with_capacity(scripts.len());
+        for s in scripts {
+            match (s.module, s.src.is_empty()) {
+                (true, true) => runs.push((s.node, "inline script".to_string(), Some(s.code), page_url.clone(), true)),
+                (true, false) => match Url::parse(&s.src, Some(&self.url)) {
+                    Some(url) => runs.push((s.node, s.src, None, url.href(), true)),
+                    None => eprintln!("[js] cannot read script {}", s.src),
+                },
+                (false, true) => runs.push((s.node, "inline script".to_string(), Some(s.code), page_url.clone(), false)),
+                (false, false) => match self.script_code(&s.src) {
+                    Some((code, url)) => runs.push((s.node, s.src, Some(code), url, false)),
+                    None => eprintln!("[js] cannot read script {}", s.src),
+                },
+            }
+        }
+        self.with_js(fonts, |js| {
+            for (node, name, code, url, module) in runs {
+                if module {
+                    js.run_module(code.as_deref(), &name, &url);
+                } else {
+                    js.run_script(node, code.as_deref().unwrap_or(""), &name, &url);
                 }
             }
             if last {
@@ -339,35 +430,98 @@ impl Page {
         });
     }
 
+    /// Runs every script still waiting, then fires the load event, scripts seeing
+    /// a viewport of `vw` by `vh`.
+    pub fn run_pending(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
+        if self.vw < 0.0 {
+            self.script_size = (vw, vh);
+        }
+        if !self.pending.is_empty() {
+            self.run_scripts(fonts, self.pending.len(), true);
+        }
+    }
+
     /// Runs the next script `load_deferred` held back; the last one also fires the
     /// load event. Returns how many are left, or `None` when there was nothing to run.
-    pub fn run_deferred(&mut self) -> Option<usize> {
-        if self.deferred.is_empty() {
+    pub fn run_deferred(&mut self, fonts: &mut Fonts) -> Option<usize> {
+        if self.pending.is_empty() {
             return None;
         }
-        let script = self.deferred.remove(0);
-        let left = self.deferred.len();
-        self.run_scripts(std::slice::from_ref(&script), left == 0);
+        let left = self.pending.len() - 1;
+        self.run_scripts(fonts, 1, left == 0);
         Some(left)
     }
 
-    /// Runs `f` with the DOM lent to the script engine. A script that
-    /// changes the document invalidates style and layout.
-    fn with_js<R>(&mut self, f: impl FnOnce(&mut Js) -> R) -> Option<R> {
+    /// Runs `f` with the page lent to the script engine, together with the
+    /// fonts a layout that scripts ask for needs.
+    fn with_js<R>(&mut self, fonts: &mut Fonts, f: impl FnOnce(&mut Js) -> R) -> Option<R> {
         let mut js = self.js.take()?;
-        let dom = std::mem::replace(&mut self.dom, Dom::new(0));
-        let view = if self.vw < 0.0 { [1024.0, 768.0, 0.0] } else { [self.vw, self.vh, self.scroll] };
-        js.enter(Host { dom, dirty: false, rects: std::mem::take(&mut self.rects), view });
+        let page = std::mem::replace(self, Page::placeholder());
+        js.enter(Host { page, fonts: std::mem::take(fonts) });
         let r = f(&mut js);
         let host = js.leave();
-        self.dom = host.dom;
-        self.rects = host.rects;
-        if host.dirty {
-            self.styles.clear();
-            self.dirty = true;
-        }
+        *self = host.page;
+        *fonts = host.fonts;
         self.js = Some(js);
         Some(r)
+    }
+
+    /// Notes a change to the document, which style and layout must catch up with.
+    fn touch(&mut self) {
+        self.styles.clear();
+        self.dirty = true;
+    }
+
+    fn in_style(&self, n: NodeId) -> bool {
+        let tag = |n: NodeId| self.dom.nodes[n as usize].tag;
+        let parent = self.dom.nodes[n as usize].parent;
+        tag(n) == atom::STYLE || (parent != NONE && tag(parent) == atom::STYLE)
+    }
+
+    pub(crate) fn attr_changed(&mut self, n: NodeId) {
+        self.touch();
+        self.sheet_dirty |= matches!(self.dom.nodes[n as usize].tag, atom::LINK | atom::STYLE);
+    }
+
+    pub(crate) fn text_changed(&mut self, n: NodeId) {
+        self.touch();
+        self.sheet_dirty |= self.in_style(n);
+    }
+
+    /// Notes that `n` is about to leave its parent, or has just been inserted.
+    /// Returns the kinds of node (`dom::HAS_*`) that this takes out of or brings
+    /// into the document.
+    pub(crate) fn moved(&mut self, n: NodeId) -> u32 {
+        self.touch();
+        self.sheet_dirty |= self.in_style(n);
+        if !self.dom.connected(n) {
+            return 0;
+        }
+        let kinds = self.dom.kinds_in(n);
+        self.sheet_dirty |= kinds & HAS_SHEET != 0;
+        kinds
+    }
+
+    pub(crate) fn adopt(&mut self, css: String) {
+        self.adopted = css;
+        self.sheet_dirty = true;
+        self.touch();
+    }
+
+    /// A node's border box `[x, y, w, h]` from a layout brought up to date first.
+    pub(crate) fn fresh_rect(&mut self, fonts: &mut Fonts, n: NodeId) -> [f32; 4] {
+        let (vw, vh) = if self.vw < 0.0 { self.script_size } else { (self.vw, self.vh) };
+        self.update(fonts, vw, vh);
+        self.rects.get(&n).copied().unwrap_or([0.0; 4])
+    }
+
+    /// Viewport width, height and scroll offset in CSS pixels, as scripts see them.
+    pub(crate) fn script_view(&self) -> [f32; 3] {
+        if self.vw < 0.0 {
+            [self.script_size.0, self.script_size.1, 0.0]
+        } else {
+            [self.vw, self.vh, self.scroll]
+        }
     }
 
     /// Border box `[x, y, w, h]` and computed style of the first element
@@ -395,36 +549,47 @@ impl Page {
     }
 
     /// Sends a click to the page's scripts; true when they cancelled it.
-    pub fn click(&mut self, node: NodeId) -> bool {
-        node != NONE && self.with_js(|js| js.dispatch(node, "click")).unwrap_or(false)
+    pub fn click(&mut self, fonts: &mut Fonts, node: NodeId) -> bool {
+        node != NONE && self.with_js(fonts, |js| js.dispatch(node, "click")).unwrap_or(false)
     }
 
     /// Runs due script timers; returns milliseconds until the next one.
-    pub fn tick(&mut self) -> Option<f64> {
-        if !self.deferred.is_empty() {
+    pub fn tick(&mut self, fonts: &mut Fonts) -> Option<f64> {
+        if !self.pending.is_empty() {
             return None;
         }
-        self.with_js(|js| js.timers()).flatten()
+        self.with_js(fonts, |js| js.timers()).flatten()
     }
 
-    /// Lays the page out and lets script timers run for up to `budget` of page
-    /// time, for one-shot output where no event loop keeps the page alive. Nothing
-    /// is painted until the end, so the waits between timers are skipped rather
-    /// than slept: only the time spent working is real.
-    pub fn settle(&mut self, fonts: &mut Fonts, vw: f32, vh: f32, budget: std::time::Duration) {
-        let start = std::time::Instant::now();
-        let mut skipped = std::time::Duration::ZERO;
+    /// Runs the page's scripts, lays it out, and lets its timers run until the
+    /// page has waited `budget` with nothing to do, for one-shot output where no
+    /// event loop keeps the page alive. Nothing is painted until the end, so those
+    /// waits are skipped rather than slept. The time scripts spend working does
+    /// not count, as an app may need seconds of script to start; `SETTLE_CAP` of
+    /// wall-clock time ends a page that never stops. Answers to requests the page
+    /// made take real time and are waited for.
+    pub fn settle(&mut self, fonts: &mut Fonts, vw: f32, vh: f32, budget: Duration) {
+        self.run_pending(fonts, vw, vh);
+        let start = Instant::now();
+        let mut idle = Duration::ZERO;
         loop {
             self.update(fonts, vw, vh);
-            let wait = match self.tick() {
-                Some(ms) => std::time::Duration::from_secs_f64(ms.max(1.0) / 1e3),
-                None => break,
-            };
-            if start.elapsed() + skipped + wait > budget {
+            let next = self.tick(fonts);
+            if start.elapsed() > SETTLE_CAP {
                 break;
             }
-            skipped += wait;
-            self.with_js(|js| js.skip(wait.as_secs_f64() * 1e3));
+            if self.js.as_ref().is_some_and(Js::waiting) {
+                let wait = next.map_or(2.0, |ms| ms.clamp(0.1, 2.0));
+                std::thread::sleep(Duration::from_secs_f64(wait / 1e3));
+                continue;
+            }
+            let Some(ms) = next else { break };
+            let wait = Duration::from_secs_f64(ms.max(1.0) / 1e3);
+            if idle + wait > budget {
+                break;
+            }
+            idle += wait;
+            self.with_js(fonts, |js| js.skip(wait.as_secs_f64() * 1e3));
         }
         self.update(fonts, vw, vh);
     }
@@ -439,18 +604,18 @@ impl Page {
     }
 
     /// Scrolls to `y` and dispatches `scroll`, so scripts see the position.
-    pub fn scroll_to(&mut self, y: f32) {
+    pub fn scroll_to(&mut self, fonts: &mut Fonts, y: f32) {
         self.scroll = y;
-        self.with_js(|js| js.dispatch(0, "scroll"));
+        self.with_js(fonts, |js| js.dispatch(0, "scroll"));
     }
 
-    /// Like `load`, but holds deferred scripts back until `run_deferred`.
+    /// Like `load`, but for the window, which runs the scripts with `run_deferred`.
     pub fn load_deferred(path: &Path) -> std::io::Result<Page> {
         if let Some(page) = Page::from_web(path, true) {
             return page;
         }
         let bytes = std::fs::read(path)?;
-        Ok(Page::parse(&String::from_utf8_lossy(&bytes), path.parent(), true, None, true))
+        Ok(Page::parse(&String::from_utf8_lossy(&bytes), Url::from_path(path), path.parent(), true, None, true))
     }
 
     /// The page behind an `http://` or `https://` location, or `None` for a file path.
@@ -466,7 +631,7 @@ impl Page {
         let (mut srcs, rest) = resource_srcs(&html, !defer);
         srcs.extend(rest);
         site.prefetch(&srcs);
-        Ok(Page::parse(&html, None, defer, Some(site), true))
+        Ok(Page::parse(&html, web_url(&site), None, defer, Some(site), true))
     }
 
     /// Downloads a page's HTML and its linked stylesheets, waiting for those at most
@@ -489,11 +654,15 @@ impl Page {
     /// way: stylesheets and images that arrive later are taken in by `take_arrivals`.
     /// Scripts are held back for `run_deferred`.
     pub fn from_download(download: Download) -> Page {
-        Page::parse(&download.html, None, true, Some(download.site), false)
+        let url = web_url(&download.site);
+        Page::parse(&download.html, url, None, true, Some(download.site), false)
     }
 
     /// Calls `wake` from a downloading thread whenever a resource of this page arrives.
     pub fn on_arrival(&self, wake: Wake) {
+        if let Some(js) = &self.js {
+            js.on_answer(wake.clone());
+        }
         if let Some(site) = &self.site {
             site.on_arrival(wake);
         }
@@ -511,7 +680,7 @@ impl Page {
         self.arrivals = arrivals;
         let mut css = 0;
         if self.css_left_out.iter().any(|href| site.arrived(href)) {
-            let (mut sheet, units, left_out) = style_sheet(&mut self.dom, None, Some(&site), false);
+            let (mut sheet, units, left_out) = style_sheet(&mut self.dom, None, Some(&site), false, &self.adopted);
             css = self.css_left_out.len().saturating_sub(left_out.len());
             self.web_faces = take_faces(&mut sheet);
             self.sheet = sheet;
@@ -574,34 +743,71 @@ impl Page {
         self.site.as_ref().map(|s| &s.url)
     }
 
+    /// Reads or downloads a page for one-shot output. Its scripts wait for
+    /// `run_pending` or `settle`.
     pub fn load(path: &Path) -> std::io::Result<Page> {
         if let Some(page) = Page::from_web(path, false) {
             return page;
         }
         let bytes = std::fs::read(path)?;
-        Ok(Page::from_html(&String::from_utf8_lossy(&bytes), path.parent()))
+        Ok(Page::parse(&String::from_utf8_lossy(&bytes), Url::from_path(path), path.parent(), false, None, true))
     }
 
-    fn restyle(&mut self, vw: f32, vh: f32) {
-        self.styles = compute_styles(&self.dom, &self.sheet, vw, vh, self.hover);
+    /// Builds the style sheet again after scripts changed a `<style>` or `<link>`.
+    fn refresh_sheet(&mut self) {
+        if std::mem::take(&mut self.sheet_dirty) {
+            let (mut sheet, units, left_out) = style_sheet(&mut self.dom, self.base.as_deref(), self.site.as_deref(), self.wait, &self.adopted);
+            self.web_faces = take_faces(&mut sheet);
+            self.sheet = sheet;
+            self.viewport_units |= units;
+            self.css_left_out = left_out;
+        }
+    }
+
+    /// Styles (with `restyle`) and lays out the page, its shadow trees drawn in place.
+    fn style_and_layout(&mut self, fonts: &mut Fonts, vw: f32, vh: f32, restyle: bool) {
+        if restyle {
+            self.refresh_sheet();
+        }
+        let composed = crate::shadow::compose(&mut self.dom);
+        if restyle {
+            self.styles = compute_styles(&self.dom, &self.sheet, vw, vh, self.hover);
+        }
+        self.relayout(fonts, vw, vh);
+        if let Some(c) = composed {
+            crate::shadow::restore(&mut self.dom, c);
+        }
     }
 
     fn relayout(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
         fonts.set_web_faces(&self.web_faces);
         loop {
             let mut old = std::mem::take(&mut self.layout);
-            old.record_boxes = self.record_boxes || self.js.is_some();
+            old.record_boxes = self.record_boxes || self.scripted;
             self.layout = layout(&self.dom, &self.styles, fonts, &mut self.images, vw, vh, old);
             // Text measured with a stand-in face is measured again with the web font.
             if !self.fetch_fonts(fonts) {
                 break;
             }
         }
-        if self.js.is_some() {
+        if self.scripted {
             self.rects.clear();
             for i in self.layout.items.iter().filter(|i| matches!(i.kind, Kind::Box | Kind::Area)) {
                 self.rects.entry(i.node).or_insert([i.x, i.y, i.w, i.h]);
             }
+            // Inline elements draw no box of their own: theirs is the union of their content.
+            let mut inline: FxMap<u32, [f32; 4]> = FxMap::default();
+            for i in self.layout.items.iter().filter(|i| matches!(i.kind, Kind::Text | Kind::Image)) {
+                let mut n = i.node;
+                while n != NONE && n != 0 && !self.rects.contains_key(&n) {
+                    let r = inline.entry(n).or_insert([i.x, i.y, i.w, i.h]);
+                    let (x1, y1) = ((r[0] + r[2]).max(i.x + i.w), (r[1] + r[3]).max(i.y + i.h));
+                    (r[0], r[1]) = (r[0].min(i.x), r[1].min(i.y));
+                    (r[2], r[3]) = (x1 - r[0], y1 - r[1]);
+                    n = self.dom.nodes[n as usize].parent;
+                }
+            }
+            self.rects.extend(inline);
         }
     }
 
@@ -612,11 +818,10 @@ impl Page {
         let sig = self.sheet.media.iter().take(64).enumerate().fold(0u64, |s, (i, m)| s | (m.matches(vw, vh) as u64) << i);
         let restyle = self.styles.is_empty() || sig != self.media_sig || (self.viewport_units && resized);
         if restyle {
-            self.restyle(vw, vh);
             self.media_sig = sig;
         }
         if restyle || resized || std::mem::take(&mut self.stale) {
-            self.relayout(fonts, vw, vh);
+            self.style_and_layout(fonts, vw, vh, restyle);
         }
         self.vw = vw;
         self.vh = vh;
@@ -631,8 +836,7 @@ impl Page {
         if !self.sheet.uses_hover || self.styles.is_empty() {
             return false;
         }
-        self.restyle(self.vw, self.vh);
-        self.relayout(fonts, self.vw, self.vh);
+        self.style_and_layout(fonts, self.vw, self.vh, true);
         true
     }
 
