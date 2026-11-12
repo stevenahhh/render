@@ -9,15 +9,15 @@ use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 /// Most redirects followed for one request.
 const MAX_REDIRECTS: usize = 8;
 /// Largest response body accepted.
 const MAX_BODY: usize = 256 << 20;
-/// Most connections downloading at once.
-const MAX_PARALLEL: usize = 12;
+/// Most requests a page has in flight to one server, as browsers allow.
+const PER_HOST: usize = 6;
 /// Delay before trying the next address of a host while earlier attempts are still
 /// connecting. Short enough that a dead address costs little, long enough that a
 /// healthy first address usually wins alone.
@@ -27,11 +27,7 @@ const MAX_ATTEMPTS: usize = 4;
 /// Most hosts connected to ahead of their first request for one page.
 const MAX_PRECONNECT: usize = 6;
 
-/// Threads fetching the scripts and images the preload scanner finds in a page's
-/// HTML; few, so they leave the bandwidth to its stylesheets.
-const PRELOAD_PARALLEL: usize = 4;
-
-/// How long those wait for the stylesheets found before them, at most.
+/// How long images wait for the stylesheets found before them, at most.
 const STYLESHEETS_FIRST: Duration = Duration::from_millis(1000);
 
 /// The browser this renderer claims to be, in every request's `User-Agent`.
@@ -987,8 +983,10 @@ fn preconnect(tls: Arc<rustls::ClientConfig>, url: Url) {
 struct Found {
     /// Stylesheets: the first frame waits for them, so they are fetched at once.
     first: Vec<String>,
-    /// Scripts, images and fonts: fetched once the stylesheets are in.
+    /// Scripts, fonts and module preloads, fetched at once too.
     then: Vec<String>,
+    /// Images: fetched once the stylesheets found before them are in.
+    images: Vec<String>,
     /// Origins to connect to ahead of their first request.
     connect: Vec<String>,
 }
@@ -1006,7 +1004,8 @@ impl Found {
         for token in rel.split_ascii_whitespace() {
             let list = match token.to_ascii_lowercase().as_str() {
                 "preload" if kind.eq_ignore_ascii_case("style") => &mut self.first,
-                "preload" if ["script", "image", "font"].iter().any(|k| kind.eq_ignore_ascii_case(k)) => &mut self.then,
+                "preload" if ["script", "font"].iter().any(|k| kind.eq_ignore_ascii_case(k)) => &mut self.then,
+                "preload" if kind.eq_ignore_ascii_case("image") => &mut self.images,
                 "modulepreload" => &mut self.then,
                 "preconnect" => &mut self.connect,
                 _ => continue,
@@ -1029,9 +1028,9 @@ impl Found {
             atom::LINK => self.link(attr(atom::REL).unwrap_or(""), attr(atom::HREF).unwrap_or(""), attr(kind).unwrap_or("")),
             atom::SCRIPT => self.then.extend(attr(atom::SRC).map(str::to_string)),
             _ => {
-                self.then.extend(attr(atom::SRC).map(str::to_string));
+                self.images.extend(attr(atom::SRC).map(str::to_string));
                 let first = attr(atom::SRCSET).and_then(|set| set.split(',').next()?.split_ascii_whitespace().next());
-                self.then.extend(first.map(str::to_string));
+                self.images.extend(first.map(str::to_string));
             }
         }
     }
@@ -1140,6 +1139,30 @@ enum Slot {
     Done(Option<PathBuf>),
 }
 
+/// When a queued download may go out.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Priority {
+    /// As soon as its server has a free slot: stylesheets, scripts, fonts, preloads.
+    Now,
+    /// Once the stylesheets found so far are in, or `STYLESHEETS_FIRST` after the
+    /// page opened, so images leave the bandwidth to those: images.
+    AfterStyles,
+}
+
+type Origin = (bool, String, u16);
+
+fn origin(url: &Url) -> Origin {
+    (url.https, url.host.clone(), url.port)
+}
+
+/// Downloads waiting for a free slot on their server, in the order they were found,
+/// and how many requests each server has in flight.
+#[derive(Default)]
+struct Queue {
+    waiting: Vec<(Url, Priority)>,
+    busy: HashMap<Origin, usize>,
+}
+
 /// The downloads of one page, shared by every thread fetching for it. Each resource
 /// is downloaded once: a second request for it waits for the first.
 struct Store {
@@ -1156,6 +1179,12 @@ struct Store {
     wake: Mutex<Option<Wake>>,
     /// The servers connected to ahead of their requests, the page's own first.
     connected: Mutex<HashSet<(bool, String, u16)>>,
+    queue: Mutex<Queue>,
+    /// The stylesheets found in the page, which images wait for until `styles_by`.
+    stylesheets: Mutex<Vec<Url>>,
+    styles_by: Instant,
+    /// Set once a thread waits for `styles_by` to let the images go.
+    timer: AtomicBool,
 }
 
 impl Store {
@@ -1165,7 +1194,20 @@ impl Store {
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let connected = Mutex::new(HashSet::from([(page.https, page.host.clone(), page.port)]));
         let page = page.to_string().into();
-        let store = Store { dir, tls, page, slots: Mutex::new(HashMap::new()), done: Condvar::new(), finished: AtomicUsize::new(0), wake: Mutex::new(None), connected };
+        let store = Store {
+            dir,
+            tls,
+            page,
+            slots: Mutex::new(HashMap::new()),
+            done: Condvar::new(),
+            finished: AtomicUsize::new(0),
+            wake: Mutex::new(None),
+            connected,
+            queue: Mutex::default(),
+            stylesheets: Mutex::default(),
+            styles_by: Instant::now() + STYLESHEETS_FIRST,
+            timer: AtomicBool::new(false),
+        };
         Ok(Arc::new(store))
     }
 
@@ -1183,30 +1225,69 @@ impl Store {
         }
     }
 
-    /// Starts `PRELOAD_PARALLEL` threads that download the URLs sent on the
-    /// returned channel, none before the stylesheets listed in `css` have arrived
-    /// or `STYLESHEETS_FIRST` has passed. They stop once the channel is closed and empty.
-    fn fetch_after(self: &Arc<Self>, css: &Arc<Mutex<Vec<Url>>>) -> mpsc::Sender<Url> {
-        let (send, receive) = mpsc::channel::<Url>();
-        let receive = Arc::new(Mutex::new(receive));
-        let deadline = Instant::now() + STYLESHEETS_FIRST;
-        for _ in 0..PRELOAD_PARALLEL {
-            let (store, receive, css) = (self.clone(), receive.clone(), css.clone());
+    /// Queues the URLs nobody has started on. Each goes out once its server has
+    /// fewer than `PER_HOST` requests in flight and `priority` allows.
+    fn enqueue(self: &Arc<Self>, urls: impl IntoIterator<Item = Url>, priority: Priority) {
+        let urls = self.claim(urls);
+        if urls.is_empty() {
+            return;
+        }
+        if priority == Priority::AfterStyles && !self.timer.swap(true, Ordering::Relaxed) {
+            let (store, at) = (Arc::downgrade(self), self.styles_by);
             std::thread::spawn(move || {
-                let mut client = store.client();
-                loop {
-                    let next = receive.lock().expect("preload queue").recv();
-                    let Ok(url) = next else { return };
-                    let stylesheets = css.lock().expect("stylesheets").clone();
-                    store.wait(&stylesheets, Some(deadline));
-                    if !store.claim([url.clone()]).is_empty() {
-                        let path = store.download(&mut client, &url);
-                        store.finish(url, path);
-                    }
+                std::thread::sleep(at.saturating_duration_since(Instant::now()));
+                if let Some(store) = store.upgrade() {
+                    store.pump();
                 }
             });
         }
-        send
+        self.queue.lock().expect("download queue").waiting.extend(urls.into_iter().map(|u| (u, priority)));
+        self.pump();
+    }
+
+    /// Starts a download thread for every queued URL that may go out now.
+    fn pump(self: &Arc<Self>) {
+        while let Some(url) = self.next() {
+            let store = self.clone();
+            std::thread::spawn(move || store.work(url));
+        }
+    }
+
+    /// Takes the first queued URL that may go out now, the `Now` ones first, and
+    /// counts it against its server.
+    fn next(&self) -> Option<Url> {
+        let styled = Instant::now() >= self.styles_by || {
+            let stylesheets = self.stylesheets.lock().expect("stylesheets");
+            let slots = self.slots();
+            stylesheets.iter().all(|u| !matches!(slots.get(u), Some(Slot::Busy)))
+        };
+        let mut queue = self.queue.lock().expect("download queue");
+        let Queue { waiting, busy } = &mut *queue;
+        let free = |url: &Url| busy.get(&origin(url)).copied().unwrap_or(0) < PER_HOST;
+        let now = waiting.iter().position(|(u, p)| *p == Priority::Now && free(u));
+        let i = now.or_else(|| waiting.iter().position(|(u, _)| styled && free(u)))?;
+        let (url, _) = waiting.remove(i);
+        *busy.entry(origin(&url)).or_default() += 1;
+        Some(url)
+    }
+
+    /// Downloads `url`, then whatever queued URL may go out next, on one client so
+    /// its connections are reused; starts more threads when several may go.
+    fn work(self: Arc<Self>, mut url: Url) {
+        let mut client = self.client();
+        loop {
+            let path = self.download(&mut client, &url);
+            if let Some(n) = self.queue.lock().expect("download queue").busy.get_mut(&origin(&url)) {
+                *n -= 1;
+            }
+            self.finish(url, path);
+            let Some(next) = self.next() else { break };
+            url = next;
+            self.pump();
+        }
+        // The connections go back to the idle pool before other threads look there.
+        drop(client);
+        self.pump();
     }
 
     /// A client for this page's resources.
@@ -1287,30 +1368,6 @@ impl Store {
         Some(path)
     }
 
-    /// Downloads URLs this caller has claimed, over several connections at once.
-    fn fetch(&self, urls: &[Url]) {
-        let next = AtomicUsize::new(0);
-        std::thread::scope(|scope| {
-            for _ in 0..urls.len().min(MAX_PARALLEL) {
-                scope.spawn(|| {
-                    let mut client = self.client();
-                    while let Some(url) = urls.get(next.fetch_add(1, Ordering::Relaxed)) {
-                        let path = self.download(&mut client, url);
-                        self.finish(url.clone(), path);
-                    }
-                });
-            }
-        });
-    }
-
-    /// Starts downloading the URLs nobody has started on, without waiting.
-    fn fetch_later(self: &Arc<Self>, urls: impl IntoIterator<Item = Url>) {
-        let urls = self.claim(urls);
-        if !urls.is_empty() {
-            let store = self.clone();
-            std::thread::spawn(move || store.fetch(&urls));
-        }
-    }
 }
 
 impl Drop for Store {
@@ -1344,8 +1401,6 @@ impl Site {
         preconnect(tls.clone(), url.clone());
         let mut preload = Preload::default();
         let mut first_byte = None;
-        let stylesheets = Arc::new(Mutex::new(Vec::new()));
-        let later = store.fetch_after(&stylesheets);
         let mut see = |at: &Url, arrival: Arrival| {
             first_byte.get_or_insert_with(|| started.elapsed());
             let found = match arrival {
@@ -1357,19 +1412,15 @@ impl Site {
                 Arrival::Body(piece) => preload.feed(piece),
             };
             let join = |hrefs: Vec<String>| hrefs.iter().filter_map(|href| at.join(href)).collect::<Vec<_>>();
-            let (first, then, connect) = (join(found.first), join(found.then), join(found.connect));
+            let (first, then, images) = (join(found.first), join(found.then), join(found.images));
             if timeline().is_some() {
-                first.iter().for_each(|u| mark(&format!("found stylesheet {u}")));
-                then.iter().for_each(|u| mark(&format!("found {u}")));
+                first.iter().chain(&then).chain(&images).for_each(|u| mark(&format!("found {u}")));
             }
-            stylesheets.lock().expect("stylesheets").extend(first.iter().cloned());
-            store.fetch_later(first);
-            store.connect_ahead(connect.iter().chain(&then));
-            for url in then {
-                // Sending fails only when every preload thread is gone; the page's
-                // own requests then fetch the resource.
-                let _ = later.send(url);
-            }
+            store.stylesheets.lock().expect("stylesheets").extend(first.iter().cloned());
+            store.connect_ahead(join(found.connect).iter().chain(&then).chain(&images));
+            store.enqueue(first, Priority::Now);
+            store.enqueue(then, Priority::Now);
+            store.enqueue(images, Priority::AfterStyles);
         };
         let (url, response) = Client::new(tls).get_watched(&url, Some(&mut see))?;
         let received = started.elapsed();
@@ -1397,6 +1448,8 @@ impl Site {
         }
         let path = self.store.download(&mut self.store.client(), &url);
         self.store.finish(url, path.clone());
+        // Images may have waited for this one.
+        self.store.pump();
         path
     }
 
@@ -1407,7 +1460,7 @@ impl Site {
         let Some(url) = self.url.join(src) else { return Some(None) };
         let ready = self.store.ready(&url);
         if ready.is_none() {
-            self.store.fetch_later([url]);
+            self.store.enqueue([url], Priority::Now);
         }
         ready
     }
@@ -1417,17 +1470,17 @@ impl Site {
         self.url.join(src).is_none_or(|url| self.store.ready(&url).is_some())
     }
 
-    /// Downloads the listed resources over several connections at once.
+    /// Downloads the listed resources, `PER_HOST` at once to each server, and waits for them.
     pub fn prefetch(&self, srcs: &[String]) {
         let urls = self.urls(srcs);
-        self.store.fetch(&self.store.claim(urls.iter().cloned()));
+        self.store.enqueue(urls.iter().cloned(), Priority::Now);
         // Some may have been downloading already, for an earlier request.
         self.store.wait(&urls, None);
     }
 
     /// Like `prefetch`, without waiting for the downloads.
     pub fn prefetch_later(&self, srcs: Vec<String>) {
-        self.store.fetch_later(self.urls(&srcs));
+        self.store.enqueue(self.urls(&srcs), Priority::Now);
     }
 
     /// Waits until the listed resources have downloaded or `deadline` has passed.
@@ -1690,7 +1743,8 @@ mod tests {
         );
         let expected = Found {
             first: vec!["early.css".into()],
-            then: ["f.woff2", "m.js", "/app.js", "a.png", "a1.png", "fallback.jpg", "only.png"].map(String::from).to_vec(),
+            then: ["f.woff2", "m.js", "/app.js"].map(String::from).to_vec(),
+            images: ["a.png", "a1.png", "fallback.jpg", "only.png"].map(String::from).to_vec(),
             connect: vec!["https://cdn.test".into()],
         };
         for size in [1, 7, html.len()] {
@@ -1700,6 +1754,7 @@ mod tests {
                 let more = preload.feed(piece);
                 found.first.extend(more.first);
                 found.then.extend(more.then);
+                found.images.extend(more.images);
                 found.connect.extend(more.connect);
             }
             assert_eq!(found, expected, "pieces of {size}");
@@ -1727,7 +1782,7 @@ mod tests {
         ]);
         let mut found = Found::default();
         seen[..2].iter().for_each(|l| found.header(&l["head ".len()..]));
-        assert_eq!(found, Found { first: vec!["/s.css".into()], then: vec!["/app.js".into()], connect: vec!["https://cdn.test".into()] });
+        assert_eq!(found, Found { first: vec!["/s.css".into()], then: vec!["/app.js".into()], images: Vec::new(), connect: vec!["https://cdn.test".into()] });
     }
 
     #[test]
@@ -1771,6 +1826,52 @@ mod tests {
         assert_eq!(image_asked.recv(), Ok(true));
         let (arrived, all) = site.wait_for(&["i.png".into(), "s.css".into()], std::time::Instant::now() + std::time::Duration::from_secs(10));
         assert_eq!((arrived, all), (2, 2));
+    }
+
+    #[test]
+    fn a_page_keeps_six_requests_in_flight_on_each_server() {
+        use std::sync::{Condvar, Mutex};
+        use std::time::{Duration, Instant};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        // Script requests in flight, the most at once, and how many arrived.
+        let state = Arc::new((Mutex::new((0usize, 0usize, 0usize)), Condvar::new()));
+        let shared = state.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let state = shared.clone();
+                std::thread::spawn(move || {
+                    let mut conn = BufReader::new(stream.unwrap());
+                    loop {
+                        let mut request = String::new();
+                        while conn.read_line(&mut request).unwrap_or(0) > 0 && !request.ends_with("\r\n\r\n") {}
+                        let Some(path) = request.split_whitespace().nth(1).map(str::to_string) else { return };
+                        let body = if path == "/" {
+                            (0..10).map(|i| format!("<script src=s{i}.js></script>")).collect()
+                        } else {
+                            let (lock, changed) = &*state;
+                            let mut s = lock.lock().unwrap();
+                            s.0 += 1;
+                            s.1 = s.1.max(s.0);
+                            s.2 += 1;
+                            changed.notify_all();
+                            // Holds every answer until all scripts were asked for, or for a
+                            // while, so the requests a client sends at once are all in flight.
+                            let mut s = changed.wait_timeout_while(s, Duration::from_millis(1500), |s| s.2 < 10).unwrap().0;
+                            s.0 -= 1;
+                            "x".to_string()
+                        };
+                        let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+                        conn.get_mut().write_all(reply.as_bytes()).unwrap();
+                    }
+                });
+            }
+        });
+        let (site, _) = super::Site::open(&origin).unwrap();
+        let scripts: Vec<String> = (0..10).map(|i| format!("s{i}.js")).collect();
+        site.prefetch(&scripts);
+        assert_eq!(site.wait_for(&scripts, Instant::now()), (10, 10));
+        assert_eq!(state.0.lock().unwrap().1, 6);
     }
 
     #[test]
