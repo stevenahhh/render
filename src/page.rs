@@ -768,15 +768,16 @@ impl Page {
         Some(Page::load_url(location, defer).map_err(std::io::Error::other))
     }
 
-    /// Downloads a page and the stylesheets, scripts and images it names, the
-    /// resources in parallel. With `defer` scripts are fetched in the background.
+    /// Downloads a page and starts downloading the stylesheets, scripts and images
+    /// it names, then parses it while they arrive: each is waited for where the page
+    /// needs it, a stylesheet when styling, a script when it runs, an image when it
+    /// is laid out. With `defer` scripts are fetched in the background.
     pub fn load_url(location: &str, defer: bool) -> Result<Page, String> {
         let (site, html) = Site::open(location)?;
         crate::net::mark("html done");
         let (mut srcs, rest) = resource_srcs(&html, !defer);
         srcs.extend(rest);
-        site.prefetch(&srcs);
-        crate::net::mark("resources done");
+        site.prefetch_later(srcs);
         Ok(Page::parse(&html, web_url(&site), None, defer, Some(site), true))
     }
 
@@ -1153,6 +1154,47 @@ mod tests {
     fn colours(page: &mut Page, root: NodeId, sel: &str) -> Vec<String> {
         let found = query(&mut page.dom, root, sel, false);
         found.into_iter().map(|n| format!("{:06x}", page.styles[n as usize].color.0 & 0xff_ffff)).collect()
+    }
+
+    #[test]
+    fn a_web_page_is_parsed_while_its_images_download() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{mpsc, Arc, Mutex};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://127.0.0.1:{}/", listener.local_addr().unwrap().port());
+        let (release, held) = mpsc::channel::<()>();
+        let held = Arc::new(Mutex::new(held));
+        let answered = Arc::new(AtomicBool::new(false));
+        let flag = answered.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let (held, flag) = (held.clone(), flag.clone());
+                std::thread::spawn(move || {
+                    let mut conn = BufReader::new(stream.unwrap());
+                    loop {
+                        let mut request = String::new();
+                        while conn.read_line(&mut request).unwrap_or(0) > 0 && !request.ends_with("\r\n\r\n") {}
+                        let Some(path) = request.split_whitespace().nth(1).map(str::to_string) else { return };
+                        let body = match path.as_str() {
+                            "/" => "<link rel=stylesheet href=s.css><p>text</p><img src=slow.png>",
+                            "/s.css" => "p{color:red}",
+                            _ => {
+                                held.lock().unwrap().recv_timeout(std::time::Duration::from_secs(5)).ok();
+                                flag.store(true, Ordering::SeqCst);
+                                "png"
+                            }
+                        };
+                        let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+                        conn.get_mut().write_all(reply.as_bytes()).unwrap();
+                    }
+                });
+            }
+        });
+        let page = Page::load_url(&origin, false).unwrap();
+        assert!(!answered.load(Ordering::SeqCst), "the page waited for its image before parsing");
+        assert!(!page.sheet.rules.is_empty());
+        release.send(()).unwrap();
     }
 
     #[test]
