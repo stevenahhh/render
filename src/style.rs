@@ -731,7 +731,7 @@ fn each<'s>(sheet: &'s Sheet, matched: &[(u64, u32)], inl: &'s (Vec<Decl>, Vec<D
 /// Everything a `Deferred` stylesheet declaration's expansion depends on: the
 /// declaration, the custom properties it reads, the `em` size it resolves
 /// against (`font-size` only) and the root font size. The viewport is fixed
-/// for one `compute_styles` call.
+/// for one pass.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct DeferredKey {
     decl: usize,
@@ -740,47 +740,79 @@ struct DeferredKey {
     root_fs: u32,
 }
 
-/// Computes a style for every node. Nodes are stored in document order, so a
-/// single forward pass always sees the parent's style first.
-pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId) -> Vec<Style> {
-    let n = dom.nodes.len();
-    let mut styles = vec![Style::initial(); n];
-    let media_ok: Vec<bool> = sheet.media.iter().map(|m| m.matches(vw, vh)).collect();
+/// The hovered element and its ancestors: the elements `:hover` matches.
+fn hover_chain(dom: &Dom, hover: NodeId) -> Vec<NodeId> {
     let mut chain = Vec::new();
     let mut h = hover;
     while h != NONE && h != 0 {
         chain.push(h);
         h = dom.nodes[h as usize].parent;
     }
-    let mut m = Matcher { dom, hover: &chain, idx: Vec::new() };
-    let mut matched: Vec<(u64, u32)> = Vec::new();
-    let mut expanded: Vec<Decl> = Vec::new();
-    // Every `Vars` map stays alive in `styles` until this call returns, so its
-    // address identifies its contents for the whole pass.
-    let mut deferred: FxMap<DeferredKey, Vec<Decl>> = FxMap::default();
-    // Custom-property maps by (inherited map, custom-property declarations added).
-    let mut own_vars: FxMap<(usize, Vec<usize>), Rc<Vars>> = FxMap::default();
-    let mut var_decls: Vec<usize> = Vec::new();
-    let mut ctx = Ctx { root_fs: 16.0, vw, vh };
-    let no_inline = (Vec::new(), Vec::new(), false);
-    let mut bloom = [0u8; 4096];
-    let mut ancestors: Vec<NodeId> = Vec::new();
+    chain
+}
 
-    let mut i = dom.nodes[0].first_child;
-    while i != NONE {
-        let node = &dom.nodes[i as usize];
-        if node.tag == atom::TEXT {
-            i = dfs_next(dom, i, 0, false);
-            continue;
+/// One styling pass: the matcher, the ancestor filter, and the caches that let
+/// elements share work. Elements are styled in document order, each after its parent.
+struct Styler<'a> {
+    dom: &'a Dom,
+    sheet: &'a Sheet,
+    media_ok: Vec<bool>,
+    m: Matcher<'a>,
+    matched: Vec<(u64, u32)>,
+    expanded: Vec<Decl>,
+    /// Expansions of `Deferred` declarations. A `Vars` map in a key is held by a
+    /// style that stays in place until the pass ends, so its address identifies
+    /// its contents for the whole pass.
+    deferred: FxMap<DeferredKey, Vec<Decl>>,
+    /// Custom-property maps by (inherited map, custom-property declarations added).
+    own_vars: FxMap<(usize, Vec<usize>), Rc<Vars>>,
+    var_decls: Vec<usize>,
+    ctx: Ctx,
+    bloom: [u8; 4096],
+    ancestors: Vec<NodeId>,
+}
+
+impl<'a> Styler<'a> {
+    fn new(dom: &'a Dom, sheet: &'a Sheet, vw: f32, vh: f32, hover: &'a [NodeId]) -> Styler<'a> {
+        Styler {
+            dom,
+            sheet,
+            media_ok: sheet.media.iter().map(|m| m.matches(vw, vh)).collect(),
+            m: Matcher { dom, hover, idx: Vec::new() },
+            matched: Vec::new(),
+            expanded: Vec::new(),
+            deferred: FxMap::default(),
+            own_vars: FxMap::default(),
+            var_decls: Vec::new(),
+            ctx: Ctx { root_fs: 16.0, vw, vh },
+            bloom: [0u8; 4096],
+            ancestors: Vec::new(),
         }
-        while let Some(&top) = ancestors.last() {
-            if top == node.parent {
+    }
+
+    /// Forgets the ancestors of the element styled last that are not ancestors
+    /// of the next one, a child of `parent`.
+    fn enter(&mut self, parent: NodeId) {
+        while let Some(&top) = self.ancestors.last() {
+            if top == parent {
                 break;
             }
-            ancestors.pop();
-            bloom_update(&mut bloom, dom, top, false);
+            self.ancestors.pop();
+            bloom_update(&mut self.bloom, self.dom, top, false);
         }
-        let parent = &styles[node.parent as usize];
+    }
+
+    /// Makes element `i` an ancestor of the elements styled next.
+    fn push(&mut self, i: NodeId) {
+        self.ancestors.push(i);
+        bloom_update(&mut self.bloom, self.dom, i, true);
+    }
+
+    /// The computed style of element `i`, whose parent's style is `parent`.
+    fn style(&mut self, i: NodeId, parent: &Style) -> Style {
+        let Styler { dom, sheet, media_ok, m, matched, expanded, deferred, own_vars, var_decls, ctx, bloom, .. } = self;
+        let (dom, sheet, ctx) = (*dom, *sheet, &*ctx);
+        let node = &dom.nodes[i as usize];
         let mut st = Style::inherit(parent);
 
         matched.clear();
@@ -800,15 +832,17 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
             }
         };
         if node.id != 0 {
-            test(sheet.by_id.get(&node.id), &mut m);
+            test(sheet.by_id.get(&node.id), m);
         }
         for cl in dom.classes_of(i) {
-            test(sheet.by_class.get(cl), &mut m);
+            test(sheet.by_class.get(cl), m);
         }
-        test(sheet.by_tag.get(&node.tag), &mut m);
-        test(Some(&sheet.universal), &mut m);
+        test(sheet.by_tag.get(&node.tag), m);
+        test(Some(&sheet.universal), m);
         matched.sort_unstable();
+        let matched = &matched[..];
 
+        let no_inline = (Vec::new(), Vec::new(), false);
         let inline;
         let inl = match dom.attr(i, atom::STYLE) {
             Some(s) if !s.is_empty() => {
@@ -821,7 +855,7 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
         if inl.2 || matched.iter().any(|&(_, r)| sheet.rules[r as usize].dynamic) {
             var_decls.clear();
             let mut inline_var = false;
-            each(sheet, &matched, inl, |d| {
+            each(sheet, matched, inl, |d| {
                 if let Decl::Var(..) = d {
                     let ptr = d as *const Decl;
                     inline_var |= inl.0.as_ptr_range().contains(&ptr) || inl.1.as_ptr_range().contains(&ptr);
@@ -831,7 +865,7 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
             if !var_decls.is_empty() {
                 let build = || {
                     let mut own = st.vars.as_deref().cloned().unwrap_or_default();
-                    each(sheet, &matched, inl, |d| {
+                    each(sheet, matched, inl, |d| {
                         if let Decl::Var(k, v) = d {
                             own.insert(k.clone(), v.clone());
                         }
@@ -849,13 +883,13 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
             }
             expanded.clear();
             let vars = st.vars.as_deref();
-            each(sheet, &matched, inl, |d| match d {
+            each(sheet, matched, inl, |d| match d {
                 Decl::Var(..) => {}
                 Decl::Deferred(name, v) => {
                     let em = (&**name == "font-size").then_some(parent.font_size);
                     let expand = |out: &mut Vec<Decl>| {
                         if let Some(sv) = subst(v, vars, 0) {
-                            let sv = crate::css::absolute_lengths(&sv, |u| unit_px(u, em, &ctx)).unwrap_or(sv);
+                            let sv = crate::css::absolute_lengths(&sv, |u| unit_px(u, em, ctx)).unwrap_or(sv);
                             parse_decl(name, &sv, out);
                         }
                     };
@@ -863,7 +897,7 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
                     // stylesheet declarations have an address that stays unique.
                     let ptr = d as *const Decl;
                     if inl.0.as_ptr_range().contains(&ptr) || inl.1.as_ptr_range().contains(&ptr) {
-                        expand(&mut expanded);
+                        expand(expanded);
                     } else {
                         let key = DeferredKey {
                             decl: ptr as usize,
@@ -881,21 +915,21 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
                 }
                 d => expanded.push(d.clone()),
             });
-            for d in &expanded {
+            for d in expanded.iter() {
                 if let Decl::FontSize(fs) = d {
-                    apply_font_size(&mut st, parent, *fs, &ctx);
+                    apply_font_size(&mut st, parent, *fs, ctx);
                 }
             }
-            for d in &expanded {
-                apply(&mut st, parent, d, &ctx);
+            for d in expanded.iter() {
+                apply(&mut st, parent, d, ctx);
             }
         } else {
-            each(sheet, &matched, inl, |d| {
+            each(sheet, matched, inl, |d| {
                 if let Decl::FontSize(fs) = d {
-                    apply_font_size(&mut st, parent, *fs, &ctx);
+                    apply_font_size(&mut st, parent, *fs, ctx);
                 }
             });
-            each(sheet, &matched, inl, |d| apply(&mut st, parent, d, &ctx));
+            each(sheet, matched, inl, |d| apply(&mut st, parent, d, ctx));
         }
 
         for s in 0..4 {
@@ -962,11 +996,29 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
         if replaced && st.display == Display::Inline {
             st.display = Display::InlineBlock;
         }
-        if node.tag == atom::HTML {
-            ctx.root_fs = st.font_size;
+        st
+    }
+}
+
+/// Computes a style for every node. Nodes are stored in document order, so a
+/// single forward pass always sees the parent's style first.
+pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId) -> Vec<Style> {
+    let mut styles = vec![Style::initial(); dom.nodes.len()];
+    let chain = hover_chain(dom, hover);
+    let mut s = Styler::new(dom, sheet, vw, vh, &chain);
+    let mut i = dom.nodes[0].first_child;
+    while i != NONE {
+        let node = &dom.nodes[i as usize];
+        if node.tag == atom::TEXT {
+            i = dfs_next(dom, i, 0, false);
+            continue;
         }
-        ancestors.push(i);
-        bloom_update(&mut bloom, dom, i, true);
+        s.enter(node.parent);
+        let st = s.style(i, &styles[node.parent as usize]);
+        if node.tag == atom::HTML {
+            s.ctx.root_fs = st.font_size;
+        }
+        s.push(i);
         let descend = st.display != Display::None && node.tag != atom::SVG;
         styles[i as usize] = st;
         i = dfs_next(dom, i, 0, descend);
