@@ -13,6 +13,9 @@ use crate::FxMap;
 use crate::style::Style;
 use std::rc::Rc;
 
+mod float;
+use float::FloatBox;
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Kind {
     Box,
@@ -218,6 +221,12 @@ fn is_abs(s: &Style) -> bool {
     matches!(s.position, Position::Absolute | Position::Fixed)
 }
 
+/// True for a box in normal flow that establishes a block formatting context of
+/// its own, which holds its floats and keeps clear of those outside.
+fn bfc_root(s: &Style) -> bool {
+    s.overflow_hidden || s.flow_root || matches!(s.display, Display::Flex | Display::InlineFlex)
+}
+
 /// Line box extent above and below the baseline, with half-leading applied.
 fn line_extent(s: &Style, asc: f32, desc: f32, gap: f32) -> (f32, f32) {
     let size = s.font_size;
@@ -337,6 +346,13 @@ struct Inl {
     brk: bool,
     frags: Vec<LFrag>,
     open: Vec<Open>,
+    /// Where the current line starts and how far it may reach, from `cx`: floats
+    /// beside it shorten it.
+    lx: f32,
+    right: f32,
+    /// Floats met on the current line that did not fit beside its content; they
+    /// are placed below it.
+    queued: Vec<NodeId>,
 }
 
 #[derive(Clone, Copy)]
@@ -381,6 +397,7 @@ struct Snapshot {
     text: usize,
     abs: usize,
     zranges: usize,
+    floats: usize,
     next_ord: u32,
     last_bl: f32,
 }
@@ -424,6 +441,10 @@ struct Engine<'a> {
     pool: Vec<Inl>,
     last_bl: f32,
     next_ord: u32,
+    /// Floats placed so far, in the block formatting contexts being laid out.
+    floats: Vec<FloatBox>,
+    /// Where the floats of the innermost block formatting context start in `floats`.
+    bfc: usize,
 }
 
 pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, vw: f32, vh: f32, mut reuse: Layout) -> Layout {
@@ -449,6 +470,8 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
         pool: Vec::new(),
         last_bl: NAN,
         next_ord: 1,
+        floats: Vec::new(),
+        bfc: 0,
     };
     let (h, _) = e.layout_children(0, 0.0, vw, 0.0, vh, false, false);
     e.layout_abs_children(0, 0.0, 0.0, vw, h.max(vh));
@@ -597,7 +620,7 @@ impl<'a> Engine<'a> {
                 let cs = &self.st[c as usize];
                 match cs.display {
                     Display::None => {}
-                    _ if is_abs(cs) => {}
+                    _ if is_abs(cs) || cs.float != 0 => {}
                     Display::Block | Display::ListItem | Display::Flex => return collapse(m, self.collapsed_top(c)),
                     _ => break,
                 }
@@ -632,6 +655,11 @@ impl<'a> Engine<'a> {
                     c = node.next;
                     continue;
                 }
+                if cs.float != 0 {
+                    self.place_float(c, cx, cw, cur + pend, ch);
+                    c = node.next;
+                    continue;
+                }
                 matches!(cs.display, Display::Inline | Display::InlineBlock | Display::InlineFlex)
             };
             if inline {
@@ -643,6 +671,8 @@ impl<'a> Engine<'a> {
                     } else {
                         match st[e as usize].display {
                             Display::None => {}
+                            // A float in a run of inline content is placed with its lines.
+                            _ if st[e as usize].float != 0 => blank = false,
                             Display::Inline | Display::InlineBlock | Display::InlineFlex => blank = false,
                             _ => break,
                         }
@@ -659,7 +689,12 @@ impl<'a> Engine<'a> {
                 continue;
             }
             let mt = self.collapsed_top(c);
-            let gap = if first && top_coll { 0.0 } else { collapse(pend, mt) };
+            let mut gap = if first && top_coll { 0.0 } else { collapse(pend, mt) };
+            let clear = st[c as usize].clear;
+            if clear != 0 && self.floats.len() > self.bfc {
+                // Clearance puts the box's top below the floats it clears.
+                gap = gap.max(self.clear_y(clear) - cur);
+            }
             if st[c as usize].display == Display::ListItem {
                 self.next_ord = ord;
                 ord += 1;
@@ -680,6 +715,9 @@ impl<'a> Engine<'a> {
     fn block_in_flow(&mut self, n: NodeId, cx: f32, cw: f32, y: f32, ch: f32) -> Res {
         let st = self.st;
         let s = &st[n as usize];
+        if self.floats.len() > self.bfc && (bfc_root(s) || self.dom.shows_image(n)) {
+            return self.beside_floats(n, cx, cw, y, ch);
+        }
         let sd = sides(s, cw);
         let (w, fixed) = match spec_w(s, cw, &sd) {
             Some(w) => (w, true),
@@ -752,7 +790,8 @@ impl<'a> Engine<'a> {
 
         let saved_bl = self.last_bl;
         self.last_bl = NAN;
-        let (content_h, mb_out) = if tag == atom::INPUT || self.dom.shows_image(n) {
+        let outer_bfc = (bfc || bfc_root(s)).then(|| self.enter_bfc());
+        let (mut content_h, mb_out) = if tag == atom::INPUT || self.dom.shows_image(n) {
             (self.replaced(n, s, cx, cy, cw, inner_h, tag), 0.0)
         } else if matches!(s.display, Display::Flex | Display::InlineFlex) {
             let inner_min = if min_h.is_nan() { NAN } else { (min_h - vextra).max(0.0) };
@@ -763,6 +802,10 @@ impl<'a> Engine<'a> {
             let bottom = open && sd.pb == 0.0 && bb == 0.0 && spec_h.is_nan() && min_h.is_nan();
             self.layout_children(n, cx, cw, cy, inner_h, top, bottom)
         };
+        if let Some(outer) = outer_bfc {
+            // A block formatting context holds its floats.
+            content_h = content_h.max(self.leave_bfc(outer) - cy);
+        }
         let mut h = if spec_h.is_nan() { content_h + vextra } else { spec_h };
         if !max_h.is_nan() {
             h = h.min(max_h);
@@ -961,8 +1004,11 @@ impl<'a> Engine<'a> {
             wrap: s.white_space == WhiteSpace::Normal,
             last_text: NONE,
             brk: false,
+            lx: 0.0,
+            right: cw,
             ..il
         };
+        il.queued.clear();
         let mut c = first;
         while c != end && c != NONE {
             self.inline_node(&mut il, c);
@@ -988,6 +1034,12 @@ impl<'a> Engine<'a> {
             return;
         }
         il.begun = true;
+        (il.lx, il.right) = (0.0, il.cw);
+        if self.floats.len() > self.bfc {
+            let (l, r) = self.band(il.y, il.above + il.below, il.cx, il.cw);
+            (il.lx, il.right) = (l - il.cx, r - il.cx);
+            il.x += il.lx;
+        }
         for i in 0..il.open.len() {
             il.open[i].start_x = il.x;
             if il.open[i].has_deco {
@@ -1016,7 +1068,7 @@ impl<'a> Engine<'a> {
             below = below.max(f.below);
         }
         let baseline = il.y + above;
-        let dx = (il.cw - il.x).max(0.0) * il.align;
+        let dx = (il.right - il.x).max(0.0) * il.align;
         for f in &il.frags {
             let range = &mut items[f.first as usize..f.end as usize];
             if f.kind == F_ATOMIC {
@@ -1039,6 +1091,12 @@ impl<'a> Engine<'a> {
         il.content = false;
         il.last_text = NONE;
         il.frags.clear();
+        let queued = std::mem::take(&mut il.queued);
+        for &f in &queued {
+            self.place_float(f, il.cx, il.cw, il.y, NAN);
+        }
+        il.queued = queued;
+        il.queued.clear();
     }
 
     fn inline_node(&mut self, il: &mut Inl, n: NodeId) {
@@ -1053,6 +1111,7 @@ impl<'a> Engine<'a> {
         match s.display {
             Display::None => {}
             _ if is_abs(s) => self.abs.push((n, il.cx + il.x, il.y)),
+            _ if s.float != 0 => self.inline_float(il, n),
             Display::Inline => {
                 if node.tag == atom::BR {
                     il.begun = true;
@@ -1092,6 +1151,7 @@ impl<'a> Engine<'a> {
                     let cn = &dom.nodes[c as usize];
                     let block = cn.tag != atom::TEXT
                         && !is_abs(&st[c as usize])
+                        && st[c as usize].float == 0
                         && matches!(st[c as usize].display, Display::Block | Display::Flex | Display::ListItem);
                     if block {
                         self.finish_line(il);
@@ -1129,11 +1189,12 @@ impl<'a> Engine<'a> {
         let face = face_of(self.fonts, ps);
         let gap = self.fonts.lookup(face, ' ').2 * ps.font_size + ps.spacing;
         let mut space_w = if il.space && il.content { gap } else { 0.0 };
-        if il.wrap && il.content && il.x + space_w + outer_w > il.cw + FIT {
+        if il.wrap && il.content && il.x + space_w + outer_w > il.right + FIT {
             self.finish_line(il);
             space_w = 0.0;
         }
         il.space = false;
+        self.fit_line(il, outer_w);
         self.begin_line(il);
         let first = self.mark();
         let r = self.layout_box(n, il.cx + il.x + space_w + sd.ml, il.y + sd.mt, w, il.cw, NAN, NAN, true);
@@ -1249,11 +1310,12 @@ impl<'a> Engine<'a> {
         let mut space_w = if il.space && il.content { ts.space_w } else { 0.0 };
         let can_break = il.space || il.brk;
         il.brk = false;
-        if wrap && can_break && il.content && il.x + space_w + total > il.cw + FIT {
+        if wrap && can_break && il.content && il.x + space_w + total > il.right + FIT {
             self.finish_line(il);
             space_w = 0.0;
         }
         il.space = false;
+        self.fit_line(il, total);
         self.begin_line(il);
         for sg in &segs {
             let piece = &unit[sg.start as usize..sg.end as usize];
@@ -1634,6 +1696,7 @@ impl<'a> Engine<'a> {
             text: o.text.len(),
             abs: self.abs.len(),
             zranges: self.zranges.len(),
+            floats: self.floats.len(),
             next_ord: self.next_ord,
             last_bl: self.last_bl,
         }
@@ -1649,6 +1712,7 @@ impl<'a> Engine<'a> {
         o.text.truncate(s.text);
         self.abs.truncate(s.abs);
         self.zranges.truncate(s.zranges);
+        self.floats.truncate(s.floats);
         self.next_ord = s.next_ord;
         self.last_bl = s.last_bl;
     }
@@ -1848,6 +1912,8 @@ impl<'a> Engine<'a> {
                 match cs.display {
                     Display::None => {}
                     _ if is_abs(cs) => {}
+                    // Floats sit beside each other and the line.
+                    _ if cs.float != 0 => state.cur += self.intrinsic(c),
                     Display::Inline if node.tag == atom::BR => state.break_line(),
                     Display::Inline => {
                         let sd = sides(cs, 0.0);

@@ -91,6 +91,12 @@ pub struct Style {
     /// Product of this element's opacity and all ancestors'.
     pub opacity: f32,
     pub vars: Option<Rc<Vars>>,
+    /// `float`: 0, `FLOAT_LEFT` or `FLOAT_RIGHT`; 0 where it does not apply.
+    pub float: u8,
+    /// `clear`: `CLEAR_LEFT` and `CLEAR_RIGHT` bits.
+    pub clear: u8,
+    /// The box establishes a block formatting context of its own.
+    pub flow_root: bool,
     /// What few elements have, kept out of line: a style is built, copied and
     /// dropped for every node in every pass, so each byte here costs every page.
     rare: Option<Rc<Rare>>,
@@ -199,6 +205,9 @@ impl Style {
             fill: Color::BLACK,
             opacity: 1.0,
             vars: None,
+            float: 0,
+            clear: 0,
+            flow_root: false,
             rare: None,
         }
     }
@@ -439,7 +448,10 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
     let em = st.font_size;
     let r = |l: Len| resolve(l, em, c);
     match *d {
-        Decl::Display(v) => st.display = v,
+        Decl::Display(v) => (st.display, st.flow_root) = (v, false),
+        Decl::FlowRoot(v) => st.flow_root = v,
+        Decl::Float(v) => st.float = v,
+        Decl::Clear(v) => st.clear = v,
         Decl::Position(v) => st.position = v,
         Decl::Width(l) => st.width = r(l),
         Decl::Height(l) => st.height = r(l),
@@ -1165,7 +1177,11 @@ fn finish(st: &mut Style, parent: &Style, root: bool, replaced: bool) {
         st.shrink = 0.0;
     }
     st.z_ctx = st.z_set && (st.position != Position::Static || parent_flex);
-    let blockify = root || matches!(st.position, Position::Absolute | Position::Fixed) || parent_flex;
+    // A flex item or a positioned box does not float.
+    if parent_flex || matches!(st.position, Position::Absolute | Position::Fixed) {
+        st.float = 0;
+    }
+    let blockify = root || matches!(st.position, Position::Absolute | Position::Fixed) || parent_flex || st.float != 0;
     if blockify {
         st.display = match st.display {
             Display::Inline | Display::InlineBlock => Display::Block,

@@ -1266,4 +1266,22 @@ mod tests {
         assert_eq!(page.dom.nodes.len(), nodes);
         assert!(query(&mut page.dom, 0, "#b::after", false).is_empty());
     }
+    /// Border boxes of the elements with these ids, rounded to tenths.
+    fn rects(page: &mut Page, ids: &[&str]) -> Vec<[f32; 4]> {
+        ids.iter().map(|id| page.describe(&format!("#{id}")).and_then(|d| d.0).map_or([-1.0; 4], |r| r.map(|v| (v * 10.0).round() / 10.0))).collect()
+    }
+
+    #[test]
+    fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
+        let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
+                   .m{display:inline-block;width:10px;height:10px}";
+        let body = "<div class=c id=c1><div class=fl></div><i class=m id=m1></i></div>\
+                    <div class=c id=c2 style=overflow:hidden><div class=fr id=f2></div><i class=m></i></div>\
+                    <div class=c style=display:flow-root id=c3><div class=fl></div><div id=b3 style=clear:left;height:5px></div></div>\
+                    <div class=c id=c4 style=display:flow-root><div class=fl></div><div id=b4 style=overflow:hidden;height:5px></div></div>\
+                    <div class=c style=display:flow-root><span><i class=m></i><i class=fr id=f5 style=width:50px;height:30px></i><i class=m id=m5></i></span></div>";
+        let (mut page, _) = after_script(css, body, "$('c1').title='x';");
+        let got = rects(&mut page, &["m1", "c2", "f2", "b3", "c3", "b4", "f5", "m5"]);
+        assert_eq!(got, [[100.0, 0.0, 10.0, 10.0], [100.0, 10.0, 400.0, 40.0], [380.0, 10.0, 120.0, 40.0], [0.0, 100.0, 400.0, 5.0], [0.0, 50.0, 400.0, 55.0], [100.0, 105.0, 300.0, 5.0], [350.0, 155.0, 50.0, 30.0], [10.0, 155.0, 10.0, 10.0]]);
+    }
 }

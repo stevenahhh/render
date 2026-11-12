@@ -2,6 +2,7 @@
 
 use crate::dom::{Atom, Interner};
 pub use crate::media::{media_matches, Media};
+
 use crate::FxMap;
 use std::borrow::Cow;
 use std::rc::Rc;
@@ -315,7 +316,19 @@ pub enum Decl {
     Deferred(Box<str>, Box<str>),
     /// `content`; `None` is `none` or `normal`, which generate no box.
     Content(Option<Rc<[Content]>>),
+    /// `float`: 0, `FLOAT_LEFT` or `FLOAT_RIGHT`.
+    Float(u8),
+    /// `clear`: `CLEAR_LEFT` and `CLEAR_RIGHT` bits.
+    Clear(u8),
+    /// The box establishes a block formatting context of its own, as
+    /// `display: flow-root` and tables do; comes after the `Display` it goes with.
+    FlowRoot(bool),
 }
+
+pub const FLOAT_LEFT: u8 = 1;
+pub const FLOAT_RIGHT: u8 = 2;
+pub const CLEAR_LEFT: u8 = 1;
+pub const CLEAR_RIGHT: u8 = 2;
 
 /// One piece of a `content` value.
 #[derive(Clone, Debug, PartialEq)]
@@ -1181,6 +1194,21 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         }
     };
     match name {
+        "display" if matches!(v, "flow-root" | "table" | "table-cell" | "table-caption") => {
+            out.push(D::Display(Display::Block));
+            out.push(D::FlowRoot(true));
+        }
+        "float" => push(Some(D::Float(match v {
+            "left" | "inline-start" => FLOAT_LEFT,
+            "right" | "inline-end" => FLOAT_RIGHT,
+            _ => 0,
+        }))),
+        "clear" => push(Some(D::Clear(match v {
+            "left" | "inline-start" => CLEAR_LEFT,
+            "right" | "inline-end" => CLEAR_RIGHT,
+            "both" => CLEAR_LEFT | CLEAR_RIGHT,
+            _ => 0,
+        }))),
         "display" => push(match v {
             "none" => Some(Display::None),
             "inline" => Some(Display::Inline),
