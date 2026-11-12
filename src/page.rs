@@ -859,9 +859,15 @@ impl Page {
     /// Does nothing when the viewport is unchanged.
     pub fn update(&mut self, fonts: &mut Fonts, vw: f32, vh: f32) {
         let resized = vw != self.vw || vh != self.vh;
-        let sig = self.sheet.media.iter().take(64).enumerate().fold(0u64, |s, (i, m)| s | (m.matches(vw, vh) as u64) << i);
-        let restyle = self.styles.is_empty() || sig != self.media_sig || (self.viewport_units && resized);
-        if restyle {
+        let mut restyle = self.styles.is_empty() || (self.viewport_units && resized);
+        // Which media queries match changes only with the viewport or the sheet, and
+        // a new sheet comes with a restyle: it is built first, to be the one matched.
+        if restyle || resized {
+            if restyle {
+                self.refresh_sheet();
+            }
+            let sig = self.sheet.media.iter().take(64).enumerate().fold(0u64, |s, (i, m)| s | (m.matches(vw, vh) as u64) << i);
+            restyle |= sig != self.media_sig;
             self.media_sig = sig;
         }
         if restyle || resized || std::mem::take(&mut self.stale) {
