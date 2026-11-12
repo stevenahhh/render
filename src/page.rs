@@ -78,6 +78,7 @@ tr { display: flex }
 td, th { display: block; flex: 1 1 0; padding: 1px }
 th { text-align: center }
 img { display: inline-block; color: #666; font-size: 12px; overflow: hidden }
+[popover]:not(:popover-open) { display: none }
 input, button, select, textarea { display: inline-block; box-sizing: border-box;
   font-family: sans-serif; font-size: 13.33px; font-weight: normal; font-style: normal;
   color: #000; border: 1px solid #767676; border-radius: 3px; line-height: normal;
