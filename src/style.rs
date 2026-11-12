@@ -49,11 +49,12 @@ pub struct Style {
     /// Column count of a grid container, kept so its items can size themselves.
     grid_cols: u8,
     grid_even: bool,
-    grid_flow_col: bool,
+    pub grid_flow_col: bool,
     /// Row lines of a grid container, so its items can resolve `grid-row`.
     row_lines: Option<Rc<RowLines>>,
-    /// The box is a grid container (laid out as flex).
-    grid: bool,
+    /// The box is a grid container: laid out as a grid, or as flex where it
+    /// takes a parent grid's tracks (`subgrid`).
+    pub grid: bool,
     /// Start row line this grid item is placed on; 0 when placed automatically.
     pub grid_row: u16,
     /// `order`: flex and grid items are laid out by ascending order.
@@ -91,6 +92,8 @@ pub struct Style {
     /// Product of this element's opacity and all ancestors'.
     pub opacity: f32,
     pub vars: Option<Rc<Vars>>,
+    pub justify_items: Align,
+    pub justify_self: Align,
     /// `float`: 0, `FLOAT_LEFT` or `FLOAT_RIGHT`; 0 where it does not apply.
     pub float: u8,
     /// `clear`: `CLEAR_LEFT` and `CLEAR_RIGHT` bits.
@@ -105,6 +108,17 @@ pub struct Style {
 /// The parts of a computed style that few elements have.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct Rare {
+    /// A grid's track lists for rows (0) and columns (1), its areas, the sizes of
+    /// its implicit rows and columns, and whether it fills holes (`dense`).
+    pub tracks: [Option<Rc<TrackList>>; 2],
+    pub areas: Option<Rc<Areas>>,
+    pub auto_tracks: [Option<Rc<[Track]>>; 2],
+    pub grid_dense: bool,
+    /// Bits for rows (1) and columns (2) taken from the parent grid, which only
+    /// the flex fallback follows.
+    pub subgrid: u8,
+    /// Where a grid item goes: row start, column start, row end, column end.
+    pub place: Option<Rc<[GridPos; 4]>>,
     /// The element's `::before` and `::after` boxes.
     pub before: Option<Rc<Generated>>,
     pub after: Option<Rc<Generated>>,
@@ -113,7 +127,7 @@ pub struct Rare {
 }
 
 /// The rare parts of a style that has none of them.
-const NO_RARE: Rare = Rare { before: None, after: None, content: None };
+const NO_RARE: Rare = Rare { tracks: [None, None], areas: None, auto_tracks: [None, None], grid_dense: false, subgrid: 0, place: None, before: None, after: None, content: None };
 
 /// A `::before` or `::after` box: its style and what it shows.
 #[derive(Clone, PartialEq, Debug)]
@@ -205,6 +219,8 @@ impl Style {
             fill: Color::BLACK,
             opacity: 1.0,
             vars: None,
+            justify_items: Align::Stretch,
+            justify_self: Align::Auto,
             float: 0,
             clear: 0,
             flow_root: false,
@@ -235,7 +251,7 @@ impl Style {
         }
     }
 
-    /// Generated boxes.
+    /// Grid templates and placement, and generated boxes.
     pub fn rare(&self) -> &Rare {
         self.rare.as_deref().unwrap_or(&NO_RARE)
     }
@@ -530,8 +546,34 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::GridRow(ref g) => st.grid_row = g.as_ref().map_or(0, |g| row_line(parent, g)),
         Decl::Order(v) => st.order = v,
         Decl::Content(ref c) => st.rare_mut().content = c.clone(),
+        Decl::GridTracks(axis, ref l) => {
+            st.rare_mut().tracks[axis as usize] = l.as_ref().map(|l| {
+                let auto = l.auto.as_ref().map(|(at, t, fit)| (*at, resolve_tracks(t, em, c), *fit));
+                Rc::new(TrackList { tracks: resolve_tracks(&l.tracks, em, c), names: l.names.clone(), auto })
+            })
+        }
+        Decl::GridAreas(ref a) => st.rare_mut().areas = a.clone(),
+        Decl::GridAuto(axis, ref t) => st.rare_mut().auto_tracks[axis as usize] = t.as_ref().map(|t| resolve_tracks(t, em, c).into()),
+        Decl::GridDense(v) => st.rare_mut().grid_dense = v,
+        Decl::Subgrid(axis, v) => {
+            let rare = st.rare_mut();
+            rare.subgrid = rare.subgrid & !(1 << axis) | (v as u8) << axis;
+        }
+        Decl::GridPlace(k, ref p) => Rc::make_mut(st.rare_mut().place.get_or_insert_with(Default::default))[k as usize] = p.clone(),
+        Decl::JustifyItems(v) => st.justify_items = v,
+        Decl::JustifySelf(v) => st.justify_self = v,
         Decl::FontSize(_) | Decl::Var(..) | Decl::Deferred(..) => {}
     }
+}
+
+/// Grid tracks with their font- and viewport-relative lengths in px.
+fn resolve_tracks(tracks: &[Track], em: f32, c: &Ctx) -> Vec<Track> {
+    let b = |b: Breadth| match b {
+        Breadth::Len(l) => Breadth::Len(resolve(l, em, c)),
+        Breadth::Fit(l) => Breadth::Fit(resolve(l, em, c)),
+        b => b,
+    };
+    tracks.iter().map(|t| Track { min: b(t.min), max: b(t.max) }).collect()
 }
 
 /// A `font-weight` against the parent's, with CSS Fonts 4's table for

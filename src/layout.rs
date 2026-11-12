@@ -14,6 +14,7 @@ use crate::style::Style;
 use std::rc::Rc;
 
 mod float;
+mod grid;
 use float::FloatBox;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -793,6 +794,8 @@ impl<'a> Engine<'a> {
         let outer_bfc = (bfc || bfc_root(s)).then(|| self.enter_bfc());
         let (mut content_h, mb_out) = if tag == atom::INPUT || self.dom.shows_image(n) {
             (self.replaced(n, s, cx, cy, cw, inner_h, tag), 0.0)
+        } else if s.grid && s.rare().subgrid == 0 {
+            (self.layout_grid(n, cx, cw, cy, inner_h), 0.0)
         } else if matches!(s.display, Display::Flex | Display::InlineFlex) {
             let inner_min = if min_h.is_nan() { NAN } else { (min_h - vextra).max(0.0) };
             (self.layout_flex(n, cx, cw, cy, inner_h, inner_min), 0.0)
@@ -1855,6 +1858,8 @@ impl<'a> Engine<'a> {
                     self.fonts.measure(face, text, s.font_size, 0.0).max(if tag == atom::IMG { 16.0 } else { 0.0 })
                 }
             }
+        } else if s.grid && s.rare().subgrid == 0 {
+            self.grid_intrinsic(n)
         } else if matches!(s.display, Display::Flex | Display::InlineFlex) {
             let (mut sum, mut max, mut count) = (0.0f32, 0.0f32, 0.0f32);
             let mut kids = Vec::new();

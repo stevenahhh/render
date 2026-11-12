@@ -3,6 +3,8 @@
 use crate::dom::{Atom, Interner};
 pub use crate::media::{media_matches, Media};
 
+mod grid;
+pub use grid::{Areas, Breadth, GridPos, LineName, Track, TrackList};
 use crate::FxMap;
 use std::borrow::Cow;
 use std::rc::Rc;
@@ -323,6 +325,18 @@ pub enum Decl {
     /// The box establishes a block formatting context of its own, as
     /// `display: flow-root` and tables do; comes after the `Display` it goes with.
     FlowRoot(bool),
+    /// The track list of a grid's rows (0) or columns (1); `None` is `none`.
+    GridTracks(u8, Option<Rc<TrackList>>),
+    GridAreas(Option<Rc<Areas>>),
+    /// Sizes of a grid's implicit rows (0) or columns (1).
+    GridAuto(u8, Option<Rc<[Track]>>),
+    GridDense(bool),
+    /// Rows (0) or columns (1) taken from the parent grid.
+    Subgrid(u8, bool),
+    /// One end of a grid item's place: row start, column start, row end or column end (0 to 3).
+    GridPlace(u8, GridPos),
+    JustifyItems(Align),
+    JustifySelf(Align),
 }
 
 pub const FLOAT_LEFT: u8 = 1;
@@ -1238,10 +1252,22 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             };
             let even = v.contains("fr") || v.contains('%') || v.contains("repeat(");
             out.push(D::GridCols(cols as u8, even));
+            grid::parse_grid(name, v, out);
         }
-        "grid-auto-flow" => push(Some(D::GridFlowCol(v.starts_with("column")))),
-        "grid-template-rows" => push(Some(D::GridRows((v != "subgrid").then(|| Rc::new(row_lines(v)))))),
-        "grid-row" | "grid-row-start" | "grid-area" => push(Some(D::GridRow(grid_line(v)))),
+        "grid-auto-flow" => {
+            out.push(D::GridFlowCol(v.starts_with("column")));
+            out.push(D::GridDense(v.contains("dense")));
+        }
+        "grid-template-rows" => {
+            out.push(D::GridRows((v != "subgrid").then(|| Rc::new(row_lines(v)))));
+            grid::parse_grid(name, v, out);
+        }
+        "grid-row" | "grid-row-start" | "grid-area" => {
+            out.push(D::GridRow(grid_line(v)));
+            grid::parse_grid(name, v, out);
+        }
+        "grid-template-areas" | "grid-template" | "grid" | "grid-auto-rows" | "grid-auto-columns" | "grid-column" | "grid-row-end"
+        | "grid-column-start" | "grid-column-end" | "justify-items" | "justify-self" | "place-items" | "place-self" => grid::parse_grid(name, v, out),
         "order" => push(v.parse().ok().map(D::Order)),
         "position" => push(Some(D::Position(match v {
             "relative" => Position::Relative,

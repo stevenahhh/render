@@ -1284,4 +1284,33 @@ mod tests {
         let got = rects(&mut page, &["m1", "c2", "f2", "b3", "c3", "b4", "f5", "m5"]);
         assert_eq!(got, [[100.0, 0.0, 10.0, 10.0], [100.0, 10.0, 400.0, 40.0], [380.0, 10.0, 120.0, 40.0], [0.0, 100.0, 400.0, 5.0], [0.0, 50.0, 400.0, 55.0], [100.0, 105.0, 300.0, 5.0], [350.0, 155.0, 50.0, 30.0], [10.0, 155.0, 10.0, 10.0]]);
     }
+
+    #[test]
+    fn grid_items_go_on_their_lines_in_tracks_sized_by_their_functions() {
+        let css = "body{margin:0} i{height:10px} .g{display:grid;width:400px;grid-template-columns:100px 1fr 2fr;column-gap:10px}\
+                   .a{display:grid;width:400px;grid-template-areas:'h h' 's m';grid-template-columns:80px 1fr;grid-template-rows:20px 30px}\
+                   .hd{grid-area:h} .mn{grid-area:m} .f{display:grid;width:400px;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:4px}\
+                   .s{display:grid;width:400px;grid-template-columns:repeat(4,1fr)} .s2{grid-column:span 2} .c3{grid-column:3 / 5;grid-row:2}";
+        let body = "<div class=g><i id=g1></i><i id=g2></i><i id=g3></i></div><div class=a><i class=mn id=mn></i><i class=hd id=hd></i></div>\
+                    <div class=f><i id=f1></i><i></i><i></i><i id=f4></i><i id=f5></i></div>\
+                    <div class=s><i class=s2 id=s1></i><i id=s2></i><i class=c3 id=s3></i><i id=s4></i><i id=s5></i></div>";
+        let (mut page, _) = after_script(css, body, "$('g1').title='x';");
+        let got = rects(&mut page, &["g1", "g2", "g3", "hd", "mn", "f1", "f4", "f5", "s1", "s2", "s3", "s4", "s5"]);
+        let want = [
+            [0.0, 0.0, 100.0, 10.0],
+            [110.0, 0.0, 93.3, 10.0],
+            [213.3, 0.0, 186.7, 10.0],
+            [0.0, 10.0, 400.0, 10.0],
+            [80.0, 30.0, 320.0, 10.0],
+            [0.0, 60.0, 97.0, 10.0],
+            [303.0, 60.0, 97.0, 10.0],
+            [0.0, 74.0, 97.0, 10.0],
+            [0.0, 84.0, 200.0, 10.0],
+            [200.0, 84.0, 100.0, 10.0],
+            [200.0, 94.0, 200.0, 10.0],
+            [300.0, 84.0, 100.0, 10.0],
+            [0.0, 94.0, 100.0, 10.0],
+        ];
+        assert_eq!(got, want);
+    }
 }
