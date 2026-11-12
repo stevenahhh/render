@@ -6,11 +6,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::{Duration, Instant};
 
 /// Most redirects followed for one request.
 const MAX_REDIRECTS: usize = 8;
@@ -18,6 +18,17 @@ const MAX_REDIRECTS: usize = 8;
 const MAX_BODY: usize = 256 << 20;
 /// Most connections downloading at once.
 const MAX_PARALLEL: usize = 12;
+/// Delay before trying the next address of a host while earlier attempts are still
+/// connecting. Short enough that a dead address costs little, long enough that a
+/// healthy first address usually wins alone.
+const CONNECT_STAGGER: Duration = Duration::from_millis(250);
+/// Most addresses of one host tried at once.
+const MAX_ATTEMPTS: usize = 4;
+/// Most hosts connected to ahead of their first request for one page.
+const MAX_PRECONNECT: usize = 6;
+
+/// A call that tells the owner of a page that something it waits for has arrived.
+pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 /// An absolute `http` or `https` URL. `path` starts with `/` and keeps the query.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -160,9 +171,51 @@ fn read_line(conn: &mut Conn) -> io::Result<String> {
     Ok(String::from_utf8_lossy(&line).into_owned())
 }
 
+/// Sees a response body while it downloads: called once with no bytes when the
+/// headers have arrived, then with each piece of the body, already gunzipped.
+type Watcher<'a> = dyn FnMut(&Url, &[u8]) + 'a;
+
+/// Feeds a watcher, gunzipping on the way when the body is compressed.
+struct Watch<'a, 'b> {
+    see: &'a mut Watcher<'b>,
+    gz: Option<flate2::write::MultiGzDecoder<Vec<u8>>>,
+}
+
+impl Watch<'_, '_> {
+    fn feed(&mut self, url: &Url, raw: &[u8]) {
+        match &mut self.gz {
+            // A corrupt stream stops the watcher here; the full decode reports the error.
+            Some(gz) => {
+                if gz.write_all(raw).is_ok() {
+                    let plain = std::mem::take(gz.get_mut());
+                    (self.see)(url, &plain);
+                }
+            }
+            None => (self.see)(url, raw),
+        }
+    }
+}
+
+/// Reads `n` more body bytes onto `body`, handing each piece to `feed` as it arrives.
+fn read_into(conn: &mut Conn, body: &mut Vec<u8>, n: usize, feed: &mut dyn FnMut(&[u8])) -> io::Result<()> {
+    let end = body.len() + n;
+    while body.len() < end {
+        let start = body.len();
+        body.resize(start + (end - start).min(64 << 10), 0);
+        let got = conn.read(&mut body[start..])?;
+        if got == 0 {
+            return Err(io::ErrorKind::UnexpectedEof.into());
+        }
+        body.truncate(start + got);
+        feed(&body[start..]);
+    }
+    Ok(())
+}
+
 /// Sends one GET on an open connection and reads the whole response. The flag
-/// tells whether the connection can carry another request.
-fn exchange(conn: &mut Conn, url: &Url) -> io::Result<(Response, bool)> {
+/// tells whether the connection can carry another request. `watch` sees the body
+/// of a final (not redirecting) response while it arrives.
+fn exchange(conn: &mut Conn, url: &Url, watch: Option<&mut Watcher>) -> io::Result<(Response, bool)> {
     let default_port = url.port == if url.https { 443 } else { 80 };
     let host = if default_port { url.host.clone() } else { format!("{}:{}", url.host, url.port) };
     let request = format!(
@@ -196,6 +249,13 @@ fn exchange(conn: &mut Conn, url: &Url) -> io::Result<(Response, bool)> {
     reusable &= !has("connection", "close");
     let (chunked, gzip) = (has("transfer-encoding", "chunked"), has("content-encoding", "gzip"));
     let length = response.header("content-length").and_then(|v| v.parse::<usize>().ok());
+    let mut watch = watch.filter(|_| !(300..400).contains(&status)).map(|see| Watch { see, gz: gzip.then(|| flate2::write::MultiGzDecoder::new(Vec::new())) });
+    let mut feed = |piece: &[u8]| {
+        if let Some(w) = &mut watch {
+            w.feed(url, piece);
+        }
+    };
+    feed(&[]);
     let mut body = Vec::new();
     if status == 204 || status == 304 {
     } else if chunked {
@@ -210,25 +270,31 @@ fn exchange(conn: &mut Conn, url: &Url) -> io::Result<(Response, bool)> {
             if body.len() + size > MAX_BODY {
                 return Err(bad("response too large"));
             }
-            let start = body.len();
-            body.resize(start + size, 0);
-            conn.read_exact(&mut body[start..])?;
+            read_into(conn, &mut body, size, &mut feed)?;
             read_line(conn)?;
         }
     } else if let Some(length) = length {
         if length > MAX_BODY {
             return Err(bad("response too large"));
         }
-        body.resize(length, 0);
-        conn.read_exact(&mut body)?;
+        read_into(conn, &mut body, length, &mut feed)?;
     } else {
         // No framing: the body runs until the peer closes. TLS peers often close
         // without a close_notify, which reads as an unexpected end.
         reusable = false;
-        match conn.take(MAX_BODY as u64).read_to_end(&mut body) {
-            Ok(_) => {}
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {}
-            Err(e) => return Err(e),
+        let mut piece = vec![0; 64 << 10];
+        while body.len() < MAX_BODY {
+            let room = piece.len().min(MAX_BODY - body.len());
+            match conn.read(&mut piece[..room]) {
+                Ok(0) => break,
+                Ok(got) => {
+                    body.extend_from_slice(&piece[..got]);
+                    feed(&piece[..got]);
+                }
+                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => break,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e),
+            }
         }
     }
     if gzip {
@@ -238,6 +304,41 @@ fn exchange(conn: &mut Conn, url: &Url) -> io::Result<(Response, bool)> {
     }
     response.body = body;
     Ok((response, reusable))
+}
+
+/// Connects to the first of `addresses` that answers. Attempts start one stagger
+/// apart and overlap, so an address that never answers does not hold up the next.
+fn connect_any(addresses: &[SocketAddr]) -> io::Result<TcpStream> {
+    let timeout = Duration::from_secs(5);
+    match addresses {
+        [] => return Err(io::Error::new(io::ErrorKind::NotFound, "no address")),
+        [only] => return TcpStream::connect_timeout(only, timeout),
+        _ => {}
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    let won = Arc::new(AtomicBool::new(false));
+    for (i, &address) in addresses.iter().take(MAX_ATTEMPTS).enumerate() {
+        let (tx, won) = (tx.clone(), won.clone());
+        std::thread::spawn(move || {
+            std::thread::sleep(CONNECT_STAGGER * i as u32);
+            if !won.load(Ordering::Relaxed) {
+                // The receiver is gone once another attempt has won; the stream then closes.
+                let _ = tx.send(TcpStream::connect_timeout(&address, timeout));
+            }
+        });
+    }
+    drop(tx);
+    let mut last = io::Error::new(io::ErrorKind::TimedOut, "no address answered");
+    for attempt in rx {
+        match attempt {
+            Ok(tcp) => {
+                won.store(true, Ordering::Relaxed);
+                return Ok(tcp);
+            }
+            Err(e) => last = e,
+        }
+    }
+    Err(last)
 }
 
 /// Root certificates and settings shared by every connection.
@@ -274,16 +375,9 @@ impl Client {
     fn connect(&self, url: &Url) -> Result<Conn, String> {
         let fail = |e: &dyn std::fmt::Display| format!("{}: {e}", url.host);
         let mut addresses: Vec<_> = (url.host.as_str(), url.port).to_socket_addrs().map_err(|e| fail(&e))?.collect();
-        // IPv4 first: an IPv6 address without a working route costs a full timeout.
-        addresses.sort_by_key(std::net::SocketAddr::is_ipv6);
-        let mut tcp = Err(fail(&"no address"));
-        for address in &addresses {
-            tcp = TcpStream::connect_timeout(address, Duration::from_secs(5)).map_err(|e| fail(&e));
-            if tcp.is_ok() {
-                break;
-            }
-        }
-        let tcp = tcp?;
+        // IPv4 first: an IPv6 address without a working route then only costs a stagger.
+        addresses.sort_by_key(SocketAddr::is_ipv6);
+        let tcp = connect_any(&addresses).map_err(|e| fail(&e))?;
         let timeout = Some(Duration::from_secs(20));
         tcp.set_read_timeout(timeout).and_then(|()| tcp.set_write_timeout(timeout)).and_then(|()| tcp.set_nodelay(true)).map_err(|e| fail(&e))?;
         let stream: Box<dyn Stream> = if url.https {
@@ -296,7 +390,7 @@ impl Client {
         Ok(BufReader::with_capacity(64 << 10, stream))
     }
 
-    fn send(&mut self, url: &Url) -> Result<Response, String> {
+    fn send(&mut self, url: &Url, mut watch: Option<&mut Watcher>) -> Result<Response, String> {
         let key = (url.https, url.host.clone(), url.port);
         let kept = self.pool.remove(&key).or_else(|| {
             let mut idle = IDLE.lock().expect("idle connections");
@@ -305,26 +399,77 @@ impl Client {
         if let Some(mut conn) = kept {
             // A kept connection may have been closed by the server meanwhile; then
             // the request is sent again on a new one.
-            if let Ok((response, reusable)) = exchange(&mut conn, url) {
+            if let Ok((response, reusable)) = exchange(&mut conn, url, watch.as_deref_mut()) {
                 if reusable {
                     self.pool.insert(key, conn);
                 }
                 return Ok(response);
             }
         }
-        let mut conn = self.connect(url)?;
-        let (response, reusable) = exchange(&mut conn, url).map_err(|e| format!("{url}: {e}"))?;
+        let (mut conn, fresh) = self.open(url)?;
+        let mut result = exchange(&mut conn, url, watch.as_deref_mut());
+        if result.is_err() && !fresh {
+            // The idle connection had been closed by its server meanwhile.
+            conn = self.connect(url)?;
+            result = exchange(&mut conn, url, watch);
+        }
+        let (response, reusable) = result.map_err(|e| format!("{url}: {e}"))?;
         if reusable {
             self.pool.insert(key, conn);
         }
         Ok(response)
     }
 
+    /// A connection to `url`'s server: a new one, or an idle one parked while the new
+    /// one is still connecting, whichever comes first; true for a new one. A
+    /// stylesheet asked for while its page's HTML downloads then goes out on the
+    /// HTML's connection as soon as that is free, which on a distant server is
+    /// sooner than a new TCP and TLS handshake.
+    fn open(&self, url: &Url) -> Result<(Conn, bool), String> {
+        let key = (url.https, url.host.clone(), url.port);
+        let attempt = Arc::new(Mutex::new(Attempt { result: None, abandoned: false }));
+        let (tls, target, shared, own) = (self.tls.clone(), url.clone(), attempt.clone(), key.clone());
+        std::thread::spawn(move || {
+            let result = Client::new(tls).connect(&target);
+            let mut a = shared.lock().expect("connection attempt");
+            if a.abandoned {
+                drop(a);
+                if let Ok(conn) = result {
+                    park(own, conn);
+                }
+                return;
+            }
+            a.result = Some(result);
+            drop(a);
+            // Signalled under the pool's lock, which the waiter holds while it looks.
+            let _idle = IDLE.lock().expect("idle connections");
+            IDLE_CHANGED.notify_all();
+        });
+        let mut idle = IDLE.lock().expect("idle connections");
+        loop {
+            let mut a = attempt.lock().expect("connection attempt");
+            if let Some(result) = a.result.take() {
+                return result.map(|conn| (conn, true));
+            }
+            if let Some(i) = idle.iter().position(|c| c.0 == key) {
+                a.abandoned = true;
+                return Ok((idle.swap_remove(i).1, false));
+            }
+            drop(a);
+            idle = IDLE_CHANGED.wait(idle).expect("idle connections");
+        }
+    }
+
     /// Fetches `url`, following redirects. Returns the final URL with the response.
     pub fn get(&mut self, url: &Url) -> Result<(Url, Response), String> {
+        self.get_watched(url, None)
+    }
+
+    /// Like `get`, letting `watch` see the final response's body while it arrives.
+    fn get_watched(&mut self, url: &Url, mut watch: Option<&mut Watcher>) -> Result<(Url, Response), String> {
         let mut url = url.clone();
         for _ in 0..=MAX_REDIRECTS {
-            let response = self.send(&url)?;
+            let response = self.send(&url, watch.as_deref_mut())?;
             let target = response.header("location").filter(|_| matches!(response.status, 301 | 302 | 303 | 307 | 308));
             match target {
                 Some(location) => url = url.join(location).ok_or_else(|| format!("{url}: bad redirect to {location}"))?,
@@ -339,6 +484,16 @@ impl Client {
 /// it is done, so the next page from the same servers skips connecting again.
 static IDLE: Mutex<Vec<((bool, String, u16), Conn)>> = Mutex::new(Vec::new());
 
+/// Signalled when a connection is parked in `IDLE`, or a connection attempt ends.
+static IDLE_CHANGED: Condvar = Condvar::new();
+
+/// A new connection being made on its own thread for `Client::open`. When the
+/// client took an idle connection instead, the new one is parked once ready.
+struct Attempt {
+    result: Option<Result<Conn, String>>,
+    abandoned: bool,
+}
+
 /// Most idle connections kept.
 const MAX_IDLE: usize = 32;
 
@@ -350,6 +505,7 @@ impl Drop for Client {
                 idle.push(kept);
             }
         }
+        IDLE_CHANGED.notify_all();
     }
 }
 
@@ -377,29 +533,156 @@ fn extension(url: &Url, body: &[u8]) -> String {
     }
 }
 
-/// A page opened from the web: its URL and the resources downloaded for it,
-/// kept as files so the rest of the renderer reads them like local ones.
-pub struct Site {
-    pub url: Url,
-    dir: PathBuf,
-    tls: Arc<rustls::ClientConfig>,
-    files: Mutex<HashMap<Url, Option<PathBuf>>>,
+/// Puts a connection nobody is using into the idle pool, if there is room.
+fn park(key: (bool, String, u16), conn: Conn) {
+    let mut idle = IDLE.lock().expect("idle connections");
+    if idle.len() < MAX_IDLE {
+        idle.push((key, conn));
+        IDLE_CHANGED.notify_all();
+    }
 }
 
-impl Site {
-    /// Downloads the page at `location`. Returns the site and the page's HTML.
-    pub fn open(location: &str) -> Result<(Arc<Site>, String), String> {
-        let url = Url::parse(location).ok_or_else(|| format!("{location}: not an http or https URL"))?;
-        let tls = tls_config();
-        let (url, response) = Client::new(tls.clone()).get(&url)?;
-        if response.status >= 400 {
-            return Err(format!("{url}: HTTP {}", response.status));
+/// Opens a connection to the server of `url`, TLS handshake included, on a
+/// thread of its own and leaves it in the idle pool for the request that will need it.
+fn preconnect(tls: Arc<rustls::ClientConfig>, url: Url) {
+    std::thread::spawn(move || {
+        let Ok(mut conn) = Client::new(tls).connect(&url) else { return };
+        // Flushing a TLS stream completes its handshake.
+        if conn.get_mut().flush().is_ok() {
+            park((url.https, url.host.clone(), url.port), conn);
         }
+    });
+}
+
+/// The `href` of a `<link rel=stylesheet>` tag, given as markup.
+fn stylesheet_href(tag: &str) -> Option<String> {
+    use crate::dom::{atom, parse_html, NodeId};
+    let dom = parse_html(tag);
+    let n = (0..dom.nodes.len() as NodeId).find(|&n| dom.nodes[n as usize].tag == atom::LINK)?;
+    dom.attr(n, atom::REL).filter(|r| r.eq_ignore_ascii_case("stylesheet"))?;
+    dom.attr(n, atom::HREF).map(str::to_string)
+}
+
+/// Finds `<link rel=stylesheet>` tags in a document while it downloads, so the
+/// stylesheets can be requested before the rest of the HTML has arrived.
+#[derive(Default)]
+struct Preload {
+    seen: Vec<u8>,
+    /// Where scanning resumes: everything before it has been looked at.
+    at: usize,
+}
+
+impl Preload {
+    /// Takes the next piece of the document; returns the stylesheet hrefs it completed.
+    fn feed(&mut self, piece: &[u8]) -> Vec<String> {
+        self.seen.extend_from_slice(piece);
+        let mut found = Vec::new();
+        loop {
+            let rest = &self.seen[self.at..];
+            let Some(i) = memchr::memchr(b'<', rest) else {
+                self.at = self.seen.len();
+                break;
+            };
+            let tag = &rest[i..];
+            if tag.len() < 5 {
+                self.at += i;
+                break;
+            }
+            if !tag[1..5].eq_ignore_ascii_case(b"link") {
+                self.at += i + 1;
+                continue;
+            }
+            let Some(end) = memchr::memchr(b'>', tag) else {
+                self.at += i;
+                break;
+            };
+            found.extend(stylesheet_href(&String::from_utf8_lossy(&tag[..=end])));
+            self.at += i + end + 1;
+        }
+        found
+    }
+}
+
+/// Where one resource stands: downloading, or done with its file (`None` when it failed).
+enum Slot {
+    Busy,
+    Done(Option<PathBuf>),
+}
+
+/// The downloads of one page, shared by every thread fetching for it. Each resource
+/// is downloaded once: a second request for it waits for the first.
+struct Store {
+    dir: PathBuf,
+    tls: Arc<rustls::ClientConfig>,
+    slots: Mutex<HashMap<Url, Slot>>,
+    /// Signalled whenever a download finishes.
+    done: Condvar,
+    /// How many downloads have finished.
+    finished: AtomicUsize,
+    /// Called after each finished download.
+    wake: Mutex<Option<Wake>>,
+}
+
+impl Store {
+    fn new(tls: Arc<rustls::ClientConfig>) -> Result<Arc<Store>, String> {
         static OPENED: AtomicUsize = AtomicUsize::new(0);
         let dir = std::env::temp_dir().join(format!("render-{}-{}", std::process::id(), OPENED.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-        let html = String::from_utf8_lossy(&response.body).into_owned();
-        Ok((Arc::new(Site { url, dir, tls, files: Mutex::new(HashMap::new()) }), html))
+        let store = Store { dir, tls, slots: Mutex::new(HashMap::new()), done: Condvar::new(), finished: AtomicUsize::new(0), wake: Mutex::new(None) };
+        Ok(Arc::new(store))
+    }
+
+    fn slots(&self) -> std::sync::MutexGuard<'_, HashMap<Url, Slot>> {
+        self.slots.lock().expect("downloads")
+    }
+
+    /// Marks the URLs nobody has started on as downloading and returns them.
+    fn claim(&self, urls: impl IntoIterator<Item = Url>) -> Vec<Url> {
+        let mut slots = self.slots();
+        urls.into_iter()
+            .filter(|url| {
+                let new = !slots.contains_key(url);
+                if new {
+                    slots.insert(url.clone(), Slot::Busy);
+                }
+                new
+            })
+            .collect()
+    }
+
+    /// The file of a finished download; `None` while it runs or before it starts.
+    fn ready(&self, url: &Url) -> Option<Option<PathBuf>> {
+        match self.slots().get(url) {
+            Some(Slot::Done(path)) => Some(path.clone()),
+            _ => None,
+        }
+    }
+
+    fn finish(&self, url: Url, path: Option<PathBuf>) {
+        self.slots().insert(url, Slot::Done(path));
+        self.finished.fetch_add(1, Ordering::Release);
+        self.done.notify_all();
+        let wake = self.wake.lock().expect("wake").clone();
+        if let Some(wake) = wake {
+            wake();
+        }
+    }
+
+    /// Waits until none of `urls` is downloading any more, or until `deadline`.
+    fn wait(&self, urls: &[Url], deadline: Option<Instant>) {
+        let mut slots = self.slots();
+        while urls.iter().any(|u| matches!(slots.get(u), Some(Slot::Busy))) {
+            slots = match deadline {
+                None => self.done.wait(slots).expect("downloads"),
+                Some(deadline) => {
+                    let left = deadline.saturating_duration_since(Instant::now());
+                    if left.is_zero() {
+                        return;
+                    }
+                    self.done.wait_timeout(slots, left).expect("downloads").0
+                }
+            };
+        }
     }
 
     fn download(&self, client: &mut Client, url: &Url) -> Option<PathBuf> {
@@ -422,26 +705,8 @@ impl Site {
         Some(path)
     }
 
-    fn known(&self, url: &Url) -> Option<Option<PathBuf>> {
-        self.files.lock().expect("downloaded files").get(url).cloned()
-    }
-
-    /// The local file holding the resource `src` refers to, downloaded now unless
-    /// it already was. `None` when it cannot be fetched.
-    pub fn file(&self, src: &str) -> Option<PathBuf> {
-        let url = self.url.join(src)?;
-        if let Some(path) = self.known(&url) {
-            return path;
-        }
-        let path = self.download(&mut Client::new(self.tls.clone()), &url);
-        self.files.lock().expect("downloaded files").insert(url, path.clone());
-        path
-    }
-
-    /// Downloads the listed resources over several connections at once.
-    pub fn prefetch(&self, srcs: &[String]) {
-        let mut seen = HashSet::new();
-        let urls: Vec<Url> = srcs.iter().filter_map(|s| self.url.join(s)).filter(|u| self.known(u).is_none() && seen.insert(u.clone())).collect();
+    /// Downloads URLs this caller has claimed, over several connections at once.
+    fn fetch(&self, urls: &[Url]) {
         let next = AtomicUsize::new(0);
         std::thread::scope(|scope| {
             for _ in 0..urls.len().min(MAX_PARALLEL) {
@@ -449,30 +714,163 @@ impl Site {
                     let mut client = Client::new(self.tls.clone());
                     while let Some(url) = urls.get(next.fetch_add(1, Ordering::Relaxed)) {
                         let path = self.download(&mut client, url);
-                        self.files.lock().expect("downloaded files").insert(url.clone(), path);
+                        self.finish(url.clone(), path);
                     }
                 });
             }
         });
     }
 
-    /// Like `prefetch`, without waiting for the downloads.
-    pub fn prefetch_later(self: &Arc<Self>, srcs: Vec<String>) {
-        let site = self.clone();
-        std::thread::spawn(move || site.prefetch(&srcs));
+    /// Starts downloading the URLs nobody has started on, without waiting.
+    fn fetch_later(self: &Arc<Self>, urls: impl IntoIterator<Item = Url>) {
+        let urls = self.claim(urls);
+        if !urls.is_empty() {
+            let store = self.clone();
+            std::thread::spawn(move || store.fetch(&urls));
+        }
     }
 }
 
-impl Drop for Site {
+impl Drop for Store {
     fn drop(&mut self) {
         // The downloads are only needed while the page is open.
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
 
+/// A page opened from the web: its URL and the resources downloaded for it,
+/// kept as files so the rest of the renderer reads them like local ones.
+pub struct Site {
+    pub url: Url,
+    /// From the start of `open`: when the HTML's response headers arrived, and
+    /// when its last byte did.
+    pub first_byte: Duration,
+    pub received: Duration,
+    store: Arc<Store>,
+}
+
+impl Site {
+    /// Downloads the page at `location`. Returns the site and the page's HTML.
+    /// Stylesheets the HTML links to start downloading as soon as their tag arrives.
+    pub fn open(location: &str) -> Result<(Arc<Site>, String), String> {
+        let started = Instant::now();
+        let url = Url::parse(location).ok_or_else(|| format!("{location}: not an http or https URL"))?;
+        let tls = tls_config();
+        let store = Store::new(tls.clone())?;
+        // A second connection to the page's server, ready for the first stylesheet found.
+        preconnect(tls.clone(), url.clone());
+        let mut preload = Preload::default();
+        let mut first_byte = None;
+        let mut see = |at: &Url, piece: &[u8]| {
+            first_byte.get_or_insert_with(|| started.elapsed());
+            store.fetch_later(preload.feed(piece).iter().filter_map(|href| at.join(href)));
+        };
+        let (url, response) = Client::new(tls).get_watched(&url, Some(&mut see))?;
+        let received = started.elapsed();
+        if response.status >= 400 {
+            return Err(format!("{url}: HTTP {}", response.status));
+        }
+        let html = String::from_utf8_lossy(&response.body).into_owned();
+        let first_byte = first_byte.unwrap_or(received);
+        Ok((Arc::new(Site { url, first_byte, received, store }), html))
+    }
+
+    /// The URLs `srcs` refer to, without repeats.
+    fn urls(&self, srcs: &[String]) -> Vec<Url> {
+        let mut seen = HashSet::new();
+        srcs.iter().filter_map(|s| self.url.join(s)).filter(|u| seen.insert(u.clone())).collect()
+    }
+
+    /// The local file holding the resource `src` refers to, downloaded now unless
+    /// it already was; one already downloading is waited for. `None` when it cannot be fetched.
+    pub fn file(&self, src: &str) -> Option<PathBuf> {
+        let url = self.url.join(src)?;
+        if self.store.claim([url.clone()]).is_empty() {
+            self.store.wait(std::slice::from_ref(&url), None);
+            return self.store.ready(&url).flatten();
+        }
+        let path = self.store.download(&mut Client::new(self.store.tls.clone()), &url);
+        self.store.finish(url, path.clone());
+        path
+    }
+
+    /// The local file for `src` once its download has finished, `Some(None)` when
+    /// it failed or cannot be fetched. Before that, starts the download in the
+    /// background if nothing has, and returns `None` without waiting.
+    pub fn file_if_ready(&self, src: &str) -> Option<Option<PathBuf>> {
+        let Some(url) = self.url.join(src) else { return Some(None) };
+        let ready = self.store.ready(&url);
+        if ready.is_none() {
+            self.store.fetch_later([url]);
+        }
+        ready
+    }
+
+    /// True once the download of `src` has finished, or when it cannot be fetched.
+    pub fn arrived(&self, src: &str) -> bool {
+        self.url.join(src).is_none_or(|url| self.store.ready(&url).is_some())
+    }
+
+    /// Downloads the listed resources over several connections at once.
+    pub fn prefetch(&self, srcs: &[String]) {
+        let urls = self.urls(srcs);
+        self.store.fetch(&self.store.claim(urls.iter().cloned()));
+        // Some may have been downloading already, for an earlier request.
+        self.store.wait(&urls, None);
+    }
+
+    /// Like `prefetch`, without waiting for the downloads.
+    pub fn prefetch_later(&self, srcs: Vec<String>) {
+        self.store.fetch_later(self.urls(&srcs));
+    }
+
+    /// Waits until the listed resources have downloaded or `deadline` has passed.
+    /// Returns how many of them have arrived, and how many there are.
+    pub fn wait_for(&self, srcs: &[String], deadline: Instant) -> (usize, usize) {
+        let urls = self.urls(srcs);
+        self.store.wait(&urls, Some(deadline));
+        (urls.iter().filter(|u| self.store.ready(u).is_some()).count(), urls.len())
+    }
+
+    /// Opens connections to the servers of `srcs` other than the page's own, ahead
+    /// of the requests, so those start without waiting for TCP and TLS handshakes.
+    pub fn preconnect(&self, srcs: &[String]) {
+        let own = (self.url.https, self.url.host.as_str(), self.url.port);
+        let urls = self.urls(srcs);
+        let mut hosts = HashSet::new();
+        for url in &urls {
+            let key = (url.https, url.host.as_str(), url.port);
+            if key != own && hosts.len() < MAX_PRECONNECT && hosts.insert(key) {
+                preconnect(self.store.tls.clone(), url.clone());
+            }
+        }
+    }
+
+    /// Calls `wake` from the downloading thread whenever a resource arrives.
+    pub fn on_arrival(&self, wake: Wake) {
+        *self.store.wake.lock().expect("wake") = Some(wake);
+    }
+
+    /// How many downloads have finished so far; it grows with every arrival.
+    pub fn arrivals(&self) -> usize {
+        self.store.finished.load(Ordering::Acquire)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::Url;
+    use super::{Preload, Url};
+
+    #[test]
+    fn preload_finds_stylesheets_split_across_pieces() {
+        let html = b"<html><head><LINK rel=\"icon\" href=\"a.ico\"><link rel=stylesheet href='/s.css'><link\n rel=\"Stylesheet\" href=\"b.css\"></head>";
+        let mut preload = Preload::default();
+        let mut found = Vec::new();
+        for piece in html.chunks(7) {
+            found.extend(preload.feed(piece));
+        }
+        assert_eq!(found, ["/s.css", "b.css"]);
+    }
 
     #[test]
     fn urls_resolve_like_a_browser() {

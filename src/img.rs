@@ -42,8 +42,13 @@ pub struct Images {
     background: Option<(Sender<Decoded>, Receiver<Decoded>, Wake)>,
     /// Images a worker thread is decoding right now.
     pending: Vec<u32>,
-    /// For a page opened from the web: where its images are downloaded from.
-    site: Option<Arc<crate::net::Site>>,
+    /// For a page opened from the web: where its images are downloaded from, and
+    /// whether a lookup waits for the download.
+    site: Option<(Arc<crate::net::Site>, bool)>,
+    /// Images a lookup found still downloading, by URL as written in the page.
+    missing: Vec<Box<str>>,
+    /// How many lookups found their image still downloading.
+    misses: usize,
 }
 
 type Decoded = (u32, Option<Picture>, [u32; 4]);
@@ -64,9 +69,26 @@ impl Images {
         Images { base, ..Images::default() }
     }
 
-    /// Image URLs are from now on resolved against `site` and downloaded.
-    pub fn fetch_from(&mut self, site: Arc<crate::net::Site>) {
-        self.site = Some(site);
+    /// Image URLs are from now on resolved against `site` and downloaded. Without
+    /// `wait`, an image still downloading is looked up as missing, its download goes
+    /// on in the background, and `arrived` later tells when it can be laid out.
+    pub fn fetch_from(&mut self, site: Arc<crate::net::Site>, wait: bool) {
+        self.site = Some((site, wait));
+    }
+
+    /// How many lookups have found their image still downloading. Layout compares
+    /// it around a lookup to tell a late image from a broken one.
+    pub fn misses(&self) -> usize {
+        self.misses
+    }
+
+    /// How many images found missing have arrived since the last call. Their next
+    /// lookup finds them, so a page with arrivals needs laying out again.
+    pub fn arrived(&mut self) -> usize {
+        let Some((site, _)) = &self.site else { return 0 };
+        let before = self.missing.len();
+        self.missing.retain(|src| !site.arrived(src));
+        before - self.missing.len()
     }
 
     fn add(&mut self, key: &str, source: Option<(Source, f32, f32)>) -> Option<u32> {
@@ -78,8 +100,8 @@ impl Images {
         id
     }
 
-    /// Resolves an image URL relative to the page. Only local files load;
-    /// a root-relative URL is looked up below the page's directory.
+    /// Resolves an image URL relative to the page. Without a site only local files
+    /// load; a root-relative URL is looked up below the page's directory.
     pub fn file(&mut self, src: &str) -> Option<u32> {
         if let Some(&id) = self.by_key.get(src) {
             return id;
@@ -87,7 +109,19 @@ impl Images {
         let local = !src.is_empty() && !src.starts_with("data:") && !src.contains("://");
         let file = src.split(['?', '#']).next().unwrap_or(src).trim_start_matches('/');
         let path = match &self.site {
-            Some(site) => Some(src).filter(|s| !s.is_empty() && !s.starts_with("data:")).and_then(|s| site.file(s)),
+            Some(_) if src.is_empty() || src.starts_with("data:") => None,
+            Some((site, true)) => site.file(src),
+            Some((site, false)) => match site.file_if_ready(src) {
+                Some(path) => path,
+                None => {
+                    // Not remembered: the next lookup after it arrives finds it.
+                    self.misses += 1;
+                    if !self.missing.iter().any(|m| &**m == src) {
+                        self.missing.push(src.into());
+                    }
+                    return None;
+                }
+            },
             None => self.base.as_ref().filter(|_| local).map(|b| b.join(file)),
         };
         let source = path.and_then(|path| {

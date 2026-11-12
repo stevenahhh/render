@@ -303,6 +303,8 @@ struct Engine<'a> {
     images: &'a mut Images,
     /// Resolved picture per replaced element: (image id, width, height).
     pics: FxMap<NodeId, Option<(u32, f32, f32)>>,
+    /// Replaced elements whose image is still downloading.
+    waiting: FxMap<NodeId, ()>,
     /// Positioned boxes not yet ordered by a stacking context: (first item, end, z-index).
     zranges: Vec<(u32, u32, i32)>,
     vw: f32,
@@ -329,6 +331,7 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
         fonts,
         images,
         pics: FxMap::default(),
+        waiting: FxMap::default(),
         zranges: Vec::new(),
         vw,
         vh,
@@ -670,6 +673,10 @@ impl<'a> Engine<'a> {
             }
             if tag == atom::SVG {
                 return 0.0;
+            }
+            if self.waiting.contains_key(&n) {
+                // An empty box of the size its attributes give, until the image arrives.
+                return if inner_h.is_nan() { 0.0 } else { inner_h };
             }
         }
         let (asc, desc, gap) = self.fonts.metrics(face_of(s));
@@ -1439,6 +1446,7 @@ impl<'a> Engine<'a> {
         let dom = self.dom;
         let node = &dom.nodes[n as usize];
         let (vw, vh) = (self.vw, self.vh);
+        let misses = self.images.misses();
         let id = if node.tag == atom::SVG {
             let mut markup = String::new();
             dom.serialize(n, true, &mut markup);
@@ -1462,6 +1470,9 @@ impl<'a> Engine<'a> {
                 .or_else(|| dom.attr(n, atom::SRCSET).and_then(first_candidate).and_then(|u| self.images.file(u)))
         };
         let p = id.map(|id| (id, self.images.size(id))).map(|(id, (w, h))| (id, w, h)).filter(|p| p.1 > 0.0 && p.2 > 0.0);
+        if id.is_none() && self.images.misses() != misses {
+            self.waiting.insert(n, ());
+        }
         self.pics.insert(n, p);
         p
     }
@@ -1509,6 +1520,7 @@ impl<'a> Engine<'a> {
             let text = dom.attr(n, attr).unwrap_or("");
             match dom.attr(n, atom::WIDTH).and_then(|v| v.trim().parse::<f32>().ok()) {
                 Some(w) if tag == atom::IMG => (w - extra).max(0.0),
+                _ if self.waiting.contains_key(&n) => 0.0,
                 _ => self.fonts.measure(face_of(s), text, s.font_size, 0.0).max(if tag == atom::IMG { 16.0 } else { 0.0 }),
             }
         } else if matches!(s.display, Display::Flex | Display::InlineFlex) {

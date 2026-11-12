@@ -8,9 +8,19 @@ use crate::js::{Host, Js};
 use crate::FxMap;
 use crate::layout::{layout, Kind, Layout};
 use crate::style::{compute_styles, Style};
-use crate::net::Site;
+use crate::net::{Site, Wake};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+/// How long a page shown progressively waits for its linked stylesheets after the
+/// HTML has arrived; later ones restyle the page when they come. The preload
+/// scanner requests them as soon as their tag arrives, over a connection opened
+/// while the HTML was requested, so one usually lands one round trip after the
+/// HTML: a few hundred milliseconds even on a 170 ms RTT server. One second is
+/// twice that, while keeping a page whose HTML arrives within half a second
+/// well inside a two-second first frame.
+const CSS_BUDGET: Duration = Duration::from_millis(1000);
 
 /// Built-in defaults, applied below every author rule.
 const UA_CSS: &str = "
@@ -69,16 +79,16 @@ option:first-child { display: inline }
 
 type Script = (String, String, Option<std::path::PathBuf>);
 
-/// The stylesheet, image and (when asked) script references in a document, so they
-/// can be downloaded together before the page is built.
-fn resource_srcs(html: &str, scripts: bool) -> Vec<String> {
+/// The stylesheet references in a document, then its image and (when asked)
+/// script references, so they can be downloaded together before the page is built.
+fn resource_srcs(html: &str, scripts: bool) -> (Vec<String>, Vec<String>) {
     let dom = parse_html(html);
     let first = |set: &str| set.split(',').next().and_then(|c| c.split_ascii_whitespace().next()).map(str::to_string);
-    let mut out = Vec::new();
+    let (mut css, mut out) = (Vec::new(), Vec::new());
     for n in 0..dom.nodes.len() as NodeId {
         match dom.nodes[n as usize].tag {
             atom::LINK if dom.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet")) => {
-                out.extend(dom.attr(n, atom::HREF).map(str::to_string));
+                css.extend(dom.attr(n, atom::HREF).map(str::to_string));
             }
             atom::SCRIPT if scripts => out.extend(dom.attr(n, atom::SRC).map(str::to_string)),
             atom::IMG => {
@@ -90,7 +100,55 @@ fn resource_srcs(html: &str, scripts: bool) -> Vec<String> {
             _ => {}
         }
     }
-    out
+    (css, out)
+}
+
+/// The page's style sheet: built-in defaults, then every `<style>` and linked
+/// stylesheet in document order. With `wait` a linked one is downloaded first;
+/// without, one still downloading is left out. Returns the sheet, whether its CSS
+/// uses viewport units, and the stylesheets left out.
+fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bool) -> (Sheet, bool, Vec<String>) {
+    let mut sheet = Sheet::default();
+    sheet.add(UA_CSS, &mut dom.atoms, 0);
+    let (mut viewport_units, mut left_out) = (false, Vec::new());
+    for n in 0..dom.nodes.len() as NodeId {
+        match dom.nodes[n as usize].tag {
+            atom::STYLE => {
+                let mut css = String::new();
+                dom.text_content(n, &mut css);
+                sheet.add(&css, &mut dom.atoms, 1);
+            }
+            atom::LINK => {
+                let is_css = dom.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet"));
+                let href = dom.attr(n, atom::HREF).filter(|_| is_css);
+                let path = match (site, href) {
+                    (Some(site), Some(h)) if !wait => site.file_if_ready(h).unwrap_or_else(|| {
+                        left_out.push(h.to_string());
+                        None
+                    }),
+                    (Some(site), h) => h.and_then(|h| site.file(h)),
+                    (None, h) => h.zip(base).map(|(h, b)| b.join(h)),
+                };
+                if let Some(css) = path.and_then(|p| std::fs::read(p).ok()) {
+                    let css = String::from_utf8_lossy(&css);
+                    viewport_units |= css.contains("vw") || css.contains("vh");
+                    sheet.add(&css, &mut dom.atoms, 1);
+                }
+            }
+            _ => {}
+        }
+    }
+    sheet.finish();
+    (sheet, viewport_units, left_out)
+}
+
+/// A page's HTML and the stylesheets that arrived in time, downloaded on a worker
+/// thread for `Page::from_download` to build on the main one.
+pub struct Download {
+    pub site: Arc<Site>,
+    html: String,
+    /// How many linked stylesheets arrived before the page was handed over, of how many.
+    pub stylesheets: (usize, usize),
 }
 
 pub struct Page {
@@ -116,13 +174,19 @@ pub struct Page {
     site: Option<Arc<Site>>,
     /// Keep every element's box in the layout. Set before the first `update`.
     pub record_boxes: bool,
+    /// For a page shown before its resources arrived: linked stylesheets left out of
+    /// `sheet` so far, the site's arrival count last looked at, and whether arrived
+    /// images call for a new layout.
+    css_left_out: Vec<String>,
+    arrivals: usize,
+    stale: bool,
 }
 
 impl Page {
     /// Parses HTML and every stylesheet it references. `base` is the
     /// directory that relative `<link href>` paths resolve against.
     pub fn from_html(html: &str, base: Option<&Path>) -> Page {
-        Page::parse(html, base, false, None)
+        Page::parse(html, base, false, None, true)
     }
 
     /// With `defer`, every script is kept for `run_deferred`, so the time to the
@@ -130,11 +194,14 @@ impl Page {
     /// still run in document order.
     ///
     /// With `site`, stylesheets, scripts and images are downloaded from the web.
-    fn parse(html: &str, base: Option<&Path>, defer: bool, site: Option<Arc<Site>>) -> Page {
+    ///
+    /// Without `wait` (for a page from the web), nothing waits for a download: a
+    /// stylesheet or image that has not arrived is left out until it does.
+    fn parse(html: &str, base: Option<&Path>, defer: bool, site: Option<Arc<Site>>, wait: bool) -> Page {
         let mut dom = parse_html(html);
-        let mut sheet = Sheet::default();
-        sheet.add(UA_CSS, &mut dom.atoms, 0);
-        let mut viewport_units = html.contains("vw") || html.contains("vh");
+        let arrivals = site.as_ref().map_or(0, |s| s.arrivals());
+        let (sheet, css_units, css_left_out) = style_sheet(&mut dom, base, site.as_deref(), wait);
+        let viewport_units = css_units || html.contains("vw") || html.contains("vh");
         let mut title = String::new();
         let mut scripts: Vec<Script> = Vec::new();
         for n in 0..dom.nodes.len() as NodeId {
@@ -171,29 +238,10 @@ impl Page {
                         }
                     }
                 }
-                atom::STYLE => {
-                    let mut css = String::new();
-                    dom.text_content(n, &mut css);
-                    sheet.add(&css, &mut dom.atoms, 1);
-                }
-                atom::LINK => {
-                    let is_css = dom.attr(n, atom::REL).is_some_and(|r| r.eq_ignore_ascii_case("stylesheet"));
-                    let href = dom.attr(n, atom::HREF).filter(|_| is_css);
-                    let path = match &site {
-                        Some(site) => href.and_then(|h| site.file(h)),
-                        None => href.zip(base).map(|(h, b)| b.join(h)),
-                    };
-                    if let Some(css) = path.and_then(|p| std::fs::read(p).ok()) {
-                        let css = String::from_utf8_lossy(&css);
-                        viewport_units |= css.contains("vw") || css.contains("vh");
-                        sheet.add(&css, &mut dom.atoms, 1);
-                    }
-                }
                 atom::TITLE if title.is_empty() => dom.text_content(n, &mut title),
                 _ => {}
             }
         }
-        sheet.finish();
         let mut page = Page {
             dom,
             sheet,
@@ -213,13 +261,16 @@ impl Page {
             deferred: Vec::new(),
             site: site.clone(),
             record_boxes: false,
+            css_left_out,
+            arrivals,
+            stale: false,
         };
         if let Some(site) = site {
             if defer {
                 let later = scripts.iter().filter(|s| s.1.is_empty() && s.0 != "inline script").map(|s| s.0.clone());
                 site.prefetch_later(later.collect());
             }
-            page.images.fetch_from(site);
+            page.images.fetch_from(site, wait);
         }
         if !scripts.is_empty() {
             page.js = Some(Js::new(base));
@@ -362,7 +413,7 @@ impl Page {
             return page;
         }
         let bytes = std::fs::read(path)?;
-        Ok(Page::parse(&String::from_utf8_lossy(&bytes), path.parent(), true, None))
+        Ok(Page::parse(&String::from_utf8_lossy(&bytes), path.parent(), true, None, true))
     }
 
     /// The page behind an `http://` or `https://` location, or `None` for a file path.
@@ -375,8 +426,64 @@ impl Page {
     /// resources in parallel. With `defer` scripts are fetched in the background.
     pub fn load_url(location: &str, defer: bool) -> Result<Page, String> {
         let (site, html) = Site::open(location)?;
-        site.prefetch(&resource_srcs(&html, !defer));
-        Ok(Page::parse(&html, None, defer, Some(site)))
+        let (mut srcs, rest) = resource_srcs(&html, !defer);
+        srcs.extend(rest);
+        site.prefetch(&srcs);
+        Ok(Page::parse(&html, None, defer, Some(site), true))
+    }
+
+    /// Downloads a page's HTML and its linked stylesheets, waiting for those at most
+    /// `CSS_BUDGET` past the HTML; then starts its images downloading in the
+    /// background unless `current` says a newer navigation has replaced this one.
+    /// Runs on any thread: the page is built from the result by `from_download`.
+    pub fn download(location: &str, current: &dyn Fn() -> bool) -> Result<Download, String> {
+        let (site, html) = Site::open(location)?;
+        let (css, rest) = resource_srcs(&html, false);
+        site.prefetch_later(css.clone());
+        site.preconnect(&rest);
+        let stylesheets = site.wait_for(&css, Instant::now() + CSS_BUDGET);
+        if current() {
+            site.prefetch_later(rest);
+        }
+        Ok(Download { site, html, stylesheets })
+    }
+
+    /// Builds a page from a `download` without waiting for anything still on its
+    /// way: stylesheets and images that arrive later are taken in by `take_arrivals`.
+    /// Scripts are held back for `run_deferred`.
+    pub fn from_download(download: Download) -> Page {
+        Page::parse(&download.html, None, true, Some(download.site), false)
+    }
+
+    /// Calls `wake` from a downloading thread whenever a resource of this page arrives.
+    pub fn on_arrival(&self, wake: Wake) {
+        if let Some(site) = &self.site {
+            site.on_arrival(wake);
+        }
+    }
+
+    /// Takes in the stylesheets and images that arrived since the last call, so the
+    /// next `update` restyles or lays the page out again. Returns how many
+    /// stylesheets and how many images arrived.
+    pub fn take_arrivals(&mut self) -> (usize, usize) {
+        let Some(site) = self.site.clone() else { return (0, 0) };
+        let arrivals = site.arrivals();
+        if arrivals == self.arrivals {
+            return (0, 0);
+        }
+        self.arrivals = arrivals;
+        let mut css = 0;
+        if self.css_left_out.iter().any(|href| site.arrived(href)) {
+            let (sheet, units, left_out) = style_sheet(&mut self.dom, None, Some(&site), false);
+            css = self.css_left_out.len().saturating_sub(left_out.len());
+            self.sheet = sheet;
+            self.viewport_units |= units;
+            self.styles.clear();
+            self.css_left_out = left_out;
+        }
+        let images = self.images.arrived();
+        self.stale |= images > 0;
+        (css, images)
     }
 
     /// The URL of a page opened from the web.
@@ -418,7 +525,7 @@ impl Page {
             self.restyle(vw, vh);
             self.media_sig = sig;
         }
-        if restyle || resized {
+        if restyle || resized || std::mem::take(&mut self.stale) {
             self.relayout(fonts, vw, vh);
         }
         self.vw = vw;

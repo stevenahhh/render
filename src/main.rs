@@ -1,9 +1,12 @@
 use render::font::Fonts;
-use render::page::Page;
+use render::page::{Download, Page};
 use render::paint::{paint, scrollbar, Target};
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -217,8 +220,16 @@ struct App {
     address: Option<String>,
     /// The next typed text replaces the whole address, as after select-all.
     replace: bool,
-    /// The location to open, and whether the bar has shown "Loading" for it yet.
-    loading: Option<(PathBuf, bool)>,
+    /// The web page being downloaded; the address bar shows "Loading" meanwhile.
+    loading: Option<Navigation>,
+    /// The number of the newest navigation. A worker with an older one gives up.
+    current: Arc<AtomicU64>,
+    /// Where navigation workers send what they downloaded.
+    fetched: (Sender<Fetched>, Receiver<Fetched>),
+    /// When the page now shown was asked for, until its first frame is reported.
+    opened: Option<Instant>,
+    /// Images of the current page that arrived after it was laid out without them.
+    late_images: usize,
     /// Why the last location could not be opened.
     notice: Option<String>,
     /// The address bar as last drawn: its markup, width in pixels and pixels.
@@ -227,6 +238,25 @@ struct App {
 
 /// Height of the address bar in CSS pixels.
 const BAR: f32 = 34.0;
+
+/// A web page being downloaded on a worker thread, and how to show it once it is there.
+struct Navigation {
+    id: u64,
+    path: PathBuf,
+    scroll: f32,
+    remember: bool,
+    started: Instant,
+}
+
+/// What a navigation's worker sends back.
+struct Fetched {
+    id: u64,
+    result: Result<Download, String>,
+}
+
+fn millis(d: Duration) -> f64 {
+    d.as_secs_f64() * 1e3
+}
 
 /// What the address bar opens for typed text: a URL, an existing file, or a host
 /// name that gets `https://` in front.
@@ -255,13 +285,16 @@ fn draw_bar(markup: &str, fonts: &mut Fonts, w: u32, h: u32, scale: f32) -> Vec<
     pixels
 }
 
-/// Decode the page's images off the main thread; a finished one wakes the event loop.
+/// Decode the page's images off the main thread; a finished one wakes the event loop,
+/// and so does a resource of the page that finishes downloading.
 fn decode_in_background(page: &mut Page, proxy: &EventLoopProxy<()>) {
     let proxy = proxy.clone();
-    page.images.decode_in_background(std::sync::Arc::new(move || {
+    let wake: render::net::Wake = Arc::new(move || {
         // The loop is gone only while the process is exiting.
         let _ = proxy.send_event(());
-    }));
+    });
+    page.images.decode_in_background(wake.clone());
+    page.on_arrival(wake);
 }
 
 impl App {
@@ -274,7 +307,7 @@ impl App {
     fn bar_markup(&self) -> String {
         let escape = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
         let (text, border, color) = match (&self.loading, &self.address, &self.notice) {
-            (Some((target, _)), _, _) => (format!("Loading {} ...", escape(&target.display().to_string())), "#c8c8c8", "#777"),
+            (Some(nav), _, _) => (format!("Loading {} ...", escape(&nav.path.display().to_string())), "#c8c8c8", "#777"),
             (None, Some(text), _) if text.is_empty() => ("<span style=\"color:#999\">Type a URL or a file path, then press Enter</span>".to_string(), "#0a84ff", "#222"),
             (None, Some(text), _) => (format!("{}<span style=\"color:#0a84ff\">|</span>", escape(text)), "#0a84ff", "#222"),
             (None, None, Some(notice)) => (escape(notice), "#d33", "#b00"),
@@ -302,12 +335,13 @@ impl App {
             text.extend(typed.chars().filter(|c| !c.is_control()));
         };
         let mut editing = true;
+        let mut target = None;
         match event.logical_key.as_ref() {
             Key::Named(NamedKey::Escape) => editing = false,
             Key::Named(NamedKey::Enter) => {
                 editing = false;
                 if !text.trim().is_empty() {
-                    self.loading = Some((locate(text.trim()), false));
+                    target = Some(locate(text.trim()));
                 }
             }
             Key::Named(NamedKey::Backspace) if replace => text.clear(),
@@ -322,6 +356,9 @@ impl App {
         }
         self.address = editing.then_some(text);
         self.request_redraw();
+        if let Some(target) = target {
+            self.open(target, 0.0, true);
+        }
     }
 
     fn request_redraw(&self) {
@@ -340,34 +377,111 @@ impl App {
         }
     }
 
+    /// Opens a location in place of the current page. A web page downloads on a
+    /// worker thread while the window stays responsive; a local file is read here.
     fn open(&mut self, path: PathBuf, scroll: f32, remember: bool) {
+        if path.to_str().is_some_and(render::net::is_url) {
+            self.navigate(path, scroll, remember);
+            return;
+        }
+        // Supersedes a navigation still in flight.
+        self.current.fetch_add(1, Ordering::Relaxed);
+        self.loading = None;
         let started = Instant::now();
         // Like the first page: show a frame first, run scripts after it.
         match Page::load_deferred(&path) {
-            Ok(mut page) => {
-                if self.stats {
-                    eprintln!("opened {} in {:.1} ms", path.display(), started.elapsed().as_secs_f64() * 1e3);
-                }
-                decode_in_background(&mut page, &self.proxy);
-                if remember {
-                    self.history.push((self.path.clone(), self.scroll));
-                }
-                self.page = page;
-                self.path = path;
-                self.scroll = scroll;
-                self.notice = None;
-                self.painted = false;
-                if let Some(w) = &self.window {
-                    w.set_title(&title(&self.page, &self.path));
-                }
-                self.request_redraw();
+            Ok(page) => self.show(page, path, scroll, remember, started),
+            Err(e) => self.fail(&path, &e.to_string()),
+        }
+    }
+
+    /// Starts downloading a web page on a worker thread; `arrive` shows it. A newer
+    /// navigation supersedes this one: the worker then stops before the images and
+    /// its result is dropped unseen.
+    fn navigate(&mut self, path: PathBuf, scroll: f32, remember: bool) {
+        let id = self.current.fetch_add(1, Ordering::Relaxed) + 1;
+        let (tx, proxy, current) = (self.fetched.0.clone(), self.proxy.clone(), self.current.clone());
+        let location = path.to_string_lossy().into_owned();
+        std::thread::spawn(move || {
+            let live = || current.load(Ordering::Relaxed) == id;
+            let result = Page::download(&location, &live);
+            // The loop is gone only while the process is exiting.
+            if live() && tx.send(Fetched { id, result }).is_ok() {
+                let _ = proxy.send_event(());
             }
-            Err(e) => {
-                eprintln!("cannot open {}: {e}", path.display());
-                self.notice = Some(format!("Cannot open {}: {e}", path.display()));
-                self.request_redraw();
+        });
+        self.loading = Some(Navigation { id, path, scroll, remember, started: Instant::now() });
+        self.notice = None;
+        self.request_redraw();
+    }
+
+    /// Shows the page a navigation worker downloaded, unless a newer one superseded it.
+    fn arrive(&mut self, fetched: Fetched) {
+        let Some(nav) = self.loading.take_if(|nav| nav.id == fetched.id) else { return };
+        match fetched.result {
+            Ok(download) => {
+                if self.stats {
+                    let ((ready, total), site) = (download.stylesheets, &download.site);
+                    eprintln!(
+                        "html {}: first byte {:.1} ms, complete {:.1} ms; {ready} of {total} stylesheets ready after {:.1} ms",
+                        site.url,
+                        millis(site.first_byte),
+                        millis(site.received),
+                        millis(nav.started.elapsed())
+                    );
+                }
+                let page = Page::from_download(download);
+                self.show(page, nav.path, nav.scroll, nav.remember, nav.started);
+            }
+            Err(e) => self.fail(&nav.path, &e),
+        }
+    }
+
+    fn show(&mut self, mut page: Page, path: PathBuf, scroll: f32, remember: bool, started: Instant) {
+        if self.stats {
+            eprintln!("opened {} in {:.1} ms", path.display(), millis(started.elapsed()));
+            if let Some(start) = PROCESS_START.get().filter(|_| !FIRST_FRAME.load(Ordering::Relaxed)) {
+                eprintln!("page loaded: {:.1} ms after process start", millis(start.elapsed()));
             }
         }
+        decode_in_background(&mut page, &self.proxy);
+        if remember {
+            self.history.push((self.path.clone(), self.scroll));
+        }
+        self.page = page;
+        self.path = path;
+        self.scroll = scroll;
+        self.notice = None;
+        self.painted = false;
+        self.opened = Some(started);
+        self.late_images = 0;
+        if let Some(w) = &self.window {
+            w.set_title(&title(&self.page, &self.path));
+        }
+        // Resources that arrived while the page was being built.
+        self.take_arrivals();
+        self.request_redraw();
+    }
+
+    fn fail(&mut self, path: &Path, e: &str) {
+        eprintln!("cannot open {}: {e}", path.display());
+        self.notice = Some(format!("Cannot open {}: {e}", path.display()));
+        self.request_redraw();
+    }
+
+    /// Takes in the current page's stylesheets and images that arrived since it was
+    /// last laid out, and repaints it with them.
+    fn take_arrivals(&mut self) {
+        let (css, images) = self.page.take_arrivals();
+        if css + images == 0 {
+            return;
+        }
+        self.late_images += images;
+        if let Some(start) = PROCESS_START.get().filter(|_| self.stats) {
+            let at = millis(start.elapsed());
+            eprintln!("late arrivals: {css} stylesheets, {images} images ({} images so far); relayout at {at:.1} ms after process start", self.late_images);
+        }
+        self.request_redraw();
     }
 
     fn follow(&mut self, href: &str) {
@@ -422,12 +536,15 @@ impl App {
         buf.present().expect("present frame");
         let present = t2.elapsed();
         self.painted = true;
-        if let Some((_, shown)) = &mut self.loading {
-            *shown = true;
-        }
-        if !FIRST_FRAME.swap(true, std::sync::atomic::Ordering::Relaxed) && self.stats {
-            if let Some(start) = PROCESS_START.get() {
-                eprintln!("first frame: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
+        // While a navigation is in flight the frame still shows the page before it.
+        if self.loading.is_none() {
+            if !FIRST_FRAME.swap(true, Ordering::Relaxed) && self.stats {
+                if let Some(start) = PROCESS_START.get() {
+                    eprintln!("first frame: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
+                }
+            }
+            if let Some(started) = self.opened.take().filter(|_| self.stats) {
+                eprintln!("first frame of {}: {:.1} ms after it was asked for", self.path.display(), millis(started.elapsed()));
             }
         }
         if self.stats {
@@ -485,19 +602,16 @@ impl ApplicationHandler for App {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, _event: ()) {
+        while let Ok(fetched) = self.fetched.1.try_recv() {
+            self.arrive(fetched);
+        }
+        self.take_arrivals();
         if self.page.images.poll() {
             self.request_redraw();
         }
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // Opening blocks while the page downloads, so it starts only after a frame has
-        // shown "Loading" in the address bar.
-        if matches!(self.loading, Some((_, true))) {
-            if let Some((target, _)) = self.loading.take() {
-                self.open(target, 0.0, true);
-            }
-        }
         // Once a frame is on screen, run the held-back scripts one per turn of the
         // loop, so input and repaints are served in between.
         if self.painted {
@@ -609,9 +723,11 @@ fn run() -> Result<(), String> {
     let event_loop = EventLoop::new().map_err(|e| format!("cannot start the event loop: {e}"))?;
     let proxy = event_loop.create_proxy();
     let blank = args.path.as_os_str().is_empty();
-    let mut page = if blank { Page::from_html("", None) } else { Page::load_deferred(&args.path).map_err(io)? };
+    // A web page downloads while the window opens; until then the window is empty.
+    let web = args.path.to_str().is_some_and(render::net::is_url);
+    let mut page = if blank || web { Page::from_html("", None) } else { Page::load_deferred(&args.path).map_err(io)? };
     decode_in_background(&mut page, &proxy);
-    if args.stats {
+    if args.stats && !web {
         if let Some(start) = PROCESS_START.get() {
             eprintln!("page loaded: {:.1} ms after process start", start.elapsed().as_secs_f64() * 1e3);
         }
@@ -633,9 +749,16 @@ fn run() -> Result<(), String> {
         address: blank.then(String::new),
         replace: false,
         loading: None,
+        current: Arc::new(AtomicU64::new(0)),
+        fetched: channel(),
+        opened: None,
+        late_images: 0,
         notice: None,
         bar: (String::new(), 0, Vec::new()),
     };
+    if web {
+        app.navigate(args.path.clone(), 0.0, false);
+    }
     event_loop.set_control_flow(ControlFlow::Wait);
     event_loop.run_app(&mut app).map_err(|e| format!("event loop failed: {e}"))
 }
