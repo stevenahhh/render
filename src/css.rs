@@ -327,7 +327,7 @@ pub enum BgSize {
 pub const DECO_UNDERLINE: u8 = 1;
 pub const DECO_LINE_THROUGH: u8 = 2;
 
-/// Splits on a separator byte outside parentheses and quotes. A space
+/// Splits on a separator byte outside parentheses, quotes and escapes. A space
 /// separator matches any ASCII whitespace.
 pub struct SplitTop<'a> {
     s: &'a str,
@@ -358,10 +358,12 @@ impl<'a> Iterator for SplitTop<'a> {
                 depth += 1;
             } else if c == b')' {
                 depth -= 1;
+            } else if c == b'\\' {
+                i += 1;
             } else if c == b'"' || c == b'\'' {
                 i += 1;
                 while i < b.len() && b[i] != c {
-                    i += 1;
+                    i += 1 + (b[i] == b'\\') as usize;
                 }
             } else if depth <= 0 && (c == self.sep || (self.sep == b' ' && c.is_ascii_whitespace())) {
                 break;
@@ -774,11 +776,10 @@ fn without_line_names(v: &str) -> String {
         .collect()
 }
 
-/// The address in a `url()` token, without quotes.
-fn css_url(t: &str) -> Option<&str> {
+/// The address in a `url()` token, without quotes and with its escapes decoded.
+fn css_url(t: &str) -> Option<Cow<'_, str>> {
     let inner = t.strip_prefix("url(")?.strip_suffix(')')?.trim();
-    let unquoted = inner.strip_prefix(['"', '\'']).and_then(|s| s.strip_suffix(['"', '\''])).unwrap_or(inner);
-    Some(unquoted.trim()).filter(|u| !u.is_empty())
+    Some(unquote(inner)).filter(|u| !u.trim().is_empty())
 }
 
 fn is_position(t: &str) -> bool {
@@ -832,13 +833,16 @@ fn rebase_urls<'a>(css: &'a str, base: &str) -> Cow<'a, str> {
         let token = &rest[p..p + len + 1];
         out.push_str(&rest[..p]);
         let absolute = |u: &str| u.starts_with(['/', '#']) || u.starts_with("data:") || u.contains("://");
-        match css_url(token).filter(|u| !absolute(u)) {
+        match css_url(token).filter(|u| !absolute(u.trim())) {
             Some(u) => {
+                let u = u.trim();
                 let joined = match &web {
                     Some(b) => b.join(u).map(|j| j.to_string()),
                     None => Some(format!("{dir}{u}")),
                 };
-                out.push_str(&format!("url(\"{}\")", joined.as_deref().unwrap_or(u)));
+                // Written back as a string, so it is read the same way again.
+                let escaped = joined.as_deref().unwrap_or(u).replace('\\', "\\\\").replace('"', "\\\"");
+                out.push_str(&format!("url(\"{escaped}\")"));
             }
             None => out.push_str(token),
         }
@@ -1016,7 +1020,7 @@ fn font_family(v: &str) -> Family {
 
 /// The names of a `font-family` list, unquoted and in lower case.
 pub fn family_names(v: &str) -> impl Iterator<Item = String> + '_ {
-    SplitTop::new(v, b',').map(|name| name.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase())
+    SplitTop::new(v, b',').map(|name| unquote(name.trim()).to_ascii_lowercase())
 }
 
 /// The built-in family that stands in for a family name, if any does.
@@ -1057,8 +1061,8 @@ fn font_face(body: &str) -> Option<FontFace> {
                     let mut parts = tokens(entry.trim());
                     let Some(url) = parts.next().and_then(css_url) else { continue };
                     let format = parts.find_map(|p| p.strip_prefix("format(")?.strip_suffix(')'));
-                    let format = format.map(|f| f.trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase().into());
-                    face.srcs.push((url.into(), format));
+                    let format = format.map(|f| unquote(f.trim()).to_ascii_lowercase().into());
+                    face.srcs.push((url.trim().into(), format));
                 }
             }
             "unicode-range" => face.ranges = unicode_ranges(value).unwrap_or_default(),
@@ -1240,7 +1244,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
                     // Of several layers the last, painted under the others, stands for them all.
                     grad = SplitTop::new(t, b',').filter_map(|l| parse_gradient(l.trim())).last().map(Rc::new);
                 } else if let Some(u) = css_url(t.trim_end_matches(',')) {
-                    url = url.or(Some(Rc::from(u)));
+                    url = url.or(Some(Rc::from(u.trim())));
                 } else if t == "none" {
                     none = true;
                 } else if let Some(c) = color_tok(t) {
@@ -1620,12 +1624,120 @@ pub struct Part {
     pub comb: Comb,
 }
 
-fn ident(b: &[u8], i: &mut usize) -> std::ops::Range<usize> {
-    let s = *i;
-    while *i < b.len() && (b[*i].is_ascii_alphanumeric() || b[*i] == b'-' || b[*i] == b'_' || b[*i] >= 0x80) {
-        *i += 1;
+/// The character a CSS escape stands for (CSS Syntax 4.3.7), its backslash just
+/// before `s[i..]`, and where the text after it starts. One to six hex digits name
+/// a code point, and one whitespace after them belongs to the escape; any other
+/// character stands for itself.
+fn escape(s: &str, i: usize) -> (char, usize) {
+    let b = s.as_bytes();
+    let hex = b[i..].iter().take(6).take_while(|c| c.is_ascii_hexdigit()).count();
+    if hex == 0 {
+        return s[i..].chars().next().map_or(('\u{FFFD}', i), |c| (c, i + c.len_utf8()));
     }
-    s..*i
+    let mut end = i + hex;
+    if b[end..].starts_with(b"\r\n") {
+        end += 2;
+    } else if end < b.len() && matches!(b[end], b' ' | b'\t' | b'\n' | b'\r' | 0x0c) {
+        end += 1;
+    }
+    let code = u32::from_str_radix(&s[i..i + hex], 16).unwrap_or(0);
+    (char::from_u32(code).filter(|&c| c != '\0').unwrap_or('\u{FFFD}'), end)
+}
+
+/// `s` with its CSS escapes decoded; a backslash before a newline, which
+/// continues a string on the next line, is dropped with the newline.
+fn unescape(s: &str) -> Cow<'_, str> {
+    if !s.contains('\\') {
+        return Cow::Borrowed(s);
+    }
+    let b = s.as_bytes();
+    let (mut out, mut i) = (String::with_capacity(s.len()), 0);
+    while let Some(p) = memchr::memchr(b'\\', &b[i..]) {
+        out.push_str(&s[i..i + p]);
+        i += p + 1;
+        match b.get(i) {
+            None => {}
+            Some(b'\r') if b.get(i + 1) == Some(&b'\n') => i += 2,
+            Some(b'\n' | b'\r' | 0x0c) => i += 1,
+            Some(_) => {
+                let (c, end) = escape(s, i);
+                out.push(c);
+                i = end;
+            }
+        }
+    }
+    out.push_str(&s[i..]);
+    Cow::Owned(out)
+}
+
+/// The value of a CSS string such as `"a\"b"`, or of other text, with its
+/// escapes decoded.
+fn unquote(t: &str) -> Cow<'_, str> {
+    match t.as_bytes().first() {
+        Some(&q @ (b'"' | b'\'')) => {
+            let body = &t[1..];
+            let end = string_end(body.as_bytes(), 0, q);
+            unescape(&body[..end.min(body.len())])
+        }
+        _ => unescape(t),
+    }
+}
+
+/// Where the string closed by the quote `q` ends in `b`, reading from `i`: the
+/// index of that quote, or `b.len()` when it is missing. Escaped quotes are skipped.
+fn string_end(b: &[u8], mut i: usize, q: u8) -> usize {
+    while i < b.len() && b[i] != q {
+        i += 1 + (b[i] == b'\\') as usize;
+    }
+    i.min(b.len())
+}
+
+/// Reads a name at `*i`, the CSS escapes in it decoded, so `lg\:flex` reads as
+/// `lg:flex`.
+fn ident<'s>(s: &'s str, i: &mut usize) -> Cow<'s, str> {
+    let b = s.as_bytes();
+    let start = *i;
+    let (mut out, mut copied) = (String::new(), start);
+    while *i < b.len() {
+        match b[*i] {
+            c if c.is_ascii_alphanumeric() || c == b'-' || c == b'_' || c >= 0x80 => *i += 1,
+            b'\\' if b.get(*i + 1).is_some_and(|&c| !matches!(c, b'\n' | b'\r' | 0x0c)) => {
+                out.push_str(&s[copied..*i]);
+                let (c, end) = escape(s, *i + 1);
+                out.push(c);
+                (*i, copied) = (end, end);
+            }
+            _ => break,
+        }
+    }
+    if copied == start {
+        return Cow::Borrowed(&s[start..*i]);
+    }
+    out.push_str(&s[copied..*i]);
+    Cow::Owned(out)
+}
+
+/// Where the bracket or parenthesis opened at `b[open]` closes, past nested
+/// ones, strings and escapes: the index of the closing byte.
+fn block_end(b: &[u8], open: usize) -> Option<usize> {
+    let (o, c) = (b[open], if b[open] == b'[' { b']' } else { b')' });
+    let (mut depth, mut i) = (0u32, open);
+    while i < b.len() {
+        match b[i] {
+            x if x == o => depth += 1,
+            x if x == c => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            b'\\' => i += 1,
+            q @ (b'"' | b'\'') => i = string_end(b, i + 1, q),
+            _ => {}
+        }
+        i += 1;
+    }
+    None
 }
 
 fn parse_nth(arg: &str) -> Option<(i32, i32)> {
@@ -1649,29 +1761,52 @@ fn parse_nth(arg: &str) -> Option<(i32, i32)> {
     }
 }
 
+/// An attribute selector from the text between its brackets: `name`, or
+/// `name op value` where the value is a name or a string, then a case flag.
 fn parse_attr_sel(inner: &str, atoms: &mut Interner) -> Option<AttrSel> {
-    let inner = inner.trim();
-    let Some(eq) = inner.find('=') else {
-        return Some(AttrSel { name: atoms.intern_lower(inner), op: AttrOp::Exists, value: "".into() });
+    let b = inner.as_bytes();
+    let skip_ws = |i: &mut usize| {
+        while *i < b.len() && b[*i].is_ascii_whitespace() {
+            *i += 1;
+        }
     };
-    let (mut name, op) = (&inner[..eq], AttrOp::Eq);
-    let op = match name.as_bytes().last() {
-        Some(b'~') => AttrOp::Includes,
-        Some(b'|') => AttrOp::Dash,
-        Some(b'^') => AttrOp::Prefix,
-        Some(b'$') => AttrOp::Suffix,
-        Some(b'*') => AttrOp::Substr,
-        _ => op,
+    let mut i = 0;
+    skip_ws(&mut i);
+    let name = ident(inner, &mut i);
+    if name.is_empty() {
+        return None;
+    }
+    let name = atoms.intern_lower(&name);
+    skip_ws(&mut i);
+    if i == b.len() {
+        return Some(AttrSel { name, op: AttrOp::Exists, value: "".into() });
+    }
+    let op = match (b[i], b.get(i + 1)) {
+        (b'=', _) => AttrOp::Eq,
+        (b'~', Some(b'=')) => AttrOp::Includes,
+        (b'|', Some(b'=')) => AttrOp::Dash,
+        (b'^', Some(b'=')) => AttrOp::Prefix,
+        (b'$', Some(b'=')) => AttrOp::Suffix,
+        (b'*', Some(b'=')) => AttrOp::Substr,
+        _ => return None,
     };
-    if !matches!(op, AttrOp::Eq) {
-        name = &name[..name.len() - 1];
+    i += if matches!(op, AttrOp::Eq) { 1 } else { 2 };
+    skip_ws(&mut i);
+    let value = match b.get(i) {
+        Some(&q @ (b'"' | b'\'')) => {
+            let end = string_end(b, i + 1, q);
+            let v = unescape(&inner[i + 1..end]);
+            i = (end + 1).min(b.len());
+            v
+        }
+        _ => ident(inner, &mut i),
+    };
+    skip_ws(&mut i);
+    if i < b.len() && matches!(b[i] | 0x20, b'i' | b's') {
+        i += 1;
+        skip_ws(&mut i);
     }
-    let mut value = inner[eq + 1..].trim();
-    if let Some(v) = value.strip_suffix(" i").or_else(|| value.strip_suffix(" s")) {
-        value = v.trim();
-    }
-    let value = value.trim_matches(|c| c == '"' || c == '\'');
-    Some(AttrSel { name: atoms.intern_lower(name.trim()), op, value: value.into() })
+    (i == b.len()).then(|| AttrSel { name, op, value: value.into() })
 }
 
 fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool, spec: &mut u32) -> Option<Compound> {
@@ -1683,24 +1818,24 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
             b'*' => *i += 1,
             b'#' => {
                 *i += 1;
-                let r = ident(b, i);
-                if r.is_empty() {
+                let name = ident(s, i);
+                if name.is_empty() {
                     return None;
                 }
-                c.id = atoms.intern(&s[r]);
+                c.id = atoms.intern(&name);
                 *spec += 0x10000;
             }
             b'.' => {
                 *i += 1;
-                let r = ident(b, i);
-                if r.is_empty() {
+                let name = ident(s, i);
+                if name.is_empty() {
                     return None;
                 }
-                c.classes.push(atoms.intern(&s[r]));
+                c.classes.push(atoms.intern(&name));
                 *spec += 0x100;
             }
             b'[' => {
-                let end = *i + s[*i..].find(']')?;
+                let end = block_end(b, *i)?;
                 c.attrs.push(parse_attr_sel(&s[*i + 1..end], atoms)?);
                 *i = end + 1;
                 *spec += 0x100;
@@ -1709,28 +1844,16 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                 *i += 1;
                 if *i < b.len() && b[*i] == b':' {
                     *i += 1;
-                    ident(b, i);
+                    ident(s, i);
                     c.pseudos.push(Pseudo::Never);
                     continue;
                 }
-                let name = s[ident(b, i)].to_ascii_lowercase();
+                let name = ident(s, i).to_ascii_lowercase();
                 let mut arg = "";
                 if *i < b.len() && b[*i] == b'(' {
-                    let mut depth = 0;
-                    let open = *i;
-                    while *i < b.len() {
-                        if b[*i] == b'(' {
-                            depth += 1;
-                        } else if b[*i] == b')' {
-                            depth -= 1;
-                            if depth == 0 {
-                                break;
-                            }
-                        }
-                        *i += 1;
-                    }
-                    arg = s.get(open + 1..*i)?;
-                    *i += 1;
+                    let close = block_end(b, *i)?;
+                    arg = &s[*i + 1..close];
+                    *i = close + 1;
                 }
                 *spec += 0x100;
                 c.pseudos.push(match name.as_str() {
@@ -1761,11 +1884,15 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                     _ => Pseudo::Never,
                 });
             }
-            ch if ch.is_ascii_alphabetic() || ch == b'_' || ch == b'-' || ch >= 0x80 => {
+            ch if ch.is_ascii_alphabetic() || matches!(ch, b'_' | b'-' | b'\\') || ch >= 0x80 => {
                 if *i != start {
                     return None;
                 }
-                c.tag = atoms.intern_lower(&s[ident(b, i)]);
+                let name = ident(s, i);
+                if name.is_empty() {
+                    return None;
+                }
+                c.tag = atoms.intern_lower(&name);
                 *spec += 1;
             }
             _ => break,
@@ -1955,12 +2082,8 @@ fn skip_block(b: &[u8], mut i: usize) -> usize {
                     return i + 1;
                 }
             }
-            q @ (b'"' | b'\'') => {
-                i += 1;
-                while i < b.len() && b[i] != q {
-                    i += 1;
-                }
-            }
+            q @ (b'"' | b'\'') => i = string_end(b, i + 1, q),
+            b'\\' => i += 1,
             _ => {}
         }
         i += 1;
@@ -2109,6 +2232,34 @@ mod tests {
         assert_eq!(srcs, [("/wss/a.woff2", Some("woff2")), ("https://example.com/css/a.ttf", Some("truetype"))]);
         assert_eq!(&*sheet.fonts[1].srcs[0].0, "https://example.com/css/f.woff");
         assert_eq!(sheet.rules.len(), 1);
+    }
+
+    #[test]
+    fn selectors_and_strings_decode_css_escapes() {
+        let css = r#".lg\:flex,.md\:w-1\/2,.\32xl\:p-4,.\32 xl\:m-1,.top-\[3px\],.w-0\.5,.a\,b,.\e9 t\E9,.\!w,.\0,.\D800{width:1px}
+                     #a\.b,[data-x="a\"b"],[data-y='\31 0' i],d\69v{width:2px}
+                     .x\
+                     y{width:3px}
+                     @font-face{font-family:"\5FAE\8F6F";src:url("a\"b.woff")}"#;
+        let mut atoms = Interner::new();
+        let mut sheet = Sheet::default();
+        sheet.add(css, &mut atoms, 1, "");
+        let names: Vec<String> = sheet
+            .sels
+            .iter()
+            .map(|s| {
+                let c = &s.parts[0].c;
+                let mut n: Vec<&str> = c.classes.iter().map(|&a| atoms.name(a)).collect();
+                n.extend((c.id != 0).then(|| atoms.name(c.id)));
+                n.extend((c.tag != 0).then(|| atoms.name(c.tag)));
+                n.extend(c.attrs.iter().map(|a| &*a.value));
+                n.join(" ")
+            })
+            .collect();
+        let want = ["lg:flex", "md:w-1/2", "2xl:p-4", "2xl:m-1", "top-[3px]", "w-0.5", "a,b", "\u{e9}t\u{e9}", "!w", "\u{fffd}", "\u{fffd}", "a.b", "a\"b", "10", "div"];
+        assert_eq!(names, want);
+        assert_eq!(sheet.rules.len(), 2, "an escaped newline is no escape in a name, so the third rule is dropped");
+        assert_eq!((&*sheet.fonts[0].family, &*sheet.fonts[0].srcs[0].0), ("\u{5fae}\u{8f6f}", "a\"b.woff"));
     }
 
     #[test]
