@@ -344,6 +344,8 @@ pub enum Decl {
     Opacity(f32),
     Pointer(bool),
     Translate(Len, Len),
+    /// A `transform` that scales to nothing on some axis, so that nothing is drawn.
+    ScaledAway(bool),
     /// `None` is auto.
     ZIndex(Option<i32>),
     /// Column count, and whether the tracks share the width evenly.
@@ -575,6 +577,24 @@ fn split_products<'a>(t: &'a str, out: &mut Vec<&'a str>) {
     if start < t.len() {
         out.push(&t[start..]);
     }
+}
+
+/// Whether a `transform` value scales to nothing on some axis. Other scale factors are
+/// ignored, as are the functions other than translations.
+fn scaled_away(v: &str) -> bool {
+    tokens(v).any(|f| {
+        let Some((name, args)) = f.strip_suffix(')').and_then(|r| r.split_once('(')) else { return false };
+        let mut a = SplitTop::new(args, b',').map(|a| a.trim().parse::<f32>().ok());
+        match name {
+            "scale" | "scale3d" => {
+                let sx = a.next().flatten();
+                let sy = a.next().flatten().or(if name == "scale" { sx } else { None });
+                sx == Some(0.0) || sy == Some(0.0)
+            }
+            "scalex" | "scaley" => a.next().flatten() == Some(0.0),
+            _ => false,
+        }
+    })
 }
 
 /// `translate` components of a `transform` value; other functions are ignored.
@@ -1597,6 +1617,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "transform" => {
             let (x, y) = parse_translate(v);
             out.push(D::Translate(x, y));
+            out.push(D::ScaledAway(scaled_away(v)));
         }
         "fill" => match v {
             "none" => out.push(D::Fill(Some(Color::TRANSPARENT))),

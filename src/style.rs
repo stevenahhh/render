@@ -42,6 +42,8 @@ pub struct Style {
     pub overflow_hidden: bool,
     /// `transform: translate()`; percentages refer to the box itself.
     pub translate: [Len; 2],
+    /// `transform` scales the element to nothing: it is drawn as with opacity 0.
+    pub scaled_away: bool,
     /// `display: contents` inside a flex container: the box is skipped and
     /// its children become flex items of that container.
     pub contents: bool,
@@ -62,7 +64,7 @@ pub struct Style {
     pub grid_row: u16,
     /// `order`: flex and grid items are laid out by ascending order.
     pub order: i32,
-    own_opacity: f32,
+    pub(crate) own_opacity: f32,
     pub flex_col: bool,
     pub flex_wrap: bool,
     pub justify: Justify,
@@ -186,6 +188,7 @@ impl Style {
             clip_text: false,
             overflow_hidden: false,
             translate: [Len::Px(0.0); 2],
+            scaled_away: false,
             contents: false,
             z: 0,
             z_set: false,
@@ -556,6 +559,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::Pointer(v) => st.pointer = v,
         Decl::Fill(c) => st.fill = c.unwrap_or(st.color),
         Decl::Translate(x, y) => st.translate = [r(x), r(y)],
+        Decl::ScaledAway(b) => st.scaled_away = b,
         Decl::ZIndex(z) => (st.z, st.z_set) = (z.unwrap_or(0), z.is_some()),
         Decl::GridCols(n, even) => (st.grid_cols, st.grid_even) = (n, even),
         Decl::GridFlowCol(v) => st.grid_flow_col = v,
@@ -1208,7 +1212,7 @@ fn finish(st: &mut Style, parent: &Style, root: bool, replaced: bool) {
     if st.clip_text {
         text_from_background(st);
     }
-    st.opacity = parent.opacity * st.own_opacity;
+    st.opacity = if st.scaled_away { 0.0 } else { parent.opacity * st.own_opacity };
     let parent_flex = matches!(parent.display, Display::Flex | Display::InlineFlex);
     if st.display == Display::Inherit {
         st.display = match parent.display {
