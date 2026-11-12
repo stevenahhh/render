@@ -225,9 +225,12 @@
   const handlerOf = (n, type) => {
     const f = n['on' + type];
     if (typeof f === 'function') return f;
-    if (f !== undefined && f !== null) return null;
-    const host = n === g ? document.body : n;
-    if (!host || !host[ID] && host[ID] !== 0 || host.nodeType !== 1 || (n === g && !WINDOW_HANDLERS.has(type))) return null;
+    if (f !== undefined) return null;
+    return n === g && !WINDOW_HANDLERS.has(type) ? null : attrHandler(n === g ? document.body : n, type);
+  };
+  // The function an element's `on<type>` attribute compiles to, compiled again when the attribute changes.
+  const attrHandler = (host, type) => {
+    if (!host || !host[ID] && host[ID] !== 0 || host.nodeType !== 1) return null;
     const src = __attr(host[ID], 'on' + type);
     if (src === null) return null;
     let cache = host[HANDLER];
@@ -2019,6 +2022,36 @@
   Window.prototype = Object.create(EventTarget.prototype, { constructor: { value: Window, writable: true, configurable: true }, [Symbol.toStringTag]: { value: 'Window', configurable: true } });
   Object.setPrototypeOf(Window, EventTarget);
   Object.setPrototypeOf(g, Window.prototype);
+
+  // Event handler properties such as `el.oninput`: the handler a script set, else
+  // the one the `on<type>` attribute compiles to, else null. Sites test
+  // `'oninput' in document` to choose how they listen. Touch handlers stay out,
+  // as on a desktop browser.
+  const GLOBAL_HANDLERS = ('abort auxclick beforeinput beforetoggle blur cancel canplay canplaythrough change click close contextmenu copy cuechange cut dblclick drag dragend dragenter dragleave dragover dragstart drop durationchange emptied ended error focus formdata input invalid keydown keypress keyup load loadeddata loadedmetadata loadstart mousedown mouseenter mouseleave mousemove mouseout mouseover mouseup paste pause play playing progress ratechange reset resize scroll scrollend securitypolicyviolation seeked seeking select selectionchange selectstart slotchange stalled submit suspend timeupdate toggle volumechange waiting wheel ' +
+    'animationcancel animationend animationiteration animationstart transitioncancel transitionend transitionrun transitionstart gotpointercapture lostpointercapture pointercancel pointerdown pointerenter pointerleave pointermove pointerout pointerover pointerup').split(' ');
+  const WINDOW_ONLY = ['afterprint', 'beforeprint', 'beforeunload', 'hashchange', 'languagechange', 'message', 'messageerror', 'offline', 'online', 'pagehide', 'pageshow', 'popstate', 'rejectionhandled', 'storage', 'unhandledrejection', 'unload'];
+  const ON_SET = Symbol('on');
+  const handlerProp = (type, attrHost) => ({
+    configurable: true,
+    enumerable: true,
+    get() {
+      const set = this[ON_SET];
+      return set && set.has(type) ? set.get(type) : attrHandler(attrHost(this, type), type);
+    },
+    set(v) {
+      if (!Object.prototype.hasOwnProperty.call(this, ON_SET)) Object.defineProperty(this, ON_SET, { value: new Map() });
+      this[ON_SET].set(type, typeof v === 'function' || (v !== null && typeof v === 'object') ? v : null);
+    },
+  });
+  const itself = (n) => n, noHost = () => null, bodyFor = (w, type) => (WINDOW_HANDLERS.has(type) ? document.body : null);
+  for (const t of GLOBAL_HANDLERS) {
+    const own = handlerProp(t, itself);
+    Object.defineProperty(HTMLElement.prototype, 'on' + t, own);
+    Object.defineProperty(SVGElement.prototype, 'on' + t, own);
+    Object.defineProperty(Document.prototype, 'on' + t, handlerProp(t, noHost));
+  }
+  for (const t of GLOBAL_HANDLERS.concat(WINDOW_ONLY)) Object.defineProperty(g, 'on' + t, handlerProp(t, bodyFor));
+  for (const t of ['readystatechange', 'visibilitychange']) Object.defineProperty(Document.prototype, 'on' + t, handlerProp(t, noHost));
 
   def(g, {
     window: g, self: g, top: g, parent: g, frames: g, globalThis: g, opener: null, frameElement: null, closed: false, length: 0, name: '', status: '', origin: 'null', isSecureContext: true, crossOriginIsolated: false,
