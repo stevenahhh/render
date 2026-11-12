@@ -17,7 +17,6 @@ pub struct Style {
     pub height: Len,
     pub margin: [Len; 4],
     pub padding: [Len; 4],
-    pub inset: [Len; 4],
     /// Used border widths: zero where the border style is none.
     pub bw: [f32; 4],
     pub bc: [Color; 4],
@@ -113,6 +112,8 @@ impl PartialEq for RareRef {
 /// The parts of a computed style that few elements have.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Rare {
+    /// `top`, `right`, `bottom` and `left`.
+    pub inset: [Len; 4],
     pub min_w: Len,
     pub max_w: Len,
     pub min_h: Len,
@@ -154,6 +155,7 @@ pub struct Rare {
 
 /// The rare parts of a style that has none of them.
 const NO_RARE: Rare = Rare {
+    inset: [Len::Auto; 4],
     min_w: Len::Auto,
     max_w: Len::Auto,
     min_h: Len::Auto,
@@ -181,7 +183,7 @@ const NO_RARE: Rare = Rare {
 
 /// Sets a field of the rare parts, leaving a style without them as it is
 /// when the value is the initial one.
-fn put_rare<T: PartialEq>(st: &mut Style, field: fn(&mut Rare) -> &mut T, v: T) {
+fn put_rare<T: PartialEq>(st: &mut Style, field: impl Fn(&mut Rare) -> &mut T, v: T) {
     if st.rare.0.is_none() {
         let mut initial = NO_RARE;
         if *field(&mut initial) == v {
@@ -222,7 +224,6 @@ impl Style {
             height: Len::Auto,
             margin: [Len::Px(0.0); 4],
             padding: [Len::Px(0.0); 4],
-            inset: [Len::Auto; 4],
             bw: [3.0; 4],
             bc: [Color::BLACK; 4],
             bc_set: 0,
@@ -384,7 +385,7 @@ impl Style {
                 len(self.margin[i]),
                 len(self.padding[i]),
                 self.bw[i],
-                len(self.inset[i])
+                len(self.rare().inset[i])
             );
         }
         out += &format!(
@@ -535,7 +536,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::MaxHeight(l) => put_rare(st, |r| &mut r.max_h, r(l)),
         Decl::Margin(i, l) => st.margin[i as usize] = r(l),
         Decl::Padding(i, l) => st.padding[i as usize] = r(l),
-        Decl::Inset(i, l) => st.inset[i as usize] = r(l),
+        Decl::Inset(i, l) => put_rare(st, |r| &mut r.inset[i as usize], r(l)),
         Decl::BorderWidth(i, l) => st.bw[i as usize] = px(l, em, c).max(0.0),
         Decl::BorderStyle(i, on) => st.bs = st.bs & !(1 << i) | (on as u8) << i,
         Decl::BorderColor(i, col) => match col {

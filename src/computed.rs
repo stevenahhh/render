@@ -104,7 +104,7 @@ impl Element<'_> {
             return Some(px(self.resolve(s.padding[i], self.base())));
         }
         if let Some(i) = SIDES.iter().position(|side| name == *side) {
-            return Some(self.computed(s.inset[i]));
+            return Some(self.computed(s.rare().inset[i]));
         }
         if let Some(i) = SIDES.iter().position(|side| name.strip_prefix("border-").and_then(|r| r.strip_suffix("-width")) == Some(side)) {
             return Some(px(s.bw[i]));

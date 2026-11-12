@@ -870,8 +870,8 @@ impl<'a> Engine<'a> {
             self.out.items.push(Item { x: 0.0, y: 0.0, w: 0.0, h: 0.0, kind: Kind::PopClip, node: n, data: 0 });
         }
         if s.position == Position::Relative {
-            let dx = definite(s.inset[3], cbw).or(definite(s.inset[1], cbw).map(|v| -v)).unwrap_or(0.0);
-            let dy = definite(s.inset[0], ch).or(definite(s.inset[2], ch).map(|v| -v)).unwrap_or(0.0);
+            let dx = definite(s.rare().inset[3], cbw).or(definite(s.rare().inset[1], cbw).map(|v| -v)).unwrap_or(0.0);
+            let dy = definite(s.rare().inset[0], ch).or(definite(s.rare().inset[2], ch).map(|v| -v)).unwrap_or(0.0);
             let end = self.mark();
             self.shift(first_item, end, dx, dy);
         }
@@ -965,10 +965,10 @@ impl<'a> Engine<'a> {
             // A fixed box is placed against the viewport, not its positioned ancestor.
             let (px, py, pw, ph) = if s.position == Position::Fixed { (0.0, 0.0, self.vw, self.vh) } else { (px, py, pw, ph) };
             let sd = sides(s, pw);
-            let l = definite(s.inset[3], pw);
-            let r = definite(s.inset[1], pw);
-            let t = definite(s.inset[0], ph);
-            let b = definite(s.inset[2], ph);
+            let l = definite(s.rare().inset[3], pw);
+            let r = definite(s.rare().inset[1], pw);
+            let t = definite(s.rare().inset[0], ph);
+            let b = definite(s.rare().inset[2], ph);
             let by_ratio = |(iw, ih): (f32, f32)| {
                 let h = definite(s.height, ph)?;
                 Some(clamp_w(s, h * iw / ih + if s.border_box { 0.0 } else { hextra(s, &sd) }, pw, &sd))
