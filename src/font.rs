@@ -449,6 +449,13 @@ impl Fonts {
                 return (primary, g, a);
             }
         }
+        self.lookup_cached(primary, c)
+    }
+
+    /// `lookup` for characters outside the primary face's ASCII table: the answers
+    /// found before, or a search of the fallback fonts.
+    #[inline(never)]
+    fn lookup_cached(&mut self, primary: u8, c: char) -> (u8, u16, f32) {
         let key = (primary as u64) << 32 | c as u64;
         if let Some(&v) = self.cmap.get(&key) {
             return v;
