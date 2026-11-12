@@ -880,6 +880,21 @@ pub fn query(dom: &mut Dom, root: NodeId, selector: &str, first_only: bool) -> V
     out
 }
 
+/// The `href` of the first element `query(dom, 0, "base[href]", true)` finds,
+/// found by the same walk without parsing and matching a selector.
+pub fn base_href(dom: &Dom) -> Option<&str> {
+    let mut i = dom.nodes[0].first_child;
+    while i != NONE {
+        if dom.nodes[i as usize].tag == atom::BASE && dom.is_element(i) {
+            if let Some(href) = dom.attr(i, atom::HREF) {
+                return Some(href);
+            }
+        }
+        i = dfs_next(dom, i, 0, true);
+    }
+    None
+}
+
 pub fn matches(dom: &mut Dom, n: NodeId, selector: &str) -> bool {
     let sels = parse_selector_list(selector, &mut dom.atoms);
     let dom = &*dom;

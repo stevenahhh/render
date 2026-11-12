@@ -341,6 +341,11 @@ fn matches(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     Ok(r.unwrap_or(false).into())
 }
 
+/// `__base()`: the `href` of the document's first `<base>` that has one, or null.
+fn base(_: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
+    Ok(with(|h| style::base_href(&h.page.dom).map(js_str)).unwrap_or(JsValue::null()))
+}
+
 fn by_id(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let (root, id) = (id_arg(a, 0), str_arg(a, 1, ctx)?);
     Ok(js_id(with(|h| live(&h.page.dom, root).map(|r| h.page.dom.by_id(r, &id))).unwrap_or(NONE)))
@@ -872,6 +877,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__scoped", 3, scoped),
     ("__matches", 2, matches),
     ("__by_id", 2, by_id),
+    ("__base", 0, base),
     ("__kids", 2, kids),
     ("__host", 1, host),
     ("__clone", 2, clone),

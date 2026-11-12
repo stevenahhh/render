@@ -1645,8 +1645,8 @@
 
   let docURL = 'about:blank';
   const baseURL = () => {
-    const b = document.querySelector('base[href]');
-    const u = b && __url(b.getAttribute('href'), docURL);
+    const href = __base();
+    const u = href !== null && __url(href, docURL);
     return u ? u[0] : docURL;
   };
   const resolveURL = (input, base = baseURL()) => { const u = __url(String(input), base); return u ? u[0] : null; };
