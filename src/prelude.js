@@ -1961,6 +1961,11 @@
       if (!watchedMedia.has(this)) watchedMedia.set(this, this.matches);
     }
   }
+  // `atob` and `btoa` get null from their native for input they cannot convert.
+  const invalidCharacter = (s) => {
+    if (s === null) throw domError('InvalidCharacterError', 'The string contains invalid characters.');
+    return s;
+  };
   const matchMedia = (q) => {
     const m = Object.create(MediaQueryList.prototype);
     m.media = String(q);
@@ -2191,8 +2196,8 @@
     TrustedHTML, TrustedScript, TrustedScriptURL, TrustedTypePolicyFactory: Object,
     matchMedia, postMessage,
     getComputedStyle: (el) => computedStyle(el),
-    btoa: (s) => __btoa(String(s)),
-    atob: (s) => __atob(String(s)),
+    btoa: (s) => invalidCharacter(__btoa(String(s))),
+    atob: (s) => invalidCharacter(__atob(String(s))),
     Image: function Image(w, h) { const i = document.createElement('img'); if (w !== undefined) i.width = w; if (h !== undefined) i.height = h; return i; },
     Audio: function Audio(src) { const a = document.createElement('audio'); if (src !== undefined) a.src = src; return a; },
     Option: function Option(text, value, d, selected) { const o = document.createElement('option'); if (text !== undefined) o.text = text; if (value !== undefined) o.value = value; if (selected) o.selected = true; return o; },

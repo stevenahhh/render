@@ -628,20 +628,18 @@ fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-fn invalid_character() -> JsError {
-    JsNativeError::error().with_message("The string contains invalid characters.").into()
-}
-
-/// `btoa`: each UTF-16 unit of the input is one byte; a unit above 255 is an error.
+/// `__btoa(string)`: each UTF-16 unit of the input is one byte; null when a unit
+/// is above 255, for the prelude to throw the `InvalidCharacterError` browsers throw.
 fn btoa(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let s = a.get_or_undefined(0).to_string(ctx)?;
     let bytes: Option<Vec<u8>> = s.iter().map(|u| u8::try_from(u).ok()).collect();
-    Ok(js_str(&base64_encode(&bytes.ok_or_else(invalid_character)?)))
+    Ok(bytes.map_or(JsValue::null(), |b| js_str(&base64_encode(&b))))
 }
 
+/// `__atob(string)`: the decoded bytes as a string of units below 256; null for input that is not base64.
 fn atob(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let s = str_arg(a, 0, ctx)?;
-    let bytes = base64_decode(&s).ok_or_else(invalid_character)?;
+    let Some(bytes) = base64_decode(&s) else { return Ok(JsValue::null()) };
     let units: Vec<u16> = bytes.into_iter().map(u16::from).collect();
     Ok(JsString::from(&units[..]).into())
 }
@@ -676,7 +674,7 @@ fn decode_utf8(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValu
 /// `__microtask(fn)`: queues `fn` with the promise jobs, as `queueMicrotask` does.
 fn microtask(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let Some(f) = a.get_or_undefined(0).as_callable() else {
-        return Err(js_error("queueMicrotask: callback is not a function".into()));
+        return Err(js_error("Argument 1 ('callback') to Window.queueMicrotask must be a function".into()));
     };
     ctx.enqueue_job(
         PromiseJob::new(move |ctx| {

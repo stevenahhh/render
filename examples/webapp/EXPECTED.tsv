@@ -146,3 +146,5 @@ computed-style.html	CS fl float=right clear=both display=block cl clear=left flo
 computed-style.html	CS live before:200px after:300px fontSize:20px brand:#f00 missing:empty
 bogus-comments.html	STATIC bogus-comments
 bogus-comments.html	BC nodes 8:?litS123S 3:a 8:x y 3:b 8:c template:2 inner:8:?x?
+bogus-comments.html	BC atob InvalidCharacterError/true/The string contains invalid characters. btoa InvalidCharacterError/true/The string contains invalid characters. ok:hi
+bogus-comments.html	BC queueMicrotask TypeError/false/Argument 1 callback to Window.queueMicrotask must be a function

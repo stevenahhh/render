@@ -20,6 +20,10 @@ check('comments', function(){
   var d=document.createElement('div');d.innerHTML='<?x?>y';
   mark('BC nodes '+kids.join(' ')+' template:'+c+' inner:'+d.firstChild.nodeType+':'+d.firstChild.data);
 });
+check('errors', function(){
+  mark('BC atob '+err(function(){atob('%');})+' btoa '+err(function(){btoa(String.fromCharCode(256));})+' ok:'+atob(btoa('hi')));
+  mark('BC queueMicrotask '+err(function(){queueMicrotask(1);}));
+});
 </script>
 </body>
 </html>
