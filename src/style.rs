@@ -310,6 +310,7 @@ impl Style {
             WhiteSpace::Normal => "normal",
             WhiteSpace::NoWrap => "nowrap",
             WhiteSpace::Pre => "pre",
+            WhiteSpace::PreWrap => "pre-wrap",
         };
         let line_height = match self.line_height {
             LineHeight::Normal => "normal".to_string(),

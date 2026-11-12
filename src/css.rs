@@ -82,6 +82,8 @@ pub enum WhiteSpace {
     Normal,
     NoWrap,
     Pre,
+    /// Spaces and line feeds kept, as with `Pre`, and lines wrapped after spaces.
+    PreWrap,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1434,7 +1436,8 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         }
         "white-space" => push(Some(D::WhiteSpace(match v {
             "nowrap" => WhiteSpace::NoWrap,
-            "pre" | "pre-wrap" | "break-spaces" => WhiteSpace::Pre,
+            "pre" => WhiteSpace::Pre,
+            "pre-wrap" | "break-spaces" => WhiteSpace::PreWrap,
             _ => WhiteSpace::Normal,
         }))),
         "text-transform" => push(Some(D::TextTransform(match v {

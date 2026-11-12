@@ -623,7 +623,7 @@ impl<'a> Engine<'a> {
         while c != NONE {
             let node = &self.dom.nodes[c as usize];
             if node.tag == atom::TEXT {
-                if !is_ws(self.dom.text_of(c)) || s.white_space == WhiteSpace::Pre {
+                if !is_ws(self.dom.text_of(c)) || matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
                     break;
                 }
             } else {
@@ -645,7 +645,7 @@ impl<'a> Engine<'a> {
     fn layout_children(&mut self, n: NodeId, cx: f32, cw: f32, y: f32, ch: f32, top_coll: bool, bottom_coll: bool) -> (f32, f32) {
         let dom = self.dom;
         let st = self.st;
-        let pre = st[n as usize].white_space == WhiteSpace::Pre;
+        let pre = matches!(st[n as usize].white_space, WhiteSpace::Pre | WhiteSpace::PreWrap);
         let (mut cur, mut pend, mut first) = (y, 0.0f32, true);
         let mut ord = match dom.attr(n, atom::START) {
             Some(v) if dom.nodes[n as usize].tag == atom::OL => v.trim().parse().unwrap_or(1),
@@ -1014,7 +1014,7 @@ impl<'a> Engine<'a> {
             begun: false,
             content: false,
             space: false,
-            wrap: s.white_space == WhiteSpace::Normal,
+            wrap: matches!(s.white_space, WhiteSpace::Normal | WhiteSpace::PreWrap),
             last_text: NONE,
             brk: false,
             lx: 0.0,
@@ -1260,13 +1260,33 @@ impl<'a> Engine<'a> {
             }
             return;
         }
-        let wrap = s.white_space == WhiteSpace::Normal;
+        let wrap = matches!(s.white_space, WhiteSpace::Normal | WhiteSpace::PreWrap);
+        let keep = s.white_space == WhiteSpace::PreWrap;
         let b = text.as_bytes();
         let mut i = 0;
         while i < b.len() {
-            if is_space(b[i]) {
+            if is_space(b[i]) && !keep {
                 il.space = true;
                 i += 1;
+                continue;
+            }
+            if is_space(b[i]) {
+                // pre-wrap keeps spaces and line feeds. A line breaks only after spaces,
+                // which stay at the end of the line they end.
+                let start = i;
+                while i < b.len() && is_space(b[i]) && b[i] != b'\n' {
+                    i += 1;
+                }
+                let run = text[start..i].replace('\t', "    ").replace('\r', "");
+                if !run.is_empty() {
+                    self.place_unit(il, &ts, &run, false);
+                    il.brk = true;
+                }
+                if i < b.len() && b[i] == b'\n' {
+                    il.begun = true;
+                    self.finish_line(il);
+                    i += 1;
+                }
                 continue;
             }
             let start = i;
@@ -1969,7 +1989,7 @@ impl<'a> Engine<'a> {
             TextTransform::Capitalize => fonts.measure(face, &capitalize(w, true), size, spacing),
             _ => fonts.measure(face, w, size, spacing),
         };
-        if s.white_space == WhiteSpace::Pre {
+        if matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
             for (i, line) in text.split('\n').enumerate() {
                 if i > 0 {
                     state.break_line();
