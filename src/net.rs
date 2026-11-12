@@ -242,6 +242,13 @@ fn exchange(conn: &mut Conn, url: &Url) -> io::Result<(Response, bool)> {
 
 /// Root certificates and settings shared by every connection.
 pub fn tls_config() -> Arc<rustls::ClientConfig> {
+    // One configuration for the whole process: its session cache lets a later
+    // connection to a known server resume instead of doing a full handshake.
+    static CONFIG: std::sync::OnceLock<Arc<rustls::ClientConfig>> = std::sync::OnceLock::new();
+    CONFIG.get_or_init(new_tls_config).clone()
+}
+
+fn new_tls_config() -> Arc<rustls::ClientConfig> {
     let mut roots = rustls::RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -291,7 +298,11 @@ impl Client {
 
     fn send(&mut self, url: &Url) -> Result<Response, String> {
         let key = (url.https, url.host.clone(), url.port);
-        if let Some(mut conn) = self.pool.remove(&key) {
+        let kept = self.pool.remove(&key).or_else(|| {
+            let mut idle = IDLE.lock().expect("idle connections");
+            idle.iter().position(|c| c.0 == key).map(|i| idle.swap_remove(i).1)
+        });
+        if let Some(mut conn) = kept {
             // A kept connection may have been closed by the server meanwhile; then
             // the request is sent again on a new one.
             if let Ok((response, reusable)) = exchange(&mut conn, url) {
@@ -321,6 +332,24 @@ impl Client {
             }
         }
         Err(format!("{url}: too many redirects"))
+    }
+}
+
+/// Open connections no client is using. A client leaves its connections here when
+/// it is done, so the next page from the same servers skips connecting again.
+static IDLE: Mutex<Vec<((bool, String, u16), Conn)>> = Mutex::new(Vec::new());
+
+/// Most idle connections kept.
+const MAX_IDLE: usize = 32;
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        let mut idle = IDLE.lock().expect("idle connections");
+        for kept in self.pool.drain() {
+            if idle.len() < MAX_IDLE {
+                idle.push(kept);
+            }
+        }
     }
 }
 

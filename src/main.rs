@@ -211,6 +211,8 @@ struct App {
     pointer: bool,
     stats: bool,
     proxy: EventLoopProxy<()>,
+    /// The current page has been shown at least once, so its held-back scripts may run.
+    painted: bool,
     /// The text being typed into the address bar, while it is being edited.
     address: Option<String>,
     /// The next typed text replaces the whole address, as after select-all.
@@ -340,7 +342,8 @@ impl App {
 
     fn open(&mut self, path: PathBuf, scroll: f32, remember: bool) {
         let started = Instant::now();
-        match Page::load(&path) {
+        // Like the first page: show a frame first, run scripts after it.
+        match Page::load_deferred(&path) {
             Ok(mut page) => {
                 if self.stats {
                     eprintln!("opened {} in {:.1} ms", path.display(), started.elapsed().as_secs_f64() * 1e3);
@@ -353,6 +356,7 @@ impl App {
                 self.path = path;
                 self.scroll = scroll;
                 self.notice = None;
+                self.painted = false;
                 if let Some(w) = &self.window {
                     w.set_title(&title(&self.page, &self.path));
                 }
@@ -417,6 +421,7 @@ impl App {
         let t2 = Instant::now();
         buf.present().expect("present frame");
         let present = t2.elapsed();
+        self.painted = true;
         if let Some((_, shown)) = &mut self.loading {
             *shown = true;
         }
@@ -495,7 +500,7 @@ impl ApplicationHandler for App {
         }
         // Once a frame is on screen, run the held-back scripts one per turn of the
         // loop, so input and repaints are served in between.
-        if FIRST_FRAME.load(std::sync::atomic::Ordering::Relaxed) {
+        if self.painted {
             if let Some(left) = self.page.run_deferred() {
                 if self.page.take_dirty() {
                     self.request_redraw();
@@ -624,6 +629,7 @@ fn run() -> Result<(), String> {
         pointer: false,
         stats: args.stats,
         proxy,
+        painted: false,
         address: blank.then(String::new),
         replace: false,
         loading: None,
