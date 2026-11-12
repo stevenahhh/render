@@ -137,6 +137,7 @@
     ['HashChangeEvent', 'Event', { oldURL: '', newURL: '' }],
     ['PageTransitionEvent', 'Event', { persisted: false }],
     ['MediaQueryListEvent', 'Event', { matches: false, media: '' }],
+    ['AnimationPlaybackEvent', 'Event', { currentTime: null, timelineTime: null }],
     ['ProgressEvent', 'Event', { lengthComputable: false, loaded: 0, total: 0 }],
     ['AnimationEvent', 'Event', { animationName: '', elapsedTime: 0, pseudoElement: '' }],
     ['TransitionEvent', 'Event', { propertyName: '', elapsedTime: 0, pseudoElement: '' }],
@@ -948,8 +949,6 @@
     scroll() {}
     get shadowRoot() { return $.shadowOf || (__shadow(this[ID]) >= 0 && shadowPart()) ? $.shadowOf(this) : null; }
     get assignedSlot() { return slotOf(this); }
-    animate() { return { cancel: noop, play: noop, pause: noop, finish: noop, reverse: noop, finished: Promise.resolve(), ready: Promise.resolve(), onfinish: null, currentTime: 0, playState: 'finished', addEventListener: noop, removeEventListener: noop }; }
-    getAnimations() { return []; }
     requestFullscreen() { return Promise.reject(domError('NotSupportedError', 'Fullscreen is not supported')); }
     requestPointerLock() {}
     setPointerCapture() {}
@@ -960,6 +959,7 @@
   mixin(Element, ParentNode);
   mixin(Element, ChildNode);
   lazyMethods(Element.prototype, 'shadow', ['attachShadow', 'setHTMLUnsafe']);
+  lazyMethods(Element.prototype, 'animation', ['animate', 'getAnimations']);
 
   const adjacent = (el, pos, node) => {
     switch (String(pos).toLowerCase()) {
@@ -1572,6 +1572,7 @@
   }
   mixin(Document, ParentNode);
   lazyMethods(Document.prototype, 'write', ['open', 'close', 'write', 'writeln']);
+  lazyMethods(Document.prototype, 'animation', ['getAnimations']);
   lazyMethods(Document.prototype, 'traversal', ['createTreeWalker', 'createNodeIterator', 'createRange', 'getSelection']);
   getters(Document.prototype, {
     implementation() { need('traversal'); return $.implementation; },
@@ -2214,6 +2215,7 @@
   lazy('messaging', ['MessageChannel', 'MessagePort', 'BroadcastChannel']);
   lazy('fetch', ['fetch', 'Headers', 'Request', 'Response', 'XMLHttpRequest', 'XMLHttpRequestEventTarget', 'XMLHttpRequestUpload', 'FormData', 'Blob', 'File', 'FileReader', 'ReadableStream']);
   lazy('encoding', ['TextEncoder', 'TextDecoder', 'structuredClone'].concat(typeof Intl === 'undefined' ? ['Intl'] : []));
+  lazy('animation', ['Animation', 'KeyframeEffect', 'AnimationEffect']);
   lazy('cssom', ['CSSStyleSheet', 'StyleSheet', 'StyleSheetList', 'CSSRule', 'CSSStyleRule', 'CSSRuleList', 'CSSStyleDeclaration']);
 
   Object.assign($, { events, document, location, docURL: () => docURL, started, idOf, insert, removeNode, toNode, cloneNode, query, wrap, parseInto, illegal, noop, fireError, reportError, OWNER, invoke });

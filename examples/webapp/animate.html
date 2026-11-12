@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: element.animate</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}
+.box{width:30px;height:10px;background:#888}</style>
+</head>
+<body>
+<h1 data-m="STATIC animate">STATIC animate</h1>
+<div id="out"></div>
+<div class="box" id="a"></div><div class="box" id="b"></div><div class="box" id="c"></div><div class="box" id="d"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
+function $(id){return document.getElementById(id);}
+function cs(id,p){return getComputedStyle($(id)).getPropertyValue(p);}
+var log=[];
+check('start', function(){
+  var a=$('a').animate([{opacity:0},{opacity:0.5}],{duration:100,fill:'forwards'});
+  var b=$('b').animate({width:['10px','40px'],marginLeft:['0px','7px']},{duration:50,fill:'both',iterations:2});
+  var c=$('c').animate([{width:'10px'},{width:'90px'}],100);
+  var d=$('d').animate([{width:'11px'},{width:'99px'}],{duration:200,fill:'forwards'});
+  a.onfinish=function(e){log.push('onfinish:'+(e.currentTime!==null));};
+  a.addEventListener('finish',function(){log.push('finish-event');});
+  a.finished.then(function(x){log.push('finished:'+(x===a));});
+  c.finished.then(function(){log.push('c-finished');});
+  d.cancel();
+  d.finished.catch(function(e){log.push('d-'+e.name);});
+  window.anims=[a,b,c,d];
+  mark('AN start a:'+a.playState+' d:'+d.playState+' animation:'+(a instanceof Animation)+' effect:'+(a.effect.target===$('a'))+' count:'+document.getAnimations().length+' inline:'+($('a').style.opacity||'none'));
+});
+setTimeout(function(){
+  check('end', function(){
+    var a=anims[0];
+    mark('AN end a:'+a.playState+' b:'+anims[1].playState+' c:'+anims[2].playState+' log:'+log.join(','));
+    mark('AN styles opacity:'+cs('a','opacity')+' width-b:'+cs('b','width')+' margin-b:'+cs('b','margin-left')+' width-c:'+cs('c','width')+' width-d:'+cs('d','width')+' inline:'+($('a').style.opacity||'none'));
+  });
+}, 600);
+</script>
+</body>
+</html>

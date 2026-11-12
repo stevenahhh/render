@@ -979,7 +979,16 @@ impl<'a> Styler<'a> {
         let dom = self.dom;
         let no_inline = (Vec::new(), Vec::new(), false);
         let inline;
-        let inl = match dom.attr(i, atom::STYLE) {
+        // The end state of finished animations that fill forwards follows the inline style.
+        let animated;
+        let text = match (dom.attr(i, atom::STYLE), (!dom.animated.is_empty()).then(|| dom.animated.get(&i)).flatten()) {
+            (text, Some(end)) => {
+                animated = format!("{};{end}", text.unwrap_or(""));
+                Some(animated.as_str())
+            }
+            (text, None) => text,
+        };
+        let inl = match text {
             Some(s) if !s.is_empty() => {
                 inline = parse_declarations(s);
                 &inline

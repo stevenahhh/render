@@ -38,6 +38,7 @@ fn chunk(name: &str) -> Option<&'static str> {
         "encoding" => include_str!("web/encoding.js"),
         "shadow" => include_str!("web/shadow.js"),
         "write" => include_str!("web/write.js"),
+        "animation" => include_str!("web/animation.js"),
         "cssom" => include_str!("web/cssom.js"),
         _ => return None,
     })
@@ -429,6 +430,22 @@ fn cookie(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
         return Ok(js_str(&crate::cookie::header(origin, true)));
     }
     crate::cookie::store(origin, &str_arg(a, 1, ctx)?, true);
+    Ok(JsValue::undefined())
+}
+
+/// `__animated(id, css)`: the declarations finished animations hold on an
+/// element, applied after its inline style; null or empty for none.
+fn animated(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let n = id_arg(a, 0);
+    let css = if a.get_or_undefined(1).is_null_or_undefined() { String::new() } else { str_arg(a, 1, ctx)? };
+    with(|h| {
+        let n = live(&h.page.dom, n)?;
+        let old = if css.is_empty() { h.page.dom.animated.remove(&n) } else { h.page.dom.animated.insert(n, css.clone()) };
+        if old.unwrap_or_default() != css {
+            h.page.attr_changed(n, atom::STYLE, None);
+        }
+        Some(())
+    });
     Ok(JsValue::undefined())
 }
 
@@ -829,6 +846,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__define", 1, define),
     ("__cookie", 2, cookie),
     ("__computed", 2, computed),
+    ("__animated", 2, animated),
     ("__adopt", 2, adopt),
     ("__fetch", 6, fetch),
     ("__abort_fetch", 1, abort_fetch),
