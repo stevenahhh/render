@@ -287,6 +287,9 @@ pub enum Decl {
     Overflow(bool),
     /// `None` is the parent's.
     Visible(Option<bool>),
+    /// `all: unset`: every property but the custom ones takes its inherited or
+    /// initial value again, as if no earlier declaration had set it.
+    AllUnset,
     Opacity(f32),
     Pointer(bool),
     Translate(Len, Len),
@@ -1415,6 +1418,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "overflow" | "overflow-x" | "overflow-y" => {
             push(Some(D::Overflow(tokens(v).any(|t| t != "visible"))))
         }
+        "all" => push((v == "unset").then_some(D::AllUnset)),
         "visibility" => push(match v {
             "visible" | "initial" => Some(D::Visible(Some(true))),
             "hidden" | "collapse" => Some(D::Visible(Some(false))),

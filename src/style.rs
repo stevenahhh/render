@@ -453,6 +453,12 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::BgPos(x, y) => st.bg_pos = [r(x), r(y)],
         Decl::ClipText(v) => st.clip_text = v,
         Decl::Visible(v) => st.visible = v.unwrap_or(parent.visible),
+        // The font size was settled in its own pass, `all` included; custom properties stay.
+        Decl::AllUnset => {
+            let (vars, font_size) = (st.vars.take(), st.font_size);
+            *st = Style::inherit(parent);
+            (st.vars, st.font_size) = (vars, font_size);
+        }
         Decl::Opacity(v) => st.own_opacity = v,
         Decl::Pointer(v) => st.pointer = v,
         Decl::Fill(c) => st.fill = c.unwrap_or(st.color),
@@ -962,18 +968,20 @@ impl<'a> Styler<'a> {
                 d => expanded.push(d.clone()),
             });
             for d in expanded.iter() {
-                if let Decl::FontSize(fs) = d {
-                    apply_font_size(&mut st, parent, *fs, ctx);
+                match d {
+                    Decl::FontSize(fs) => apply_font_size(&mut st, parent, *fs, ctx),
+                    Decl::AllUnset => st.font_size = parent.font_size,
+                    _ => {}
                 }
             }
             for d in expanded.iter() {
                 apply(&mut st, parent, d, ctx);
             }
         } else {
-            each(sheet, matched, inl, |d| {
-                if let Decl::FontSize(fs) = d {
-                    apply_font_size(&mut st, parent, *fs, ctx);
-                }
+            each(sheet, matched, inl, |d| match d {
+                Decl::FontSize(fs) => apply_font_size(&mut st, parent, *fs, ctx),
+                Decl::AllUnset => st.font_size = parent.font_size,
+                _ => {}
             });
             each(sheet, matched, inl, |d| apply(&mut st, parent, d, ctx));
         }
@@ -1699,7 +1707,7 @@ fn mark_above(dirty: &mut Dirty, dom: &Dom, mut a: NodeId, (up, far): (&Filter, 
 #[cfg(test)]
 mod tests {
     use super::{compute_styles, query, Style};
-    use crate::css::Len;
+    use crate::css::{Display, Len};
     use crate::page::Page;
 
     /// Computed styles of the elements matching `sel`, in document order.
@@ -1761,6 +1769,16 @@ mod tests {
                     <div><p class='h in'></p><p class='h init'></p><p class='h bad'></p></div>\
                     <div class=h><p class=in></p><p class=un></p><p class=init></p></div>";
         assert_eq!(styles_of(html, "p").iter().map(|s| s.visible).collect::<Vec<_>>(), [true, true, false, false, false, true]);
+    }
+
+    #[test]
+    fn all_unset_takes_inherited_or_initial_values() {
+        let html = "<style>.u{all:unset} .after{color:#f00}</style>\
+                    <div style=\"font-size:20px;color:#0f0\"><h1 class=u></h1><h1 class='u after'></h1><h1></h1></div>";
+        let s = styles_of(html, "h1");
+        assert_eq!(s.iter().map(|s| s.font_size).collect::<Vec<_>>(), [20.0, 20.0, 40.0]);
+        assert_eq!(s.iter().map(|s| s.display).collect::<Vec<_>>(), [Display::Inline, Display::Inline, Display::Block]);
+        assert_eq!(s.iter().map(|s| s.color.0 & 0xff_ffff).collect::<Vec<_>>(), [0x00ff00, 0xff0000, 0x00ff00]);
     }
 
     #[test]
