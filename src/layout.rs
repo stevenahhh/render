@@ -888,6 +888,8 @@ impl<'a> Engine<'a> {
         for (c, sx, sy) in pending {
             let st = self.st;
             let s = &st[c as usize];
+            // A fixed box is placed against the viewport, not its positioned ancestor.
+            let (px, py, pw, ph) = if s.position == Position::Fixed { (0.0, 0.0, self.vw, self.vh) } else { (px, py, pw, ph) };
             let sd = sides(s, pw);
             let l = definite(s.inset[3], pw);
             let r = definite(s.inset[1], pw);
