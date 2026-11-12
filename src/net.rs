@@ -336,12 +336,65 @@ pub fn fetch(request: Request) -> Result<Fetched, FetchError> {
     };
     let headers = request.headers.into_iter().filter(|(n, v)| allowed_header(n, v)).map(|(n, v)| (n.trim().to_ascii_lowercase(), v.trim().to_string()));
     let ask = Ask { method: request.method, url, headers: headers.collect(), body: request.body, abort: request.abort };
+    let _slot = ServerSlot::take(&ask)?;
     let mut client = Client::new(tls_config());
     if let Some(page) = request.referrer {
         client = client.referring(page.into());
     }
     let (url, response) = client.follow(ask, None)?;
     Ok(Fetched { url: url.to_string(), status: response.status, status_text: response.reason, headers: response.headers, body: response.body })
+}
+
+/// Script requests in flight to each server. A script that asks for a hundred icons at
+/// once would otherwise open a hundred connections to one server within milliseconds,
+/// which fonts.gstatic.com answers by not answering this machine for a while. Like a
+/// browser, which keeps six HTTP/1.1 connections per server, at most `PER_HOST` go
+/// out at once and the rest wait for one of them to end; they then reuse its connection.
+static IN_FLIGHT: Mutex<Vec<((bool, String, u16), usize)>> = Mutex::new(Vec::new());
+
+/// Signalled when a script request ends.
+static SLOT_FREED: Condvar = Condvar::new();
+
+/// One of the `PER_HOST` places a script request to a server holds while in flight.
+struct ServerSlot((bool, String, u16));
+
+impl ServerSlot {
+    /// Waits for a place for `ask` on its server; `Aborted` if the request is aborted meanwhile.
+    fn take(ask: &Ask) -> Result<ServerSlot, FetchError> {
+        let key = (ask.url.https, ask.url.host.clone(), ask.url.port);
+        let mut busy = IN_FLIGHT.lock().expect("script requests");
+        loop {
+            if ask.aborted() {
+                return Err(FetchError::Aborted);
+            }
+            match busy.iter_mut().find(|b| b.0 == key) {
+                Some(b) if b.1 >= PER_HOST => {}
+                Some(b) => {
+                    b.1 += 1;
+                    return Ok(ServerSlot(key));
+                }
+                None => {
+                    busy.push((key.clone(), 1));
+                    return Ok(ServerSlot(key));
+                }
+            }
+            // Woken when a slot frees; an abort is noticed within the timeout.
+            busy = SLOT_FREED.wait_timeout(busy, Duration::from_millis(50)).expect("script requests").0;
+        }
+    }
+}
+
+impl Drop for ServerSlot {
+    fn drop(&mut self) {
+        let mut busy = IN_FLIGHT.lock().expect("script requests");
+        if let Some(i) = busy.iter().position(|b| b.0 == self.0) {
+            busy[i].1 -= 1;
+            if busy[i].1 == 0 {
+                busy.swap_remove(i);
+            }
+        }
+        SLOT_FREED.notify_all();
+    }
 }
 
 /// A local file read for `fetch`. `rest` follows `file://`: an optional host, then
@@ -1689,6 +1742,54 @@ mod tests {
         assert_eq!((head.status, head.body.len()), (200, 0));
         assert_eq!(fetch(Request::get(&origin)).unwrap().body, b"hello");
         assert!(requests.recv().unwrap().starts_with("HEAD / HTTP/1.1\r\n"));
+    }
+
+    #[test]
+    fn scripts_keep_six_requests_in_flight_on_each_server() {
+        use std::sync::{Condvar, Mutex};
+        use std::time::Duration;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        // Requests in flight, the most at once, how many arrived, and connections.
+        let state = Arc::new((Mutex::new((0usize, 0usize, 0usize, 0usize)), Condvar::new()));
+        let shared = state.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let state = shared.clone();
+                state.0.lock().unwrap().3 += 1;
+                std::thread::spawn(move || {
+                    let mut conn = BufReader::new(stream.unwrap());
+                    loop {
+                        let mut request = String::new();
+                        while conn.read_line(&mut request).unwrap_or(0) > 0 && !request.ends_with("\r\n\r\n") {}
+                        if request.is_empty() {
+                            return;
+                        }
+                        let (lock, changed) = &*state;
+                        let mut s = lock.lock().unwrap();
+                        s.0 += 1;
+                        s.1 = s.1.max(s.0);
+                        s.2 += 1;
+                        changed.notify_all();
+                        // Held until all ten were asked for, or for a while.
+                        let mut s = changed.wait_timeout_while(s, Duration::from_millis(1500), |s| s.2 < 10).unwrap().0;
+                        s.0 -= 1;
+                        drop(s);
+                        conn.get_mut().write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\nx").unwrap();
+                    }
+                });
+            }
+        });
+        let asks: Vec<_> = (0..10).map(|i| {
+            let url = format!("{origin}/i{i}");
+            std::thread::spawn(move || fetch(Request::get(&url)).unwrap().body)
+        }).collect();
+        for ask in asks {
+            assert_eq!(ask.join().unwrap(), b"x");
+        }
+        let s = *state.0.lock().unwrap();
+        assert_eq!((s.1, s.2), (6, 10));
+        assert!(s.3 <= 6, "{} connections", s.3);
     }
 
     #[test]
