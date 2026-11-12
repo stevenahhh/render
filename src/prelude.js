@@ -65,9 +65,10 @@
   }).join(' ');
   const log = (prefix) => (...a) => __log(prefix + fmt(a));
   const noop = () => {};
-  // An exception from a callback the page gave us: reported like an uncaught one.
+  // An exception from a callback the page gave us: reported like an uncaught one, with where it came from.
   const reportError = (e) => {
-    g.console.error(e);
+    const stack = e instanceof Error && typeof e.stack === 'string' ? e.stack.split('\n').filter((l) => /^\s+at /.test(l)).slice(0, 6) : [];
+    __log('error: ' + fmt([e]) + (stack.length ? '\n' + stack.join('\n') : ''));
     fireError(e);
   };
   $.reportError = reportError;

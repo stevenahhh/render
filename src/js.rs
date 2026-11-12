@@ -586,7 +586,7 @@ fn chunk_source(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsVal
 /// `__run(code, url, name)`: runs a classic script that a script inserted.
 fn run_script(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let (code, url, name) = (str_arg(a, 0, ctx)?, str_arg(a, 1, ctx)?, str_arg(a, 2, ctx)?);
-    if let Err(e) = ctx.eval(Source::from_bytes(&code)) {
+    if let Err(e) = ctx.eval(Source::from_bytes(&code).with_path(Path::new(&url))) {
         report(ctx, e, &name, Some(&url))?;
     }
     Ok(JsValue::undefined())
@@ -766,9 +766,15 @@ fn call_entry(ctx: &mut Context, name: &str, args: &[JsValue]) -> JsResult<JsVal
 
 /// Reports an error from page script on stderr and to the page as an `error`
 /// event. Errors that scripts cannot catch, such as hitting a runtime limit,
-/// are passed on.
+/// are passed on. The script's own frames keep the `(unknown at :line:col)`
+/// form they had before scripts were named by their URL: the line already
+/// starts with the script's name, and this text is what tools compare.
 fn report(ctx: &mut Context, e: JsError, name: &str, url: Option<&str>) -> JsResult<()> {
-    eprintln!("[js] {name}: {}", e.to_string().chars().take(300).collect::<String>());
+    let mut text = e.to_string();
+    if let Some(url) = url {
+        text = text.replace(&format!("({url}:"), "(unknown at :");
+    }
+    eprintln!("[js] {name}: {}", text.chars().take(300).collect::<String>());
     let Ok(value) = e.into_opaque(ctx) else { return Ok(()) };
     let url = url.map_or(JsValue::undefined(), js_str);
     call_entry(ctx, "error", &[value, url]).map(drop)
@@ -1025,7 +1031,7 @@ impl Js {
     /// `url` is where errors in it are reported.
     pub fn run_script(&mut self, node: NodeId, code: &str, name: &str, url: &str) {
         self.call("begin", &[js_id(node)]);
-        if let Err(e) = self.ctx.eval(Source::from_bytes(code)) {
+        if let Err(e) = self.ctx.eval(Source::from_bytes(code).with_path(Path::new(url))) {
             if let Err(e) = report(&mut self.ctx, e, name, Some(url)) {
                 eprintln!("[js] {name}: {e}");
             }
