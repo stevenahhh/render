@@ -2,9 +2,10 @@
 //! place of children, and the size WebKit gives one whose `width` or `height` is auto,
 //! from its font and its `size`, `cols` and `rows` attributes.
 
-use super::{face_of, line_extent, rs, BoxDeco, Engine, Item, Kind};
+use super::{clamp_w, face_of, is_abs, line_extent, rs, sides, spec_w, BoxDeco, Engine, Item, Kind, NAN};
 use crate::css::{Color, Len, TextAlign};
 use crate::dom::{atom, Dom, NodeId, NONE};
+use crate::css::Display;
 use crate::style::Style;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -49,6 +50,24 @@ pub(super) fn sized_by_content(dom: &Dom, n: NodeId) -> bool {
     dom.shows_image(n) || dom.nodes[n as usize].tag == atom::BUTTON || control(dom, n).is_some()
 }
 
+/// The legend a fieldset draws on its top border: its first child element when that
+/// is a `<legend>` that is shown, neither floated nor absolutely positioned.
+pub(super) fn rendered_legend(dom: &Dom, st: &[Style], n: NodeId) -> NodeId {
+    let mut c = dom.nodes[n as usize].first_child;
+    while c != NONE && !dom.is_element(c) {
+        c = dom.nodes[c as usize].next;
+    }
+    let shown = |c: NodeId| {
+        let s = &st[c as usize];
+        s.display != Display::None && s.float == 0 && !is_abs(s)
+    };
+    if c != NONE && dom.nodes[c as usize].tag == atom::LEGEND && shown(c) {
+        c
+    } else {
+        NONE
+    }
+}
+
 /// A positive integer attribute such as `size`, or `default` without a valid one.
 fn count(dom: &Dom, n: NodeId, name: u32, default: f32) -> f32 {
     dom.attr(n, name).and_then(|v| v.trim().parse::<u32>().ok()).filter(|&v| v > 0).map_or(default, |v| v as f32)
@@ -89,6 +108,50 @@ fn options(dom: &Dom, n: NodeId) -> (Vec<String>, usize) {
 }
 
 impl Engine<'_> {
+    /// Pushes what paints fieldset `n`'s box: its background and borders without the
+    /// top one, then the two pieces of the top border beside the legend. `place_frame`
+    /// puts them where they go once the legend and the height are known.
+    pub(super) fn fieldset_frame(&mut self, n: NodeId, s: &Style, [x, y, w]: [f32; 3]) -> u32 {
+        let frame = self.push_box(n, s, x, y, w, 0.0);
+        self.out.boxes[self.out.items[frame as usize].data as usize].bw[0] = 0.0;
+        let piece = BoxDeco { bg: s.bc[0].with_opacity(s.opacity), bw: [0.0; 4], bc: [Color::TRANSPARENT; 4], radius: [Len::Px(0.0); 4], grad: None, shadow: None };
+        for _ in 0..2 {
+            self.push_deco(n, x, y, 0.0, 0.0, piece.clone());
+        }
+        frame
+    }
+
+    /// Lays out `legend` at the top of its fieldset, whose border box starts at `y` and
+    /// whose content box starts at `cx` and is `cw` wide. Returns the height of its margin
+    /// box and where that box starts and ends across.
+    pub(super) fn lay_legend(&mut self, legend: NodeId, cx: f32, y: f32, cw: f32) -> (f32, f32, f32) {
+        let s = &self.st[legend as usize];
+        let sd = sides(s, cw);
+        let w = match spec_w(s, cw, &sd) {
+            Some(w) => w,
+            None => clamp_w(s, (self.intrinsic(legend) - sd.ml - sd.mr).min(cw - sd.ml - sd.mr), cw, &sd),
+        };
+        let r = self.layout_box(legend, cx + sd.ml, y + sd.mt, w, cw, NAN, NAN, true);
+        (r.h + sd.mt + sd.mb, cx, cx + sd.ml + w + sd.mr)
+    }
+
+    /// Moves the painted box of a fieldset `h` high down to the middle of its legend,
+    /// whose margin box is `band` high from `x0` to `x1`, and draws the top border on
+    /// each side of it.
+    pub(super) fn place_frame(&mut self, frame: u32, s: &Style, h: f32, (band, x0, x1): (f32, f32, f32)) {
+        let bt = s.bw[0];
+        let drop = ((band - bt) / 2.0).max(0.0);
+        let it = &mut self.out.items[frame as usize];
+        it.y += drop;
+        it.h = h - drop;
+        let (x, y, w) = (it.x, it.y, it.w);
+        let pieces = [(x, x0.max(x)), (x1.min(x + w), x + w)];
+        for (k, (a, b)) in pieces.into_iter().enumerate() {
+            let p = &mut self.out.items[frame as usize + 1 + k];
+            (p.x, p.y, p.w, p.h) = (a, y, (b - a).max(0.0), bt);
+        }
+    }
+
     /// The content-box width of control `n` when its `width` is auto. Text fields are
     /// as wide as `size` (or `cols`) times the advance of "0", which WebKit takes for
     /// the average character width of the system font.

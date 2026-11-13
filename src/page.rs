@@ -1690,6 +1690,17 @@ mod tests {
     }
 
     #[test]
+    fn a_legend_sits_on_its_fieldset_top_border_above_the_content() {
+        let css = "body{margin:0} fieldset{margin:0;padding:5px 10px;border:2px solid red} legend{padding:0;height:20px;width:30px} #d{height:10px}";
+        let body = "<fieldset id=f><legend id=l></legend><div id=d></div></fieldset>";
+        let (mut page, _) = after_script(css, body, "$('f').title='x';");
+        let mut rect = |sel: &str| page.describe(sel).and_then(|d| d.0).unwrap();
+        assert_eq!(rect("#f"), [0.0, 0.0, 1024.0, 20.0 + 5.0 + 10.0 + 5.0 + 2.0]);
+        assert_eq!(rect("#l")[..2], [12.0, 0.0]);
+        assert_eq!(rect("#d")[1], 25.0);
+    }
+
+    #[test]
     fn a_button_taller_than_its_content_centres_it() {
         let css = "body{margin:0} button{padding:0;border:0;height:60px;width:50px} #f{display:flex}";
         let body = "<button id=b><div id=d style='height:20px'></div></button><button id=f><div id=e style='height:20px;width:5px'></div></button>";

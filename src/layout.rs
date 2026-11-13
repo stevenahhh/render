@@ -16,7 +16,7 @@ use std::rc::Rc;
 mod control;
 mod float;
 mod grid;
-use control::{control, sized_by_content};
+use control::{control, rendered_legend, sized_by_content};
 use float::FloatBox;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -131,7 +131,7 @@ impl Layout {
             let (tag, s) = (dom.nodes[n as usize].tag, &st[n as usize]);
             let marker = s.display == Display::ListItem && s.list_style != ListStyle::None;
             let generated = s.rare().before.is_some() || s.rare().after.is_some();
-            if marker || generated || matches!(tag, atom::HTML | atom::BODY) || control(dom, n).is_some() || dom.shows_image(n) {
+            if marker || generated || matches!(tag, atom::HTML | atom::BODY | atom::FIELDSET) || control(dom, n).is_some() || dom.shows_image(n) {
                 return false;
             }
             set.insert(n, ());
@@ -503,6 +503,8 @@ struct Engine<'a> {
     floats: Vec<FloatBox>,
     /// Where the floats of the innermost block formatting context start in `floats`.
     bfc: usize,
+    /// The legend of the fieldset whose children are being laid out, placed on its border.
+    legend: NodeId,
 }
 
 pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, vw: f32, vh: f32, mut reuse: Layout) -> Layout {
@@ -536,6 +538,7 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
         next_ord: 1,
         floats: Vec::new(),
         bfc: 0,
+        legend: NONE,
     };
     let (h, _) = e.layout_children(0, 0.0, vw, 0.0, vh, false, false);
     // The initial containing block has the viewport's size (CSS 2.1 10.1).
@@ -768,7 +771,7 @@ impl<'a> Engine<'a> {
             let node = &dom.nodes[c as usize];
             let inline = node.tag == atom::TEXT || {
                 let cs = &st[c as usize];
-                if cs.display == Display::None {
+                if cs.display == Display::None || c == self.legend {
                     c = node.next;
                     continue;
                 }
@@ -914,7 +917,18 @@ impl<'a> Engine<'a> {
         };
 
         let first_item = self.mark();
-        let item = if s.visible && s.has_deco() {
+        let legend = if tag == atom::FIELDSET { rendered_legend(self.dom, st, n) } else { NONE };
+        let mut frame = NONE;
+        let item = if legend != NONE {
+            let report = self.out.record_boxes.then(|| {
+                self.out.items.push(Item { x, y, w, h: 0.0, kind: Kind::Area, node: n, data: 0 });
+                self.mark() - 1
+            });
+            if s.visible && s.has_deco() {
+                frame = self.fieldset_frame(n, s, [x, y, w]);
+            }
+            report.unwrap_or(frame)
+        } else if s.visible && s.has_deco() {
             self.push_box(n, s, x, y, w, 0.0)
         } else if self.out.record_boxes {
             self.out.items.push(Item { x, y, w, h: 0.0, kind: Kind::Area, node: n, data: 0 });
@@ -933,6 +947,15 @@ impl<'a> Engine<'a> {
         let abs_mark = self.abs.len();
         let zmark = self.zranges.len();
         let content_start = self.mark();
+        let (mut cy, mut vextra, mut gap) = (cy, vextra, (0.0, 0.0, 0.0));
+        if legend != NONE {
+            // The legend sits on the top border; what it adds below that border is
+            // taken from the content.
+            gap = self.lay_legend(legend, cx, y, cw);
+            let below = (gap.0 - bt).max(0.0);
+            cy += below;
+            vextra += below;
+        }
 
         let hx = if s.border_box { 0.0 } else { vextra };
         let mut spec_h = forced_h;
@@ -980,7 +1003,10 @@ impl<'a> Engine<'a> {
             let top = open && sd.pt == 0.0 && bt == 0.0;
             // `min-height` does not keep the last child's margin in (CSS 2.1 8.3.1).
             let bottom = open && sd.pb == 0.0 && bb == 0.0 && spec_h.is_nan();
-            self.layout_children(n, cx, cw, cy, inner_h, top, bottom)
+            let outer_legend = std::mem::replace(&mut self.legend, legend);
+            let r = self.layout_children(n, cx, cw, cy, inner_h, top, bottom);
+            self.legend = outer_legend;
+            r
         };
         if let Some(outer) = outer_bfc {
             // A block formatting context holds its floats.
@@ -1006,6 +1032,9 @@ impl<'a> Engine<'a> {
         }
         if item != NONE {
             self.out.items[item as usize].h = h;
+        }
+        if frame != NONE {
+            self.place_frame(frame, s, h, gap);
         }
         if let Some((slot, iw, ih)) = bg {
             self.place_background(slot, s, [x + bl, y + bt, w - bl - br, h - bt - bb], iw, ih);

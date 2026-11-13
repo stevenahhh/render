@@ -63,6 +63,7 @@ atoms! {
     COMMENT = "#comment", FRAGMENT = "#document-fragment", TEMPLATE = "template", SHADOW = "#shadow-root",
     SLOT = "slot", IFRAME = "iframe", XMP = "xmp", NOEMBED = "noembed", NOFRAMES = "noframes",
     SIZE = "size", COLS = "cols", ROWS = "rows", SELECTED = "selected", LABEL = "label",
+    LEGEND = "legend",
 }
 
 pub struct Interner {
