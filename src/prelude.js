@@ -2036,6 +2036,7 @@
       watchedMedia.set(m, now);
     }
     dispatch(g, new Event('resize'));
+    dispatch(visualViewport, new Event('resize'));
     for (const m of changed) dispatch(m, new events.MediaQueryListEvent('change', { matches: watchedMedia.get(m), media: m.media }));
   };
 
@@ -2161,6 +2162,20 @@
     orientation: Object.assign(new EventTarget(), { type: 'landscape-primary', angle: 0, onchange: null, lock: () => Promise.reject(domError('NotSupportedError', 'screen.orientation.lock() is not available on this device.')), unlock: noop }),
   });
 
+  // The visual viewport: the layout viewport itself, as the page is never pinch-zoomed.
+  class VisualViewport extends EventTarget { constructor() { super(); illegal(); } }
+  getters(VisualViewport.prototype, {
+    offsetLeft: () => 0,
+    offsetTop: () => 0,
+    pageLeft: () => 0,
+    pageTop: () => __view()[2],
+    width: () => __view()[0],
+    height: () => __view()[1],
+    scale: () => 1,
+  });
+  const visualViewport = Object.create(VisualViewport.prototype);
+  for (const t of ['resize', 'scroll', 'scrollend']) Object.defineProperty(VisualViewport.prototype, 'on' + t, { configurable: true, enumerable: true, get() { return this['_on' + t] ?? null; }, set(v) { this['_on' + t] = typeof v === 'function' ? v : null; } });
+
   // Sites branch on the engine name; like every browser, claim to be a known one.
   // The attributes are accessors of Navigator.prototype, as in WebIDL.
   class Navigator { constructor() { illegal(); } }
@@ -2253,7 +2268,7 @@
   for (const t of ['readystatechange', 'visibilitychange']) Object.defineProperty(Document.prototype, 'on' + t, handlerProp(t, noHost));
 
   def(g, {
-    globalThis: g, Navigator, Performance, trustedTypes, CSS, console,
+    globalThis: g, Navigator, Performance, VisualViewport, trustedTypes, CSS, console,
     Window, EventTarget, Node, CharacterData, Text, Comment, CDATASection, ProcessingInstruction, DocumentType, Element, Attr, NamedNodeMap, NodeList, HTMLCollection, DOMTokenList,
     Document, HTMLDocument: Document, XMLDocument: Document, DocumentFragment, ShadowRoot, DOMException, AbortController, AbortSignal, URL, URLSearchParams, webkitURL: URL, Location, History, Storage,
     DOMRect, DOMRectReadOnly, SVGAnimatedString, DOMPoint, DOMPointReadOnly: DOMPoint, DOMMatrix, DOMMatrixReadOnly: DOMMatrix, WebKitCSSMatrix: DOMMatrix, MediaQueryList, MediaError, FontFace,
@@ -2289,6 +2304,7 @@
     screen: replaceable('screen', () => screen),
     performance: replaceable('performance', () => performance),
     devicePixelRatio: replaceable('devicePixelRatio', () => 1),
+    visualViewport: replaceable('visualViewport', () => visualViewport),
     opener: attribute(() => opener, (v) => { opener = v; }),
     name: attribute(() => windowName, (v) => { windowName = String(v); }),
     status: attribute(() => windowStatus, (v) => { windowStatus = String(v); }),

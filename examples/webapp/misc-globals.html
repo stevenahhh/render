@@ -65,6 +65,12 @@ check('recursion', function(){
 });
 </script>
 <script>
+check('visualViewport', function(){
+  var v=window.visualViewport;
+  mark('MISC visualViewport scale:'+v.scale+' width:'+(v.width===innerWidth)+' height:'+(v.height===innerHeight)+' offset:'+v.offsetLeft+','+v.offsetTop+' target:'+(v instanceof EventTarget));
+});
+</script>
+<script>
 check('idl-accessors', function(){
   var get=function(o,k){var d=Object.getOwnPropertyDescriptor(o,k);return d&&d.get;};
   var nodeType=get(Node.prototype,'nodeType');
