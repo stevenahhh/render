@@ -59,7 +59,7 @@ atoms! {
     HEIGHT = "height", START = "start", SRC = "src", SRCSET = "srcset", MEDIA = "media",
     PICTURE = "picture", NOSCRIPT = "noscript", SVG = "svg", VIDEO = "video", POSTER = "poster",
     COMMENT = "#comment", FRAGMENT = "#document-fragment", TEMPLATE = "template", SHADOW = "#shadow-root",
-    SLOT = "slot",
+    SLOT = "slot", IFRAME = "iframe", XMP = "xmp", NOEMBED = "noembed", NOFRAMES = "noframes",
 }
 
 pub struct Interner {
@@ -607,7 +607,7 @@ impl Dom {
             return;
         }
         if node.tag == atom::TEXT {
-            let raw = matches!(self.nodes.get(node.parent as usize).map(|p| p.tag), Some(atom::SCRIPT | atom::STYLE));
+            let raw = self.nodes.get(node.parent as usize).is_some_and(|p| is_raw_text(p.tag));
             for c in self.text_of(n).chars() {
                 match c {
                     '&' if !raw => out.push_str("&amp;"),
@@ -711,7 +711,14 @@ fn is_void(t: Atom) -> bool {
 
 fn is_head_tag(t: Atom) -> bool {
     use atom::*;
-    matches!(t, TITLE | META | LINK | STYLE | SCRIPT | BASE | TEMPLATE)
+    matches!(t, TITLE | META | LINK | STYLE | SCRIPT | BASE | TEMPLATE | NOSCRIPT)
+}
+
+/// Elements whose content is text up to their end tag, with no character
+/// references: `<noscript>` among them, since scripting is always enabled.
+fn is_raw_text(t: Atom) -> bool {
+    use atom::*;
+    matches!(t, SCRIPT | STYLE | NOSCRIPT | IFRAME | XMP | NOEMBED | NOFRAMES)
 }
 
 fn closes_p(t: Atom) -> bool {
@@ -988,7 +995,7 @@ impl<'a> Parser<'a> {
         if is_void(tag) || (self_closing && in_svg()) {
             return;
         }
-        let raw = matches!(tag, atom::SCRIPT | atom::STYLE);
+        let raw = is_raw_text(tag);
         if raw || matches!(tag, atom::TITLE | atom::TEXTAREA) {
             let name = self.dom.atoms.name(tag).to_string();
             let (end, after) = self.find_close(&name);
@@ -1258,6 +1265,23 @@ mod tests {
         dom.serialize(doc, false, &mut whole);
         assert_eq!(whole, "<html><head><title>t</title></head><body><p></p></body></html>");
         assert_eq!(dom.shadows.len(), 4);
+    }
+
+    #[test]
+    fn noscript_and_iframe_hold_raw_text_and_noscript_stays_in_head() {
+        let dom = parse_html("<head><noscript><img src=p.gif></noscript><link rel=stylesheet href=a.css></head>\
+            <body><noscript><iframe src=x></iframe></noscript><iframe>a<b>c</b>&amp;</iframe><p>after</p></body>");
+        let head = first(&dom, atom::HEAD);
+        let (noscript, link) = (first(&dom, atom::NOSCRIPT), first(&dom, atom::LINK));
+        assert_eq!((dom.nodes[noscript as usize].parent, dom.nodes[link as usize].parent), (head, head));
+        assert!(!(0..dom.nodes.len()).any(|n| dom.nodes[n].tag == atom::IMG), "no element inside noscript");
+        let iframe = first(&dom, atom::IFRAME);
+        let mut html = String::new();
+        dom.serialize(iframe, true, &mut html);
+        assert_eq!(html, "<iframe>a<b>c</b>&amp;</iframe>");
+        let mut inner = String::new();
+        dom.serialize(first(&dom, atom::BODY), false, &mut inner);
+        assert_eq!(inner, "<noscript><iframe src=x></iframe></noscript><iframe>a<b>c</b>&amp;</iframe><p>after</p>");
     }
 
     #[test]
