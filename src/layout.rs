@@ -2561,6 +2561,15 @@ impl<'a> Engine<'a> {
         }
         let s = &self.st[n as usize];
         let tag = self.dom.nodes[n as usize].tag;
+        // A compressible replaced element sized by a percentage gives no content to
+        // the min-content contribution, only its edges (CSS Sizing 3, 5.2.2).
+        let pct = |l: Len| matches!(l, Len::Pct(_)) || matches!(l, Len::Calc(p, _) if p != 0.0);
+        if matches!(tag, atom::IMG | atom::VIDEO | atom::SVG | atom::IFRAME | atom::EMBED) && (pct(s.width) || pct(s.rare().max_w)) {
+            let sd = sides(s, 0.0);
+            let r = hextra(s, &sd) + sd.ml + sd.mr;
+            self.intr_min[n as usize] = r;
+            return r;
+        }
         if matches!(s.width, Len::Px(_)) || tag == atom::IMG || control(self.dom, n).is_some() || self.natural(n).is_some() {
             // A fixed width or a replaced element: the same as its max-content width.
             let w = self.intrinsic(n);

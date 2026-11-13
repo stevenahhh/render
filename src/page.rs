@@ -1882,6 +1882,14 @@ mod tests {
     }
 
     #[test]
+    fn a_flex_item_shrinks_past_an_image_with_a_percentage_max_width() {
+        let css = "body{margin:0} .row{display:flex;width:300px} img{display:block;max-width:100%;height:auto}";
+        let body = "<div class=row><div id=item><img id=i width=600 height=300></div></div>";
+        let (mut page, _) = after_script(css, body, "$('i').title='x';");
+        assert_eq!(rects(&mut page, &["item", "i"]), [[0.0, 0.0, 300.0, 150.0], [0.0, 0.0, 300.0, 150.0]]);
+    }
+
+    #[test]
     fn margins_collapse_through_empty_blocks() {
         let css = "body{margin:0} .a{height:10px} .e{margin:20px 0}";
         let body = "<div class=a id=a></div><div class=e></div><div class=e><div class=e></div></div><div class=a id=b></div>\
