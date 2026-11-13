@@ -114,14 +114,20 @@ struct Script {
     module: bool,
 }
 
-/// The stylesheet `<link>` and `<img>` elements in the document with the source
-/// each names, in document order.
+/// The stylesheet `<link>`, style preload `<link>` and `<img>` elements in the
+/// document with the source each names, in document order. A preload fires its
+/// `load` event too: pages switch it to a stylesheet from that listener.
 fn resource_nodes(dom: &Dom) -> Vec<(NodeId, Box<str>)> {
+    let preload_style = |n: NodeId| {
+        let rel = dom.attr(n, atom::REL).unwrap_or("");
+        rel.split_ascii_whitespace().any(|t| t.eq_ignore_ascii_case("preload"))
+            && dom.atoms.get("as").and_then(|a| dom.attr(n, a)).is_some_and(|v| v.trim().eq_ignore_ascii_case("style"))
+    };
     let mut out = Vec::new();
     let mut n = 0;
     while n != NONE {
         let src = match dom.nodes[n as usize].tag {
-            atom::LINK if dom.attr(n, atom::REL).is_some_and(is_stylesheet) => dom.attr(n, atom::HREF),
+            atom::LINK if dom.attr(n, atom::REL).is_some_and(is_stylesheet) || preload_style(n) => dom.attr(n, atom::HREF),
             atom::IMG => dom.attr(n, atom::SRC),
             _ => None,
         };
@@ -1901,6 +1907,14 @@ mod tests {
         let (mut page, _) = after_script(css, body, "$('c1').title='x';");
         let got = rects(&mut page, &["m1", "c2", "f2", "b3", "c3", "b4", "f5", "m5"]);
         assert_eq!(got, [[100.0, 0.0, 10.0, 10.0], [100.0, 10.0, 400.0, 40.0], [380.0, 10.0, 120.0, 40.0], [0.0, 100.0, 400.0, 5.0], [0.0, 50.0, 400.0, 55.0], [100.0, 105.0, 300.0, 5.0], [350.0, 155.0, 50.0, 30.0], [10.0, 155.0, 10.0, 10.0]]);
+    }
+
+    #[test]
+    fn a_style_preload_fires_load_so_a_page_can_switch_it_to_a_stylesheet() {
+        let body = "<link class=d rel=preload as=style href='data:text/css,p{}'><link class=d rel=preload as=font href='data:,'><p id=p></p>\
+                    <script>var n=0,p=document.getElementById('p');document.querySelectorAll('.d').forEach(function(l){l.addEventListener('load',function(){n+=33;p.style.width=n+'px'})})</script>";
+        let (mut page, _) = after_script("body{margin:0}", body, "");
+        assert_eq!(rects(&mut page, &["p"])[0][2], 33.0, "the style preload fires load once; the font preload is not handled here");
     }
 
     #[test]
