@@ -93,10 +93,14 @@ impl Element<'_> {
     }
 
     /// The resolved value of `name`; `None` for a property this does not know.
+    /// Logical sides answer as the physical side they map to.
     pub fn value(&self, name: &str) -> Option<String> {
         let s = self.style;
         const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
         let side = |prefix: &str| SIDES.iter().position(|side| name.strip_prefix(prefix) == Some(side));
+        if let Some(physical) = physical_side(name) {
+            return self.value(&physical);
+        }
         if let Some(i) = side("margin-") {
             return Some(self.margin(i));
         }
@@ -186,9 +190,27 @@ pub const NAMES: &[&str] = &[
     "overflow-x", "overflow-y", "transform", "float", "clear", "grid-row-start", "grid-column-start", "grid-row-end", "grid-column-end",
 ];
 
+/// The physical property a logical side property stands for (`margin-inline-end`,
+/// `inset-block-start`, `border-inline-start-width`, ...). Layout here is horizontal
+/// and left to right, where block start and end are top and bottom and inline start
+/// and end are left and right.
+fn physical_side(name: &str) -> Option<String> {
+    const LOGICAL: [(&str, &str); 4] = [("block-start", "top"), ("block-end", "bottom"), ("inline-start", "left"), ("inline-end", "right")];
+    let (prefix, rest) = ["margin-", "padding-", "border-", "inset-"].iter().find_map(|p| name.strip_prefix(p).map(|r| (*p, r)))?;
+    let (rest, width) = match prefix {
+        "border-" => (rest.strip_suffix("-width")?, "-width"),
+        _ => (rest, ""),
+    };
+    let side = LOGICAL.iter().find(|(l, _)| *l == rest)?.1;
+    Some(match prefix {
+        "inset-" => side.to_string(),
+        _ => format!("{prefix}{side}{width}"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{color, num};
+    use super::{color, num, physical_side};
     use crate::css::Color;
 
     #[test]
@@ -197,5 +219,13 @@ mod tests {
         assert_eq!(color(Color::rgba(255, 0, 0, 128)), "rgba(255, 0, 0, 0.5)");
         assert_eq!(color(Color::TRANSPARENT), "rgba(0, 0, 0, 0)");
         assert_eq!((num(48.0), num(0.5), num(1.0 / 3.0), num(-0.0)), ("48".into(), "0.5".into(), "0.3333".into(), "0".into()));
+    }
+
+    #[test]
+    fn logical_sides_answer_as_physical_ones() {
+        let cases = ["margin-inline-end", "padding-block-start", "border-inline-start-width", "inset-block-end", "margin-right", "border-inline-end"];
+        let got: Vec<Option<String>> = cases.iter().map(|n| physical_side(n)).collect();
+        let want = [Some("margin-right"), Some("padding-top"), Some("border-left-width"), Some("bottom"), None, None];
+        assert_eq!(got, want.map(|w| w.map(String::from)));
     }
 }
