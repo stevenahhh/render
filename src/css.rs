@@ -1989,8 +1989,12 @@ pub enum Pseudo {
     Not(Box<[Vec<Part>]>),
     /// `:is()` or `:where()`: matches when one of the selectors matches the element.
     Is(Box<[Vec<Part>]>),
-    /// Matches when some descendant matches the selector.
-    Has(Vec<Part>),
+    /// `:has()`: matches when an element in the relation each selector starts with
+    /// (descendant, `>` child, `+` next or `~` later sibling) matches it. Each
+    /// selector ends in an `Anchor` compound standing for the element itself.
+    Has(Box<[Vec<Part>]>),
+    /// The element a `:has()` is being tested on.
+    Anchor,
     Hover,
     Link,
     Empty,
@@ -2318,7 +2322,7 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                         }
                         None => Pseudo::Never,
                     },
-                    "has" => parse_selector(arg.trim(), atoms, hover).filter(|(parts, _)| parts[0].c.elem == 0).map_or(Pseudo::Never, |(parts, _)| Pseudo::Has(parts)),
+                    "has" => relative_selectors(arg, atoms, hover).map_or(Pseudo::Never, Pseudo::Has),
                     "hover" => {
                         *hover = true;
                         Pseudo::Hover
@@ -2433,6 +2437,26 @@ fn parse_selector(s: &str, atoms: &mut Interner, hover: &mut bool) -> Option<(Ve
     Some((parts, spec))
 }
 
+/// The arguments of `:has()`: relative selectors, each ending in an `Anchor`
+/// compound joined by the combinator it starts with. `None` when one is invalid.
+fn relative_selectors(arg: &str, atoms: &mut Interner, hover: &mut bool) -> Option<Box<[Vec<Part>]>> {
+    SplitTop::new(arg, b',')
+        .map(|sel| {
+            let sel = sel.trim();
+            let (comb, rest) = match sel.as_bytes().first() {
+                Some(b'>') => (Comb::Child, &sel[1..]),
+                Some(b'+') => (Comb::Adjacent, &sel[1..]),
+                Some(b'~') => (Comb::Sibling, &sel[1..]),
+                _ => (Comb::Descendant, sel),
+            };
+            let (mut parts, _) = parse_selector(rest.trim(), atoms, hover).filter(|(parts, _)| parts[0].c.elem == 0)?;
+            parts.last_mut()?.comb = comb;
+            parts.push(Part { c: Compound { pseudos: vec![Pseudo::Anchor], ..Compound::default() }, comb: Comb::None });
+            Some(parts)
+        })
+        .collect()
+}
+
 /// Parses a comma-separated selector list for the DOM, dropping invalid
 /// selectors and those of pseudo-elements, which select no element.
 pub fn parse_selector_list(s: &str, atoms: &mut Interner) -> Vec<Vec<Part>> {
@@ -2447,7 +2471,7 @@ fn supported(c: &Compound) -> bool {
     c.pseudos.iter().all(|p| match p {
         Pseudo::Never => false,
         Pseudo::Not(list) | Pseudo::Is(list) => list.iter().all(|parts| parts.iter().all(|p| supported(&p.c))),
-        Pseudo::Has(parts) => parts.iter().all(|p| supported(&p.c)),
+        Pseudo::Has(list) => list.iter().all(|parts| parts.iter().all(|p| supported(&p.c))),
         _ => true,
     })
 }

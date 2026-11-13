@@ -265,8 +265,8 @@ fn scope_compound(dom: &mut Dom, c: &mut Compound, s: &Scope, within: Option<Nod
                     scope_compound(dom, &mut part.c, s, tree);
                 }
             }
-            Pseudo::Has(parts) => {
-                for part in parts {
+            Pseudo::Has(list) => {
+                for part in list.iter_mut().flatten() {
                     scope_compound(dom, &mut part.c, s, tree);
                 }
             }

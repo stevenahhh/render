@@ -888,6 +888,8 @@ fn subst(v: &str, vars: Option<&Vars>, depth: u32) -> Option<String> {
 struct Matcher<'a> {
     dom: &'a Dom,
     hover: &'a [NodeId],
+    /// The element the innermost `:has()` being tested is on.
+    anchor: NodeId,
     /// Position of each element among its element siblings, filled per
     /// parent on first use.
     idx: Vec<Sib>,
@@ -992,16 +994,24 @@ impl<'a> Matcher<'a> {
             Pseudo::NthOfType(a, b) => nth(*a, *b, self.sib(n).type_pos as i32),
             Pseudo::Not(list) => !list.iter().any(|parts| self.matches(parts, n)),
             Pseudo::Is(list) => list.iter().any(|parts| self.matches(parts, n)),
-            Pseudo::Has(parts) => {
-                let mut c = node.first_child;
-                while c != NONE {
-                    if self.dom.is_element(c) && self.matches(parts, c) {
-                        return true;
+            Pseudo::Has(list) => {
+                let saved = std::mem::replace(&mut self.anchor, n);
+                let found = list.iter().any(|parts| {
+                    // The relation the selector starts with: the anchor's descendants, or its later siblings and theirs.
+                    let siblings = parts.len() >= 2 && matches!(parts[parts.len() - 2].comb, Comb::Adjacent | Comb::Sibling);
+                    let (root, mut c) = if siblings { (self.dom.nodes[n as usize].parent, self.dom.nodes[n as usize].next) } else { (n, node.first_child) };
+                    while c != NONE {
+                        if self.dom.is_element(c) && self.matches(parts, c) {
+                            return true;
+                        }
+                        c = dfs_next(self.dom, c, root, true);
                     }
-                    c = dfs_next(self.dom, c, n, true);
-                }
-                false
+                    false
+                });
+                self.anchor = saved;
+                found
             }
+            Pseudo::Anchor => n == self.anchor,
             Pseudo::Hover => self.hover.contains(&n),
             Pseudo::Link => node.tag == atom::A && self.dom.attr(n, atom::HREF).is_some(),
             Pseudo::Empty => node.first_child == NONE,
@@ -1122,7 +1132,7 @@ fn dfs_next(dom: &Dom, n: NodeId, root: NodeId, descend: bool) -> NodeId {
 pub fn query(dom: &mut Dom, root: NodeId, selector: &str, first_only: bool) -> Vec<NodeId> {
     let sels = parse_selector_list(selector, &mut dom.atoms);
     let dom = &*dom;
-    let mut m = Matcher { dom, hover: &[], idx: Vec::new() };
+    let mut m = Matcher { dom, hover: &[], anchor: NONE, idx: Vec::new() };
     let mut out = Vec::new();
     let mut i = if sels.is_empty() { NONE } else { dom.nodes[root as usize].first_child };
     while i != NONE {
@@ -1158,7 +1168,7 @@ pub fn base_href(dom: &Dom) -> Option<&str> {
 pub fn matches(dom: &mut Dom, n: NodeId, selector: &str) -> bool {
     let sels = parse_selector_list(selector, &mut dom.atoms);
     let dom = &*dom;
-    let mut m = Matcher { dom, hover: &[], idx: Vec::new() };
+    let mut m = Matcher { dom, hover: &[], anchor: NONE, idx: Vec::new() };
     dom.is_element(n) && sels.iter().any(|p| m.matches(p, n))
 }
 
@@ -1243,7 +1253,7 @@ impl<'a> Styler<'a> {
             dom,
             sheet,
             media_ok: sheet.media.iter().map(|m| m.matches(vw, vh)).collect(),
-            m: Matcher { dom, hover, idx: Vec::new() },
+            m: Matcher { dom, hover, anchor: NONE, idx: Vec::new() },
             matched: Vec::new(),
             pseudo: Vec::new(),
             expanded: Vec::new(),
@@ -1968,7 +1978,7 @@ fn each_feature(c: &Compound, f: &mut impl FnMut(Feature)) {
             Pseudo::Empty => f(Feature::Empty),
             Pseudo::Link => f(Feature::Attr(atom::HREF)),
             // A definition, or a dialog becoming modal, restyles everything.
-            Pseudo::Has(_) | Pseudo::Not(_) | Pseudo::Is(_) | Pseudo::Root | Pseudo::Defined | Pseudo::Modal | Pseudo::Lang(_) | Pseudo::Never => {}
+            Pseudo::Has(_) | Pseudo::Not(_) | Pseudo::Is(_) | Pseudo::Root | Pseudo::Defined | Pseudo::Modal | Pseudo::Lang(_) | Pseudo::Anchor | Pseudo::Never => {}
         }
     }
 }
@@ -1976,8 +1986,8 @@ fn each_feature(c: &Compound, f: &mut impl FnMut(Feature)) {
 /// The arguments of a compound's own `:has()`s.
 fn each_has<'c>(c: &'c Compound, f: &mut impl FnMut(&'c [Part])) {
     for p in &c.pseudos {
-        if let Pseudo::Has(args) = p {
-            f(args);
+        if let Pseudo::Has(list) = p {
+            list.iter().for_each(|args| f(args));
         }
     }
 }
@@ -1987,7 +1997,7 @@ fn each_has<'c>(c: &'c Compound, f: &mut impl FnMut(&'c [Part])) {
 fn can_match(c: &Compound) -> bool {
     c.pseudos.iter().all(|p| match p {
         Pseudo::Never => false,
-        Pseudo::Has(args) => args.iter().all(|a| can_match(&a.c)),
+        Pseudo::Has(list) => list.iter().any(|args| args.iter().all(|a| can_match(&a.c))),
         Pseudo::Is(list) => list.iter().any(|parts| parts.iter().all(|p| can_match(&p.c))),
         _ => true,
     })
@@ -2065,7 +2075,8 @@ impl Invalidation {
     /// element changes which anchors above it match, and with a combinator in the
     /// argument, which matches through ancestors of any height, anchors below it too.
     fn add_has(&mut self, at: Target, (anchor, subject): (&Compound, &Compound), args: &[Part]) {
-        let (mut tree, mut nested) = (args.len() > 1, false);
+        // A sibling relation reaches anchors beside the element, which only a full restyle covers.
+        let (mut tree, mut nested) = (args.len() > 2, args.iter().any(|p| matches!(p.comb, Comb::Adjacent | Comb::Sibling)));
         let mut inner = Vec::new();
         for p in args {
             each_compound(&p.c, Target::Own, &mut |c, t| inner.push((c, t)));
@@ -2442,6 +2453,17 @@ mod tests {
         assert_eq!(inputs.iter().map(|s| s.height).collect::<Vec<_>>(), [Len::Px(5.0), Len::Px(5.0), Len::Px(6.0), Len::Px(5.0)]);
         assert_eq!(widths(&styles_of(html, "b")), [Len::Px(7.0), Len::Px(8.0), Len::Auto]);
         assert_eq!(styles_of(html, "a")[0].width, Len::Px(9.0), "a state no still page is in keeps the rest of the list");
+    }
+
+    #[test]
+    fn has_takes_relative_selectors_and_lists() {
+        let html = "<style>div:has(> img){width:1px} div:has(+ p){height:2px} div:has(~ i){min-height:3px} div:has(b, .x span){max-width:4px}</style>\
+                    <div><img></div><div><a><img></a></div><p></p><div><span class=x><span></span></span></div><i></i>";
+        let s = styles_of(html, "div");
+        assert_eq!(widths(&s), [Len::Px(1.0), Len::Auto, Len::Auto]);
+        assert_eq!(s.iter().map(|s| s.height).collect::<Vec<_>>(), [Len::Auto, Len::Px(2.0), Len::Auto]);
+        assert_eq!(s.iter().map(|s| s.rare().min_h).collect::<Vec<_>>(), [Len::Px(3.0), Len::Px(3.0), Len::Px(3.0)]);
+        assert_eq!(s.iter().map(|s| s.rare().max_w).collect::<Vec<_>>(), [Len::Auto, Len::Auto, Len::Px(4.0)]);
     }
 
     #[test]
