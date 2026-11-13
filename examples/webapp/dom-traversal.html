@@ -85,6 +85,14 @@ check('attributes', function(){
   var el=document.getElementById('at');
   mark('DOM attributes length:'+el.attributes.length+' named:'+el.attributes.getNamedItem('data-k').value+' first:'+el.attributes[0].name+' item:'+el.attributes.item(1).name);
 });
+check('attributes-named', function(){
+  var el=document.createElement('div');
+  el.setAttribute('onfocusin','t');
+  el.setAttribute('length','9');
+  var a=el.attributes, had=a.onfocusin.value;
+  el.removeAttribute('onfocusin');
+  mark('DOM attributes by name value:'+had+' length:'+a.length+' gone:'+el.attributes.onfocusin+' enumerable:'+(Object.keys(el.attributes).indexOf('length')>=0));
+});
 </script>
 <script id="cs">
 check('currentScript', function(){

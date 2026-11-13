@@ -897,6 +897,7 @@
         m._v = -1;
         m._n = 0;
         m._cache = new Map();
+        m._named = [];
         Object.defineProperty(this, ATTR_NODES, { value: m });
       }
       m._sync();
@@ -1029,11 +1030,19 @@
       if (this._v === $.attrVersion) return this._n;
       const raw = __attrs(this._el[ID]);
       const n = raw.length / 2;
+      // Attributes are also named properties of the map (`attributes.id`), unenumerable
+      // and never shadowing a property of the interface.
+      for (const name of this._named) delete this[name];
+      this._named = [];
       for (let i = 0; i < n; i++) {
         const name = raw[2 * i];
         let a = this._cache.get(name);
         if (!a) this._cache.set(name, a = newAttr(this._el, name, ''));
         this[i] = a;
+        if (!(name in this) && !/^\d+$/.test(name)) {
+          Object.defineProperty(this, name, { configurable: true, enumerable: false, writable: true, value: a });
+          this._named.push(name);
+        }
       }
       for (let i = n; i < this._n; i++) delete this[i];
       this._n = n;
