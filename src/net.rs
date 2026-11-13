@@ -1494,6 +1494,8 @@ pub struct Site {
     /// when its last byte did.
     pub first_byte: Duration,
     pub received: Duration,
+    /// The page was served as an XML document, XHTML.
+    pub xml: bool,
     store: Arc<Store>,
 }
 
@@ -1538,7 +1540,9 @@ impl Site {
         }
         let html = String::from_utf8_lossy(&response.body).into_owned();
         let first_byte = first_byte.unwrap_or(received);
-        Ok((Arc::new(Site { url, first_byte, received, store }), html))
+        let essence = response.header("content-type").and_then(|t| t.split(';').next()).map(|t| t.trim().to_ascii_lowercase());
+        let xml = matches!(essence.as_deref(), Some("application/xhtml+xml" | "application/xml" | "text/xml"));
+        Ok((Arc::new(Site { url, first_byte, received, xml, store }), html))
     }
 
     /// The URLs `srcs` refer to, without repeats.

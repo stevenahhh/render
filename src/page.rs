@@ -1,7 +1,7 @@
 //! A loaded document: DOM, stylesheet, computed styles and layout.
 
 use crate::css::{FontFace, Sheet};
-use crate::dom::{atom, is_stylesheet, parse_html, Atom, Dom, NodeId, HAS_SHEET, NONE};
+use crate::dom::{atom, is_stylesheet, parse_html, parse_xhtml, Atom, Dom, NodeId, HAS_SHEET, NONE};
 use crate::font::Fonts;
 use crate::url::Url;
 use crate::img::Images;
@@ -341,7 +341,9 @@ impl Page {
     /// Without `wait` (for a page from the web), nothing waits for a download: a
     /// stylesheet or image that has not arrived is left out until it does.
     fn parse(html: &str, url: Url, base: Option<&Path>, defer: bool, site: Option<Arc<Site>>, wait: bool) -> Page {
-        let mut dom = parse_html(html);
+        // XHTML: served as XML, or a file named as such.
+        let xml = site.as_ref().map_or_else(|| url.path.ends_with(".xht") || url.path.ends_with(".xhtml"), |s| s.xml);
+        let mut dom = if xml { parse_xhtml(html) } else { parse_html(html) };
         let arrivals = site.as_ref().map_or(0, |s| s.arrivals());
         let (mut sheet, css_units, css_left_out) = style_sheet(&mut dom, base, site.as_deref(), wait, "");
         let web_faces = take_faces(&mut sheet);

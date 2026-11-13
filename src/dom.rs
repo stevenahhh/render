@@ -566,7 +566,7 @@ impl Dom {
         };
         let (stack, html_, body) = if fragment { (vec![n, n, n], n, n) } else { (vec![n], NONE, NONE) };
         let base = stack.len();
-        let mut parser = Parser { src: html, b: html.as_bytes(), pos: 0, dom: self, stack, html: html_, head: NONE, body, fragment, templates: 0, declarative };
+        let mut parser = Parser { src: html, b: html.as_bytes(), pos: 0, dom: self, stack, html: html_, head: NONE, body, fragment, templates: 0, declarative, xml: false };
         parser.run();
         parser.stack.len() <= base
     }
@@ -726,8 +726,18 @@ pub enum Parse {
 }
 
 pub fn parse_html(src: &str) -> Dom {
+    parse_document(src, false)
+}
+
+/// Parses an XHTML document (served as `application/xhtml+xml`): CDATA sections
+/// are text, `<x/>` closes any element, and `<style>` and `<script>` hold markup.
+pub fn parse_xhtml(src: &str) -> Dom {
+    parse_document(src, true)
+}
+
+fn parse_document(src: &str, xml: bool) -> Dom {
     let mut dom = Dom::new(src.len());
-    Parser { src, b: src.as_bytes(), pos: 0, dom: &mut dom, stack: vec![0], html: NONE, head: NONE, body: NONE, fragment: false, templates: 0, declarative: true }.run();
+    Parser { src, b: src.as_bytes(), pos: 0, dom: &mut dom, stack: vec![0], html: NONE, head: NONE, body: NONE, fragment: false, templates: 0, declarative: true, xml }.run();
     dom
 }
 
@@ -748,6 +758,8 @@ struct Parser<'a> {
     templates: u32,
     /// A `<template shadowrootmode>` becomes the shadow root of its parent.
     declarative: bool,
+    /// The document is XHTML: see `parse_xhtml`.
+    xml: bool,
 }
 
 #[inline]
@@ -808,7 +820,14 @@ impl<'a> Parser<'a> {
             }
             let nx = if lt + 1 < len { b[lt + 1] } else { 0 };
             if nx == b'!' {
-                if b[lt..].starts_with(b"<!--") {
+                if b[lt..].starts_with(b"<![CDATA[") && (self.xml || self.in_foreign()) {
+                    // Text as written, in XML and in SVG or MathML.
+                    let body = lt + 9;
+                    let end = memmem::find(&b[body..], b"]]>").map_or(len, |o| body + o);
+                    let src = self.src;
+                    self.insert_text(&src[body..end], false);
+                    self.pos = (end + 3).min(len);
+                } else if b[lt..].starts_with(b"<!--") {
                     let body = lt + 4;
                     // `<!-->` and `<!--->` are empty comments.
                     let (end, after) = match &b[body..] {
@@ -941,9 +960,22 @@ impl<'a> Parser<'a> {
         self.dom.append(parent, n);
     }
 
+    /// Inside an `<svg>` or `<math>`, where CDATA sections are text.
+    fn in_foreign(&self) -> bool {
+        self.stack.iter().any(|&s| {
+            let t = self.dom.nodes[s as usize].tag;
+            t == atom::SVG || self.dom.atoms.name(t) == "math"
+        })
+    }
+
     fn text(&mut self, t: &str) {
+        self.insert_text(t, true);
+    }
+
+    /// Inserts text, with its character references decoded when `decode`.
+    fn insert_text(&mut self, t: &str, decode: bool) {
         let ws = t.bytes().all(|c| c.is_ascii_whitespace());
-        if self.templates == 0 && (self.stack.len() <= 2 || self.body == NONE) {
+        if self.templates == 0 && (self.stack.len() <= 2 || self.body == NONE && matches!(self.current(), atom::HEAD | atom::HTML)) {
             // Outside <body>: whitespace is insignificant, real text opens the body.
             if ws {
                 return;
@@ -951,7 +983,11 @@ impl<'a> Parser<'a> {
             self.ensure_body_open();
         }
         let start = self.dom.text.len() as u32;
-        push_decoded(&mut self.dom.text, t, false);
+        if decode {
+            push_decoded(&mut self.dom.text, t, false);
+        } else {
+            self.dom.text.push_str(t);
+        }
         let n = self.dom.new_node(atom::TEXT);
         self.dom.nodes[n as usize].text = (start, self.dom.text.len() as u32 - start);
         let foster = !ws && is_table_box(self.current());
@@ -1108,11 +1144,13 @@ impl<'a> Parser<'a> {
         }
 
         let in_svg = || tag == atom::SVG || self.stack.iter().any(|&s| self.dom.nodes[s as usize].tag == atom::SVG);
-        if is_void(tag) || (self_closing && in_svg()) {
+        if is_void(tag) || (self_closing && (self.xml || in_svg())) {
             return;
         }
         let raw = is_raw_text(tag);
-        if raw || matches!(tag, atom::TITLE | atom::TEXTAREA) {
+        if self.xml {
+            // XML has no raw text elements.
+        } else if raw || matches!(tag, atom::TITLE | atom::TEXTAREA) {
             let name = self.dom.atoms.name(tag).to_string();
             let (end, after) = self.find_close(&name);
             if end > self.pos {
@@ -1348,6 +1386,19 @@ mod tests {
         dom.serialize(div, false, &mut html);
         assert_eq!(html, "<!--hi-->a<!---->b");
         assert!(!dom.is_comment(dom.nodes[0].first_child), "a comment before <html> is left out");
+    }
+
+    #[test]
+    fn xhtml_reads_cdata_as_text_and_closes_empty_tags() {
+        let dom = super::parse_xhtml("<?xml version=\"1.0\"?><html xmlns=\"http://www.w3.org/1999/xhtml\"><head><title>T</title>\
+            <style type=\"text/css\"><![CDATA[ div { color: red } ]]></style></head><body><div/>x<p>&amp;</p></body></html>");
+        let mut css = String::new();
+        dom.text_content(first(&dom, atom::STYLE), &mut css);
+        assert_eq!(css, " div { color: red } ");
+        let mut html = String::new();
+        dom.serialize(first(&dom, atom::BODY), false, &mut html);
+        assert_eq!(html, "<div></div>x<p>&amp;</p>");
+        assert_eq!(body_html("<p><![CDATA[x]]></p><svg><text><![CDATA[a<b]]></text></svg>"), "<p><!--[CDATA[x]]--></p><svg><text>a&lt;b</text></svg>");
     }
 
     #[test]
