@@ -1699,6 +1699,13 @@ mod tests {
     }
 
     #[test]
+    fn a_transformed_box_contains_absolutely_positioned_boxes() {
+        let css = "body{margin:0} #t{transform:translate(5px,0);margin-top:20px;height:10px} i{position:absolute;top:3px;left:0;width:1px;height:1px}";
+        let (mut page, _) = after_script(css, "<div id=t><i id=i></i></div>", "$('t').title='x';");
+        assert_eq!(rects(&mut page, &["i"]), [[5.0, 23.0, 1.0, 1.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";

@@ -949,7 +949,8 @@ impl<'a> Engine<'a> {
         } else {
             self.last_bl - y
         };
-        if s.position != Position::Static {
+        // A transformed box is the containing block of the positioned boxes in it.
+        if s.position != Position::Static || s.rare().translate != [Len::Px(0.0); 2] {
             let keep = self.last_bl;
             self.layout_abs_children(abs_mark, x + bl, y + bt, w - bl - br, h - bt - bb);
             self.last_bl = keep;
