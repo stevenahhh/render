@@ -473,6 +473,11 @@ struct Engine<'a> {
     images: &'a mut Images,
     /// Resolved picture per replaced element: (image id, width, height).
     pics: FxMap<NodeId, Option<(u32, f32, f32)>>,
+    /// Picture of each inline `<svg>` and the size it was made for, as f32 bits:
+    /// a box laid out again at the same size in this pass reuses it.
+    svgs: FxMap<NodeId, ([u32; 2], Option<u32>)>,
+    /// Elements `<use>` and `url(#id)` name by id, serialized, and whether they are shown.
+    refs: FxMap<Box<str>, Option<(String, bool)>>,
     /// Replaced elements whose image is still downloading.
     waiting: FxMap<NodeId, ()>,
     /// Positioned boxes not yet ordered by a stacking context: (first item, end,
@@ -524,6 +529,8 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
         fonts,
         images,
         pics: FxMap::default(),
+        svgs: FxMap::default(),
+        refs: FxMap::default(),
         waiting: FxMap::default(),
         zranges: Vec::new(),
         vw,
@@ -2363,6 +2370,12 @@ impl<'a> Engine<'a> {
     /// The picture of an inline `<svg>` drawn at `w` x `h` CSS pixels, its viewBox
     /// fitted in as its `preserveAspectRatio` says.
     fn svg_picture(&mut self, n: NodeId, w: f32, h: f32) -> Option<u32> {
+        let size = [w.to_bits(), h.to_bits()];
+        if let Some(&(made, id)) = self.svgs.get(&n) {
+            if made == size {
+                return id;
+            }
+        }
         let mut markup = String::new();
         let st = self.st;
         self.dom.serialize_styled(n, true, &mut markup, &|e| st[e as usize].rare().svg_paint.as_deref());
@@ -2371,7 +2384,9 @@ impl<'a> Engine<'a> {
         let mut m = svg_markup(markup, s.fill, s.color);
         set_root_attr(&mut m, "width", &format!("{w}"));
         set_root_attr(&mut m, "height", &format!("{h}"));
-        self.images.svg(&m)
+        let id = self.images.svg(&m);
+        self.svgs.insert(n, (size, id));
+        id
     }
 
     /// Copies into serialized `<svg>` markup, in a `<defs>` at its end, the elements
@@ -2400,14 +2415,21 @@ impl<'a> Engine<'a> {
                     }
                     done.push(key);
                     let found = if file.is_empty() {
-                        let e = self.dom.by_id(0, id);
+                        let element = match self.refs.get(id) {
+                            Some(found) => found.clone(),
+                            None => {
+                                let e = self.dom.by_id(0, id);
+                                let found = (e != NONE).then(|| {
+                                    let mut out = String::new();
+                                    self.dom.serialize(e, true, &mut out);
+                                    (out, self.shown(e))
+                                });
+                                self.refs.insert(id.into(), found.clone());
+                                found
+                            }
+                        };
                         // WebKit finds no paint server (`url(#id)`) under a box that is not shown.
-                        let shown = at == "href=\"" || self.shown(e);
-                        (e != NONE && shown).then(|| {
-                            let mut out = String::new();
-                            self.dom.serialize(e, true, &mut out);
-                            out
-                        })
+                        element.filter(|(_, shown)| at == "href=\"" || *shown).map(|(markup, _)| markup)
                     } else {
                         self.images.svg_element(file, id)
                     };
