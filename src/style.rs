@@ -131,6 +131,10 @@ pub struct Rare {
     /// `background-position`; percentages refer to the free space around the image.
     pub bg_pos: [Len; 2],
     pub object_fit: ObjectFit,
+    /// `mask-image`, its size and position in the border box.
+    pub mask: Option<Rc<str>>,
+    pub mask_size: BgSize,
+    pub mask_pos: [Len; 2],
     /// `object-position`; percentages refer to the free space around the picture.
     pub object_pos: [Len; 2],
     /// `transform: translate()`; percentages refer to the box itself.
@@ -181,6 +185,9 @@ const NO_RARE: Rare = Rare {
     bg_size: BgSize::Auto,
     bg_pos: [Len::Pct(0.0); 2],
     object_fit: ObjectFit::Fill,
+    mask: None,
+    mask_size: BgSize::Auto,
+    mask_pos: [Len::Pct(0.0); 2],
     object_pos: [Len::Pct(50.0); 2],
     translate: [Len::Px(0.0); 2],
     row_lines: None,
@@ -626,6 +633,15 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         }
         Decl::BgPos(x, y) => put_rare(st, |r| &mut r.bg_pos, [r(x), r(y)]),
         Decl::ObjectFit(v) => put_rare(st, |r| &mut r.object_fit, v),
+        Decl::MaskImage(ref u) => put_rare(st, |r| &mut r.mask, u.clone()),
+        Decl::MaskSize(v) => {
+            let size = match v {
+                BgSize::Size(w, h) => BgSize::Size(r(w), r(h)),
+                v => v,
+            };
+            put_rare(st, |r| &mut r.mask_size, size);
+        }
+        Decl::MaskPos(x, y) => put_rare(st, |r| &mut r.mask_pos, [r(x), r(y)]),
         Decl::ObjectPos(x, y) => put_rare(st, |r| &mut r.object_pos, [r(x), r(y)]),
         Decl::ClipText(v) => st.clip_text = v,
         Decl::Visible(v) => st.visible = v.unwrap_or(parent.visible),

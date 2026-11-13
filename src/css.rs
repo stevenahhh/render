@@ -335,6 +335,10 @@ pub enum Decl {
     BgSize(BgSize),
     BgPos(Len, Len),
     ObjectFit(ObjectFit),
+    /// `mask-image: url()`, the URL resolved against its stylesheet; `None` is `none`.
+    MaskImage(Option<Rc<str>>),
+    MaskSize(BgSize),
+    MaskPos(Len, Len),
     /// `object-position`; percentages refer to the free space around the image.
     ObjectPos(Len, Len),
     /// `background-clip: text`.
@@ -1439,6 +1443,8 @@ const INITIAL: &[(&str, &str)] = &[
     ("background-image", "none"),
     ("clip-path", "none"),
     ("object-fit", "fill"),
+    ("mask", "none"),
+    ("mask-image", "none"),
     ("object-position", "50% 50%"),
     ("vertical-align", "baseline"),
     ("grid", "none"),
@@ -1770,6 +1776,27 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "background-size" => push(bg_size(v).map(D::BgSize)),
         "background-clip" | "-webkit-background-clip" => push(Some(D::ClipText(SplitTop::new(v, b',').any(|l| l.trim() == "text")))),
         "background-position" => push(bg_position(&tokens(v).collect::<Vec<_>>()).map(|(x, y)| D::BgPos(x, y))),
+        "mask-image" | "-webkit-mask-image" => match v {
+            "none" => out.push(D::MaskImage(None)),
+            v => push(css_url(v).map(|u| D::MaskImage(Some(Rc::from(u.trim()))))),
+        },
+        "mask-size" | "-webkit-mask-size" => push(bg_size(v).map(D::MaskSize)),
+        "mask-position" | "-webkit-mask-position" => push(bg_position(&tokens(v).collect::<Vec<_>>()).map(|(x, y)| D::MaskPos(x, y))),
+        "mask" | "-webkit-mask" => {
+            let (mut url, mut pos, mut size, mut after_slash) = (None, Vec::new(), None, false);
+            for t in tokens(v) {
+                if let Some(u) = css_url(t) {
+                    url = Some(Rc::from(u.trim()));
+                } else if t != "none" {
+                    let (p, s) = t.split_once('/').unwrap_or(if after_slash { ("", t) } else { (t, "") });
+                    after_slash = t.ends_with('/');
+                    pos.extend((!p.is_empty() && is_position(p)).then_some(p));
+                    size = size.or_else(|| bg_size(s));
+                }
+            }
+            let (x, y) = bg_position(&pos).filter(|_| !pos.is_empty()).unwrap_or((Len::Pct(0.0), Len::Pct(0.0)));
+            out.extend([D::MaskImage(url), D::MaskPos(x, y), D::MaskSize(size.unwrap_or(BgSize::Auto))]);
+        }
         "object-fit" => push(
             match v {
                 "fill" => Some(ObjectFit::Fill),

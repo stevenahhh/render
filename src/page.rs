@@ -1625,6 +1625,26 @@ mod tests {
     }
 
     #[test]
+    fn a_mask_image_draws_the_background_colour_where_the_mask_is_opaque() {
+        use crate::layout::Kind;
+        let dir = std::env::temp_dir().join(format!("render-mask-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("i.svg"), "<svg xmlns='http://www.w3.org/2000/svg' width='20' height='10'><rect width='20' height='10'/></svg>").unwrap();
+        let html = "<body style='margin:0'><div id=a style='width:40px;height:40px;background:#c00;-webkit-mask:url(i.svg) no-repeat center/20px'></div>\
+                    <div id=b style='width:40px;height:40px;background:#000;mask-image:url(none.svg)'></div>";
+        let mut page = Page::from_html(html, Some(&dir));
+        page.update(&mut Fonts::new(), 1024.0, 768.0);
+        let (a, b) = (page.dom.by_id(0, "a"), page.dom.by_id(0, "b"));
+        let l = &page.layout;
+        assert!(!l.items.iter().any(|i| i.kind == Kind::Box && (i.node == a || i.node == b)), "a masked box paints no background of its own");
+        let it = l.items.iter().find(|i| i.kind == Kind::Image).unwrap();
+        let p = l.pictures[it.data as usize];
+        assert_eq!((it.node, [it.x, it.y, it.w, it.h], p.tile, p.tint.map(|c| c.0)), (a, [10.0, 15.0, 20.0, 10.0], Some([0.0, 0.0, 20.0, 10.0]), Some(0xFFCC_0000)));
+        assert_eq!(l.items.iter().filter(|i| i.kind == Kind::Image).count(), 1, "a mask that does not load hides the box");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn colour_changes_repaint_the_laid_out_boxes() {
         let css = "div{border:1px solid #000} .on{background:#f00;color:#0f0;opacity:.5}";
         let toggle = "$('a').classList.toggle('on');";

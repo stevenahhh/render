@@ -70,6 +70,9 @@ pub struct PicRef {
     /// image lies, `[x, y, w, h]` from the item's origin: the item covers only the
     /// part inside the element's box.
     pub tile: Option<[f32; 4]>,
+    /// For a mask image: the colour drawn where the picture is opaque, in place of
+    /// its own colours.
+    pub tint: Option<Color>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -132,7 +135,8 @@ impl Layout {
             let (tag, s) = (dom.nodes[n as usize].tag, &st[n as usize]);
             let marker = s.display == Display::ListItem && s.list_style != ListStyle::None;
             let generated = s.rare().before.is_some() || s.rare().after.is_some();
-            if marker || generated || matches!(tag, atom::HTML | atom::BODY | atom::FIELDSET) || control(dom, n).is_some() || dom.shows_image(n) {
+            let masked = s.rare().mask.is_some();
+            if marker || generated || masked || matches!(tag, atom::HTML | atom::BODY | atom::FIELDSET) || control(dom, n).is_some() || dom.shows_image(n) {
                 return false;
             }
             set.insert(n, ());
@@ -627,15 +631,32 @@ impl<'a> Engine<'a> {
         if iw <= 0.0 || ih <= 0.0 {
             return None;
         }
-        self.push_picture(n, 0.0, 0.0, 0.0, 0.0, PicRef { id, alpha: s.opacity, tile: Some([0.0; 4]) });
+        self.push_picture(n, 0.0, 0.0, 0.0, 0.0, PicRef { id, alpha: s.opacity, tile: Some([0.0; 4]), tint: None });
         Some((self.mark() - 1, iw, ih))
     }
 
-    /// Sizes and positions a background image in its element's padding box
-    /// `[x, y, w, h]`. One copy is drawn: repeating backgrounds are not tiled.
-    fn place_background(&mut self, slot: u32, s: &Style, pad: [f32; 4], iw: f32, ih: f32) {
-        let [px, py, pw, ph] = pad;
-        let (tw, th) = match s.rare().bg_size {
+    /// Reserves the item that paints a masked element: its background colour where
+    /// its mask image is opaque. Returns the item and the image's natural size. A
+    /// mask that does not load hides the element's box, as in WebKit.
+    fn mask_slot(&mut self, n: NodeId, s: &Style) -> Option<(u32, f32, f32)> {
+        if !s.visible || s.opacity <= 0.0 || s.bg.a() == 0 {
+            return None;
+        }
+        let id = self.images.file(s.rare().mask.as_deref()?)?;
+        let (iw, ih) = self.images.size(id);
+        if iw <= 0.0 || ih <= 0.0 {
+            return None;
+        }
+        self.push_picture(n, 0.0, 0.0, 0.0, 0.0, PicRef { id, alpha: s.opacity, tile: Some([0.0; 4]), tint: Some(s.bg) });
+        Some((self.mark() - 1, iw, ih))
+    }
+
+    /// Sizes and positions a background or mask image, with its `size` and `position`,
+    /// in the area `[x, y, w, h]` it is drawn in. One copy is drawn: repeating
+    /// images are not tiled.
+    fn place_background(&mut self, slot: u32, (size, pos): (BgSize, [Len; 2]), area: [f32; 4], iw: f32, ih: f32) {
+        let [px, py, pw, ph] = area;
+        let (tw, th) = match size {
             BgSize::Cover => (iw * (pw / iw).max(ph / ih), ih * (pw / iw).max(ph / ih)),
             BgSize::Contain => (iw * (pw / iw).min(ph / ih), ih * (pw / iw).min(ph / ih)),
             BgSize::Auto => (iw, ih),
@@ -646,7 +667,7 @@ impl<'a> Engine<'a> {
                 (None, None) => (iw, ih),
             },
         };
-        let (tx, ty) = (px + rs(s.rare().bg_pos[0], pw - tw), py + rs(s.rare().bg_pos[1], ph - th));
+        let (tx, ty) = (px + rs(pos[0], pw - tw), py + rs(pos[1], ph - th));
         let (x0, y0) = (tx.max(px), ty.max(py));
         let (x1, y1) = ((tx + tw).min(px + pw), (ty + th).min(py + ph));
         let it = &mut self.out.items[slot as usize];
@@ -658,7 +679,7 @@ impl<'a> Engine<'a> {
     /// as `object-fit` and `object-position` say, cut to the box.
     fn push_fitted(&mut self, n: NodeId, s: &Style, content: [f32; 4], (id, iw, ih): (u32, f32, f32)) {
         let [x, y, w, h] = content;
-        let pic = PicRef { id, alpha: s.opacity, tile: None };
+        let pic = PicRef { id, alpha: s.opacity, tile: None, tint: None };
         let contain = (w / iw).min(h / ih);
         let scale = match s.rare().object_fit {
             ObjectFit::Fill => return self.push_picture(n, x, y, w, h, pic),
@@ -945,6 +966,8 @@ impl<'a> Engine<'a> {
 
         let first_item = self.mark();
         let legend = if tag == atom::FIELDSET { rendered_legend(self.dom, st, n) } else { NONE };
+        // A masked box shows its background colour through the mask image alone.
+        let masked = s.rare().mask.is_some();
         let mut frame = NONE;
         let item = if legend != NONE {
             let report = self.out.record_boxes.then(|| {
@@ -955,7 +978,7 @@ impl<'a> Engine<'a> {
                 frame = self.fieldset_frame(n, s, [x, y, w]);
             }
             report.unwrap_or(frame)
-        } else if s.visible && s.has_deco() {
+        } else if s.visible && s.has_deco() && !masked {
             match s.native.then(|| native_deco(self.dom, n, s)).flatten() {
                 Some(deco) => self.push_deco(n, x, y, w, 0.0, deco),
                 None => self.push_box(n, s, x, y, w, 0.0),
@@ -966,7 +989,8 @@ impl<'a> Engine<'a> {
         } else {
             NONE
         };
-        let bg = self.background_slot(n, s);
+        let bg = if masked { None } else { self.background_slot(n, s) };
+        let mask = if masked { self.mask_slot(n, s) } else { None };
         let clip = if s.overflow_hidden {
             let data = self.clip_shape(s, s.bw);
             self.out.items.push(Item { x: x + bl, y: y + bt, w: w - bl - br, h: 0.0, kind: Kind::Clip, node: n, data });
@@ -1067,7 +1091,10 @@ impl<'a> Engine<'a> {
             self.place_frame(frame, s, h, gap);
         }
         if let Some((slot, iw, ih)) = bg {
-            self.place_background(slot, s, [x + bl, y + bt, w - bl - br, h - bt - bb], iw, ih);
+            self.place_background(slot, (s.rare().bg_size, s.rare().bg_pos), [x + bl, y + bt, w - bl - br, h - bt - bb], iw, ih);
+        }
+        if let Some((slot, iw, ih)) = mask {
+            self.place_background(slot, (s.rare().mask_size, s.rare().mask_pos), [x, y, w, h], iw, ih);
         }
         let baseline = if self.last_bl.is_nan() {
             self.last_bl = saved_bl;
@@ -1120,7 +1147,7 @@ impl<'a> Engine<'a> {
         let h = if inner_h.is_nan() { 0.0 } else { inner_h };
         if tag == atom::SVG {
             if let Some(id) = self.svg_picture(n, cw, h).filter(|_| s.visible && s.opacity > 0.0) {
-                self.push_picture(n, cx, cy, cw, h, PicRef { id, alpha: s.opacity, tile: None });
+                self.push_picture(n, cx, cy, cw, h, PicRef { id, alpha: s.opacity, tile: None, tint: None });
             }
             return h;
         }

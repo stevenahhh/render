@@ -3,7 +3,7 @@
 use crate::css::{Color, Gradient, Len, Shadow, DECO_LINE_THROUGH, DECO_UNDERLINE};
 use crate::font::Fonts;
 use crate::img::{Images, Picture};
-use crate::layout::{BoxDeco, Item, Kind, Layout, TextRun};
+use crate::layout::{BoxDeco, Item, Kind, Layout, PicRef, TextRun};
 
 pub struct Target<'a> {
     pub buf: &'a mut [u32],
@@ -389,18 +389,28 @@ fn fade(s: u32, k: u32) -> u32 {
 }
 
 /// Copies a picture already scaled to `r`, blending premultiplied alpha after
-/// scaling every pixel by `opacity`.
-fn draw_image(t: &mut Target, clip: Rect, pic: &Picture, r: Rect, opacity: f32) {
+/// scaling every pixel by the opacity of `p`. With a tint, each pixel is the tint
+/// colour at the pixel's alpha.
+fn draw_image(t: &mut Target, clip: Rect, pic: &Picture, r: Rect, p: &PicRef) {
     let c = clip.intersect(r);
     if c.is_empty() {
         return;
     }
     let n = (c.x1 - c.x0) as usize;
-    let k = (opacity.clamp(0.0, 1.0) * 256.0).round() as u32;
+    let k = (p.alpha.clamp(0.0, 1.0) * 256.0).round() as u32;
+    let tint = p.tint.map(|c| {
+        let a = c.a();
+        let m = |v: u32| (v * a + 127) / 255;
+        a << 24 | m(c.0 >> 16 & 0xFF) << 16 | m(c.0 >> 8 & 0xFF) << 8 | m(c.0 & 0xFF)
+    });
     for y in c.y0..c.y1 {
         let src = &pic.px[((y - r.y0) as u32 * pic.w + (c.x0 - r.x0) as u32) as usize..][..n];
         let dst = &mut t.buf[(y * t.w + c.x0) as usize..][..n];
         for (d, &s) in dst.iter_mut().zip(src) {
+            let s = match tint {
+                Some(c) => fade(c, (s >> 24) + (s >> 31)),
+                None => s,
+            };
             let s = if k == 256 { s } else { fade(s, k) };
             let a = s >> 24;
             if a == 255 {
@@ -578,7 +588,7 @@ pub fn paint_part(l: &Layout, fonts: &mut Fonts, images: &mut Images, t: &mut Ta
                     let p = l.pictures[it.data as usize];
                     if let Some((pic, x, y)) = images.get(p.id, (r.x1 - r.x0) as u32, (r.y1 - r.y0) as u32, visible) {
                         let (x0, y0) = (r.x0 + x as i32, r.y0 + y as i32);
-                        draw_image(t, clip.intersect(part), pic, Rect { x0, y0, x1: x0 + pic.w as i32, y1: y0 + pic.h as i32 }, p.alpha);
+                        draw_image(t, clip.intersect(part), pic, Rect { x0, y0, x1: x0 + pic.w as i32, y1: y0 + pic.h as i32 }, &p);
                     }
                 }
             }
