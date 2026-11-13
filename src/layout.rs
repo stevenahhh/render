@@ -402,6 +402,12 @@ struct FItem {
     first: u32,
     end: u32,
     item: u32,
+    /// While its length is resolved: the item's minimum (NaN until measured), the
+    /// bound on its automatic minimum, and whether it is frozen and how it was clamped.
+    min: f32,
+    bound: f32,
+    frozen: bool,
+    clamped: i8,
 }
 
 /// Lengths of the layout output at one point, for [`Engine::rewind`].
@@ -454,6 +460,10 @@ struct Engine<'a> {
     abs: Vec<(NodeId, f32, f32)>,
     /// Memoized max-content widths (margin box), NaN until computed.
     intr: Vec<f32>,
+    /// Memoized min-content widths (margin box), NaN until computed.
+    intr_min: Vec<f32>,
+    /// Per face, the widest advance of its ASCII characters in em, NaN until known.
+    widest: [f32; 256],
     segs: Vec<Seg>,
     pool: Vec<Inl>,
     last_bl: f32,
@@ -483,6 +493,8 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
         out: reuse,
         abs: Vec::new(),
         intr: vec![NAN; dom.nodes.len()],
+        intr_min: vec![NAN; dom.nodes.len()],
+        widest: [NAN; 256],
         segs: Vec::new(),
         pool: Vec::new(),
         last_bl: NAN,
@@ -1538,6 +1550,10 @@ impl<'a> Engine<'a> {
                 first: 0,
                 end: 0,
                 item: NONE,
+                min: NAN,
+                bound: NAN,
+                frozen: false,
+                clamped: 0,
             };
             if node.tag == atom::TEXT {
                 if !is_ws(dom.text_of(c)) {
@@ -1609,24 +1625,8 @@ impl<'a> Engine<'a> {
             if line.is_empty() {
                 continue;
             }
-            let used: f32 = line.iter().map(|i| i.base + i.sd.ml + i.sd.mr).sum::<f32>() + gap * (k - 1.0);
-            let mut free = cw - used;
-            let grow: f32 = line.iter().map(|i| i.grow).sum();
-            let shrink: f32 = line.iter().map(|i| i.shrink * i.base).sum();
-            for it in line.iter_mut() {
-                it.w = it.base;
-                if free > 0.0 && grow > 0.0 {
-                    it.w += free * it.grow / grow.max(1.0);
-                } else if free < 0.0 && shrink > 0.0 {
-                    it.w = (it.base + free * it.shrink * it.base / shrink).max(0.0);
-                }
-                if !it.text {
-                    it.w = clamp_w(&st[it.node as usize], it.w, cw, &it.sd);
-                }
-            }
-            if (free > 0.0 && grow > 0.0) || (free < 0.0 && shrink > 0.0) {
-                free = cw - line.iter().map(|i| i.w + i.sd.ml + i.sd.mr).sum::<f32>() - gap * (k - 1.0);
-            }
+            self.flex_lengths(line, cw, cw - gap * (k - 1.0));
+            let free = cw - line.iter().map(|i| i.w + i.sd.ml + i.sd.mr).sum::<f32>() - gap * (k - 1.0);
             let autos = line.iter().map(|i| i.sd.auto_l as u32 + i.sd.auto_r as u32).sum::<u32>();
             let (mut lead, mut between, mut auto_m) = (0.0, gap, 0.0);
             if autos > 0 && free > 0.0 {
@@ -2046,6 +2046,313 @@ impl<'a> Engine<'a> {
         let mut state = IState::default();
         self.intr_text(n, &mut state);
         state.max.max(state.cur)
+    }
+
+    /// Min-content width of a box including its margins, memoized per node:
+    /// its widest piece of content that cannot be broken across lines.
+    fn min_content(&mut self, n: NodeId) -> f32 {
+        let cached = self.intr_min[n as usize];
+        if !cached.is_nan() {
+            return cached;
+        }
+        let s = &self.st[n as usize];
+        let tag = self.dom.nodes[n as usize].tag;
+        if matches!(s.width, Len::Px(_)) || tag == atom::IMG || tag == atom::INPUT || self.natural(n).is_some() {
+            // A fixed width or a replaced element: the same as its max-content width.
+            let w = self.intrinsic(n);
+            self.intr_min[n as usize] = w;
+            return w;
+        }
+        let sd = sides(s, 0.0);
+        let extra = hextra(s, &sd);
+        let mut w = self.min_contents(n) + extra;
+        let grow = if s.border_box { 0.0 } else { extra };
+        if let Len::Px(m) = s.rare().max_w {
+            w = w.min(m + grow);
+        }
+        if let Len::Px(m) = s.rare().min_w {
+            w = w.max(m + grow);
+        }
+        let r = w + sd.ml + sd.mr;
+        self.intr_min[n as usize] = r;
+        r
+    }
+
+    /// Min-content width of the content of `n`, whatever its own `width`.
+    fn min_contents(&mut self, n: NodeId) -> f32 {
+        let dom = self.dom;
+        let st = self.st;
+        let s = &st[n as usize];
+        if let Some((iw, _)) = self.natural(n) {
+            return iw;
+        }
+        if matches!(dom.nodes[n as usize].tag, atom::IMG | atom::INPUT) {
+            let sd = sides(s, 0.0);
+            return (self.intrinsic(n) - sd.ml - sd.mr - hextra(s, &sd)).max(0.0);
+        }
+        if matches!(s.display, Display::Flex | Display::InlineFlex) && !s.flex_col && !s.flex_wrap {
+            let mut kids = Vec::new();
+            self.flex_children(n, &mut kids);
+            let (mut sum, mut count) = (0.0f32, 0.0f32);
+            for &c in &kids {
+                let w = if dom.nodes[c as usize].tag == atom::TEXT {
+                    if is_ws(dom.text_of(c)) { NAN } else { self.text_min(c) }
+                } else if st[c as usize].display == Display::None || is_abs(&st[c as usize]) {
+                    NAN
+                } else {
+                    self.min_content(c)
+                };
+                if !w.is_nan() {
+                    sum += w;
+                    count += 1.0;
+                }
+            }
+            return sum + s.gap_col * (count - 1.0).max(0.0);
+        }
+        let mut state = IState::default();
+        self.min_children(n, &mut state);
+        state.max.max(state.cur)
+    }
+
+    /// An upper bound on the min-content width of the content of `n`, found by
+    /// counting bytes instead of measuring glyphs: an ASCII character is no wider
+    /// than the widest one of its face, and any other takes at least two bytes,
+    /// each counted 1.5em wide. Infinite when `n` holds anything but text and
+    /// inline boxes.
+    fn min_bound(&mut self, n: NodeId) -> f32 {
+        let mut state = IState::default();
+        if self.bound_children(n, &mut state) { state.max.max(state.cur) } else { f32::INFINITY }
+    }
+
+    fn bound_children(&mut self, n: NodeId, state: &mut IState) -> bool {
+        let dom = self.dom;
+        let s = &self.st[n as usize];
+        let face = face_of(self.fonts, s);
+        if self.widest[face as usize].is_nan() {
+            self.widest[face as usize] = self.fonts.widest_ascii(face).unwrap_or(1.5);
+        }
+        let spacing = s.spacing.max(0.0);
+        let (ascii, other) = (self.widest[face as usize] * s.font_size + spacing, 1.5 * s.font_size + spacing);
+        let unbroken = matches!(s.white_space, WhiteSpace::NoWrap | WhiteSpace::Pre);
+        let mut c = dom.nodes[n as usize].first_child;
+        while c != NONE {
+            let node = &dom.nodes[c as usize];
+            if node.tag == atom::TEXT {
+                for &b in dom.text_of(c).as_bytes() {
+                    if is_space(b) && !unbroken {
+                        state.break_line();
+                    } else {
+                        state.cur += if b < 0x80 { ascii } else { other };
+                    }
+                }
+            } else {
+                let cs = &self.st[c as usize];
+                match cs.display {
+                    Display::None => {}
+                    _ if is_abs(cs) => {}
+                    Display::Inline if cs.float == 0 && node.tag == atom::BR => state.break_line(),
+                    Display::Inline if cs.float == 0 => {
+                        let sd = sides(cs, 0.0);
+                        let edges = sd.ml.max(0.0) + sd.mr.max(0.0) + hextra(cs, &sd);
+                        state.cur += edges;
+                        if !self.bound_children(c, state) {
+                            return false;
+                        }
+                    }
+                    _ => return false,
+                }
+            }
+            c = node.next;
+        }
+        true
+    }
+
+    fn text_min(&mut self, n: NodeId) -> f32 {
+        let mut state = IState::default();
+        self.min_text(n, &mut state);
+        state.max.max(state.cur)
+    }
+
+    /// `min_content` of the children of `n`: `state.cur` is the width of the
+    /// piece being measured, `state.max` the widest finished one.
+    fn min_children(&mut self, n: NodeId, state: &mut IState) {
+        let dom = self.dom;
+        let st = self.st;
+        let mut c = dom.nodes[n as usize].first_child;
+        while c != NONE {
+            let node = &dom.nodes[c as usize];
+            if node.tag == atom::TEXT {
+                self.min_text(c, state);
+            } else {
+                let cs = &st[c as usize];
+                match cs.display {
+                    Display::None => {}
+                    _ if is_abs(cs) => {}
+                    Display::Inline if node.tag == atom::BR => state.break_line(),
+                    Display::Inline if cs.float == 0 => {
+                        let sd = sides(cs, 0.0);
+                        state.cur += sd.ml + cs.bw[3] + sd.pl;
+                        self.min_children(c, state);
+                        state.cur += sd.pr + cs.bw[1] + sd.mr;
+                    }
+                    // Lines may break before and after atomic inlines, floats and blocks.
+                    _ => {
+                        state.break_line();
+                        let w = self.min_content(c);
+                        state.max = state.max.max(w);
+                    }
+                }
+            }
+            c = node.next;
+        }
+    }
+
+    fn min_text(&mut self, n: NodeId, state: &mut IState) {
+        let dom = self.dom;
+        let s = &self.st[dom.nodes[n as usize].parent as usize];
+        let text = dom.text_of(n);
+        let (face, size, spacing) = (face_of(self.fonts, s), s.font_size, s.spacing);
+        let transform = s.transform;
+        let measure = |fonts: &mut Fonts, w: &str| match transform {
+            TextTransform::Upper => fonts.measure(face, &w.to_uppercase(), size, spacing),
+            TextTransform::Capitalize => fonts.measure(face, &capitalize(w, true), size, spacing),
+            _ => fonts.measure(face, w, size, spacing),
+        };
+        match s.white_space {
+            WhiteSpace::NoWrap | WhiteSpace::Pre => {
+                // Unbreakable apart from preserved line feeds: as wide as max-content.
+                let mut whole = IState { cur: state.cur, ..IState::default() };
+                self.intr_text(n, &mut whole);
+                state.cur = whole.cur;
+                state.max = state.max.max(whole.max);
+                return;
+            }
+            WhiteSpace::Normal | WhiteSpace::PreWrap => {}
+        }
+        let b = text.as_bytes();
+        let mut i = 0;
+        while i < b.len() {
+            if is_space(b[i]) {
+                state.break_line();
+                i += 1;
+                continue;
+            }
+            let start = i;
+            while i < b.len() && !is_space(b[i]) {
+                i += 1;
+            }
+            let word = &text[start..i];
+            if word.chars().any(is_cjk) {
+                // Lines may break between any two CJK characters.
+                for ch in word.chars() {
+                    let mut buf = [0u8; 4];
+                    let w = measure(self.fonts, ch.encode_utf8(&mut buf));
+                    if is_cjk(ch) {
+                        state.break_line();
+                        state.cur = w;
+                        state.break_line();
+                    } else {
+                        state.cur += w;
+                    }
+                }
+            } else {
+                state.cur += measure(self.fonts, word);
+            }
+        }
+    }
+
+    /// The smallest a row flex item may be made: its `min-width`, or for `auto`
+    /// the automatic minimum of CSS Flexbox 4.5, the smaller of its min-content
+    /// width and its specified width; none for a scroll container.
+    fn flex_min(&mut self, it: &FItem, cw: f32) -> f32 {
+        if it.text {
+            return self.text_min(it.node);
+        }
+        let s = &self.st[it.node as usize];
+        let sd = it.sd;
+        let extra = if s.border_box { 0.0 } else { hextra(s, &sd) };
+        if s.rare().min_w != Len::Auto {
+            return rs(s.rare().min_w, cw) + extra;
+        }
+        // A scroll container has none; overflow only clips a replaced element.
+        let replaced = matches!(self.dom.nodes[it.node as usize].tag, atom::IMG | atom::INPUT | atom::SVG | atom::VIDEO) || self.dom.shows_image(it.node);
+        if s.overflow_hidden && !replaced {
+            return 0.0;
+        }
+        let content = self.min_contents(it.node) + hextra(s, &sd);
+        let specified = spec_w(s, cw, &sd).map_or(content, |w| w.min(content));
+        if s.rare().max_w == Len::Auto { specified } else { specified.min(rs(s.rare().max_w, cw) + extra) }
+    }
+
+    /// Sizes the items of one flex line along its main axis as CSS Flexbox 9.7
+    /// resolves flexible lengths: items that reach their minimum or maximum
+    /// are frozen there and the remaining free space goes to the others.
+    fn flex_lengths(&mut self, line: &mut [FItem], cw: f32, avail: f32) {
+        let st = self.st;
+        let max_of = |it: &FItem| {
+            let s = &st[it.node as usize];
+            if it.text || s.rare().max_w == Len::Auto {
+                f32::INFINITY
+            } else {
+                rs(s.rare().max_w, cw) + if s.border_box { 0.0 } else { hextra(s, &it.sd) }
+            }
+        };
+        let margins: f32 = line.iter().map(|it| it.sd.ml + it.sd.mr).sum();
+        let growing = line.iter().map(|it| it.base).sum::<f32>() + margins < avail;
+        // NaN: not measured yet. A growing item's automatic minimum is measured only
+        // when its share of the space falls below `bounds`, which no min-content
+        // width exceeds; max-content is never below min-content, so a growing item
+        // sized by its content cannot fall below it at all.
+        for it in line.iter_mut() {
+            let factor = if growing { it.grow } else { it.shrink };
+            let s = &st[it.node as usize];
+            let from_content = it.text || (s.basis == Len::Auto && s.width == Len::Auto);
+            (it.min, it.bound, it.frozen, it.clamped) = (NAN, NAN, false, 0);
+            if !growing || s.rare().min_w != Len::Auto {
+                it.min = self.flex_min(it, cw);
+            } else if from_content {
+                it.min = 0.0;
+            }
+            let hyp = it.base.min(max_of(it)).max(it.min);
+            if factor == 0.0 || (growing && it.base > hyp) || (!growing && it.base < hyp) {
+                it.frozen = true;
+                it.w = hyp;
+            }
+        }
+        while line.iter().any(|it| !it.frozen) {
+            let used: f32 = line.iter().map(|it| if it.frozen { it.w } else { it.base }).sum();
+            let free = avail - margins - used;
+            let open = || line.iter().filter(|it| !it.frozen);
+            let (grow, scaled): (f32, f32) = (open().map(|it| it.grow).sum(), open().map(|it| it.shrink * it.base).sum());
+            let mut total = 0.0;
+            for it in line.iter_mut().filter(|it| !it.frozen) {
+                let target = if growing {
+                    it.base + free * it.grow / grow.max(1.0)
+                } else if scaled > 0.0 {
+                    it.base + free * it.shrink * it.base / scaled
+                } else {
+                    it.base
+                };
+                if it.min.is_nan() {
+                    if it.bound.is_nan() {
+                        let s = &st[it.node as usize];
+                        it.bound = self.min_bound(it.node) + hextra(s, &it.sd);
+                    }
+                    if target < it.bound {
+                        it.min = self.flex_min(it, cw);
+                    }
+                }
+                let w = target.min(max_of(it)).max(it.min).max(0.0);
+                total += w - target;
+                it.clamped = if w > target { 1 } else if w < target { -1 } else { 0 };
+                it.w = w;
+            }
+            for it in line.iter_mut().filter(|it| !it.frozen) {
+                if total.abs() <= FIT || (total > 0.0 && it.clamped > 0) || (total < 0.0 && it.clamped < 0) {
+                    it.frozen = true;
+                }
+            }
+        }
     }
 
     fn intr_children(&mut self, n: NodeId, state: &mut IState) {

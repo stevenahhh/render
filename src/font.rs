@@ -429,6 +429,14 @@ impl Fonts {
     }
 
     /// (ascent, descent, line gap) in em units.
+    /// The widest advance, in em, of the printable ASCII characters of face `id`;
+    /// `None` when the face lacks some of them, which other faces then draw.
+    pub fn widest_ascii(&mut self, id: u8) -> Option<f32> {
+        self.prime(id);
+        let f = self.faces[id as usize].as_ref().unwrap();
+        f.ascii_full.then(|| f.ascii[0x20..0x7f].iter().map(|a| a.1).fold(0.0, f32::max))
+    }
+
     pub fn metrics(&mut self, id: u8) -> (f32, f32, f32) {
         self.prime(id);
         let f = self.faces[id as usize].as_ref().unwrap();

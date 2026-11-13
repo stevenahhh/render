@@ -1653,6 +1653,18 @@ mod tests {
     }
 
     #[test]
+    fn flex_items_shrink_and_grow_no_further_than_their_min_content() {
+        let css = "body{margin:0} .f{display:flex;width:100px} b{display:block;height:10px} .s{width:80px;height:10px} .z{flex:1 1 0;height:10px}";
+        let body = "<div class=f><div id=x1><b style=width:80px></b></div><div class=s id=x2></div></div>\
+                    <div class=f><div class=z id=y1><b style=width:70px></b></div><div class=z id=y2></div></div>\
+                    <div class=f><div id=z1 style=overflow:hidden><b style=width:80px></b></div><div class=s id=z2></div></div>\
+                    <div class=f style=align-items:start><img id=g width=100 height=10><div class=s id=g2></div></div>";
+        let (mut page, _) = after_script(css, body, "$('x1').title='x';");
+        let got = rects(&mut page, &["x1", "x2", "y1", "y2", "z1", "z2", "g", "g2"]);
+        assert_eq!(got, [[0.0, 0.0, 80.0, 10.0], [80.0, 0.0, 20.0, 10.0], [0.0, 10.0, 70.0, 10.0], [70.0, 10.0, 30.0, 10.0], [0.0, 20.0, 50.0, 10.0], [50.0, 20.0, 50.0, 10.0], [0.0, 30.0, 100.0, 10.0], [100.0, 30.0, 0.0, 10.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";
