@@ -1678,6 +1678,16 @@ mod tests {
     }
 
     #[test]
+    fn a_button_taller_than_its_content_centres_it() {
+        let css = "body{margin:0} button{padding:0;border:0;height:60px;width:50px} #f{display:flex}";
+        let body = "<button id=b><div id=d style='height:20px'></div></button><button id=f><div id=e style='height:20px;width:5px'></div></button>";
+        let (mut page, _) = after_script(css, body, "$('b').title='x';");
+        let mut rect = |sel: &str| page.describe(sel).and_then(|d| d.0).unwrap();
+        assert_eq!(rect("#d")[1] - rect("#b")[1], 20.0);
+        assert_eq!(rect("#e")[1] - rect("#f")[1], 0.0, "a flex button places its items itself");
+    }
+
+    #[test]
     fn generated_boxes_are_laid_out_in_their_element_and_left_out_of_the_document() {
         let css = "body{margin:0;font:16px/20px sans-serif} .m{display:inline-block;width:10px;height:10px}\
                    #b::after{content:'';display:block;height:7px} #i::before{content:'';display:inline-block;width:30px;height:5px}\

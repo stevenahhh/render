@@ -993,6 +993,13 @@ impl<'a> Engine<'a> {
         if !min_h.is_nan() {
             h = h.max(min_h);
         }
+        // A button taller than its content centres it, as WebKit's button box does.
+        let free = h - vextra - content_h;
+        if tag == atom::BUTTON && free > 0.0 && matches!(s.display, Display::Block | Display::InlineBlock) {
+            let end = self.mark();
+            self.shift(content_start, end, 0.0, free / 2.0);
+            self.last_bl += free / 2.0;
+        }
 
         if s.display == Display::ListItem && s.list_style != ListStyle::None && s.visible {
             self.marker(n, s, cx, cy, ord);
