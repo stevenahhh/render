@@ -1577,6 +1577,8 @@ mod tests {
             ("<svg id=a width=16 height=16 viewBox='0 0 24 24' style='height:10px'></svg>", (16.0, 10.0)),
             ("<span style='display:inline-block'><svg id=a viewBox='0 0 24 12'></svg></span>", (0.0, 0.0)),
             ("<div style='display:flex'><svg id=a viewBox='0 0 2 1'></svg></div>", (400.0, 200.0)),
+            ("<div style='display:flex;height:19px'><svg id=a viewBox='0 6 94 94'></svg></div>", (19.0, 19.0)),
+            ("<div style='height:19px'><svg id=a viewBox='116 0 408 84' style='height:100%;width:auto'></svg></div>", (92.28571, 19.0)),
         ];
         for (svg, want) in cases {
             // The width set by script is read as a presentation attribute, restyling the element.
@@ -1691,6 +1693,8 @@ mod tests {
             ("<img id=i srcset='b.png 40w, a.png 400w' sizes='20px'>", (20.0, 10.0)),
             ("<img id=i srcset='b.png 40w, a.png 400w'>", (1024.0, 512.0)),
             ("<picture><source type=image/jxl srcset=b.png><source media='(max-width: 100px)' srcset=b.png><source srcset='a.png 2x'><img id=i src=b.png></picture>", (200.0, 100.0)),
+            // A flex line of definite height stretches the image, whose ratio gives its width.
+            ("<div style='display:flex;height:19px'><img id=i src=a.png></div>", (38.0, 19.0)),
         ];
         for (html, want) in cases {
             let mut page = Page::from_html(&format!("<body style='margin:0'>{html}"), Some(&dir));

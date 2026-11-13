@@ -1878,12 +1878,24 @@ impl<'a> Engine<'a> {
                 let transferred = it.transferred;
                 match cs.basis {
                     Len::Auto => spec_w(cs, cw, &sd).unwrap_or_else(|| {
-                        let w = if !transferred.is_nan() {
-                            transferred
-                        } else if self.fills(it.node) {
-                            cw - sd.ml - sd.mr
-                        } else {
-                            self.intrinsic(it.node) - sd.ml - sd.mr
+                        // Without a definite height of its own, a replaced item with a ratio that its
+                        // single line stretches to the container's definite height takes its width
+                        // from that height (css-flexbox 9.2, step 3B).
+                        let stretched = transferred.is_nan()
+                            && !s.flex_wrap
+                            && !inner_h.is_nan()
+                            && cs.height == Len::Auto
+                            && matches!(it.align, Align::Stretch | Align::Auto)
+                            && cs.margin[0] != Len::Auto
+                            && cs.margin[2] != Len::Auto
+                            && dom.shows_image(it.node)
+                            && has_ratio(dom, it.node);
+                        let ratio = if stretched { self.natural(it.node) } else { None };
+                        let w = match ratio {
+                            _ if !transferred.is_nan() => transferred,
+                            Some((iw, ih)) => (inner_h - sd.mt - sd.mb - sd.pt - sd.pb - cs.bw[0] - cs.bw[2]).max(0.0) * iw / ih + hextra(cs, &sd),
+                            None if self.fills(it.node) => cw - sd.ml - sd.mr,
+                            None => self.intrinsic(it.node) - sd.ml - sd.mr,
                         };
                         clamp_w(cs, w, cw, &sd)
                     }),
@@ -2325,10 +2337,27 @@ impl<'a> Engine<'a> {
         let dom = self.dom;
         dom_tag(dom, n) == atom::SVG
             && s.width == Len::Auto
-            && !matches!(s.height, Len::Px(_))
+            && self.definite_height(n).is_none()
             && svg_ratio(dom, n).is_some()
             && svg_len(dom, n, atom::WIDTH).is_none()
             && svg_len(dom, n, atom::HEIGHT).is_none()
+    }
+
+    /// The height of `n` when it is known before layout: a length, or a percentage of
+    /// a parent whose height is a length.
+    fn definite_height(&self, n: NodeId) -> Option<f32> {
+        let s = &self.st[n as usize];
+        match s.height {
+            Len::Px(h) => Some(h),
+            Len::Pct(p) => {
+                let parent = self.dom.nodes[n as usize].parent;
+                let ps = self.st.get(parent as usize)?;
+                let Len::Px(h) = ps.height else { return None };
+                let inner = if ps.border_box { h - ps.bw[0] - ps.bw[2] - rs(ps.padding[0], 0.0) - rs(ps.padding[2], 0.0) } else { h };
+                Some(inner.max(0.0) * p / 100.0)
+            }
+            _ => None,
+        }
     }
 
     /// The picture of an inline `<svg>` drawn at `w` x `h` CSS pixels, its viewBox
@@ -2425,8 +2454,8 @@ impl<'a> Engine<'a> {
         let content = if let Len::Px(v) = s.width {
             if s.border_box { (v - extra).max(0.0) } else { v }
         } else if let Some((iw, ih)) = self.natural(n) {
-            match s.height {
-                Len::Px(h) if has_ratio(dom, n) => h * iw / ih,
+            match self.definite_height(n) {
+                Some(h) if has_ratio(dom, n) => h * iw / ih,
                 _ if self.fills(n) => 0.0,
                 _ => iw,
             }
