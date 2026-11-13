@@ -85,6 +85,13 @@ check('attributes', function(){
   var el=document.getElementById('at');
   mark('DOM attributes length:'+el.attributes.length+' named:'+el.attributes.getNamedItem('data-k').value+' first:'+el.attributes[0].name+' item:'+el.attributes.item(1).name);
 });
+check('classList-indexed', function(){
+  var el=document.createElement('div');
+  el.className='a b c';
+  var l=el.classList, first=l[0], last=l[l.length-1];
+  el.className='x';
+  mark('DOM classList indexed first:'+first+' last:'+last+' after:'+el.classList[0]+' gone:'+el.classList[1]);
+});
 check('attributes-named', function(){
   var el=document.createElement('div');
   el.setAttribute('onfocusin','t');

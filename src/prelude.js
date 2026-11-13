@@ -695,6 +695,8 @@
       __set_attr(id, name, value);
     }
     $.attrVersion++;
+    // An element's classList keeps its indexed properties in step with the attribute.
+    if (name.length === 5 && el[CLASSES] && name.toLowerCase() === 'class') el[CLASSES]._sync();
     const tag = el[TAG];
     if (tag === 'script' && value !== null && name.toLowerCase() === 'src') prepareScript(el);
     else if (tag === 'link' && name.toLowerCase() === 'href') linkInserted(el);
@@ -1057,13 +1059,33 @@
   // `classList` and `relList`: the tokens of an attribute.
   class DOMTokenList {
     constructor() { illegal(); }
-    _get() { return (this._el.getAttribute(this._attr) || '').split(/[\t\n\f\r ]+/).filter(Boolean); }
-    _set(a) { this._el.setAttribute(this._attr, a.join(' ')); }
-    get length() { return this._get().length; }
+    _get() { this._sync(); return Array.prototype.slice.call(this, 0, this._n); }
+    _set(a) {
+      const raw = a.join(' ');
+      this._take(raw, a);
+      this._el.setAttribute(this._attr, raw);
+    }
+    // The tokens are also the list's indexed properties, renewed when the attribute changes.
+    _sync() {
+      const raw = __attr(this._el[ID], this._attr) || '';
+      if (raw !== this._raw) this._take(raw, raw.split(/[\t\n\f\r ]+/).filter(Boolean));
+    }
+    _take(raw, a) {
+      this._raw = raw;
+      for (let i = 0; i < a.length; i++) this[i] = a[i];
+      for (let i = a.length; i < this._n; i++) delete this[i];
+      this._n = a.length;
+    }
+    get length() { this._sync(); return this._n; }
     get value() { return this._el.getAttribute(this._attr) || ''; }
     set value(v) { this._el.setAttribute(this._attr, v); }
-    item(i) { return this._get()[i] ?? null; }
-    contains(c) { return this._get().includes(String(c)); }
+    item(i) { this._sync(); return this[i >>> 0] ?? null; }
+    contains(c) {
+      this._sync();
+      c = String(c);
+      for (let i = 0; i < this._n; i++) if (this[i] === c) return true;
+      return false;
+    }
     add(...c) {
       const a = this._get();
       for (const x of c) {
@@ -1102,6 +1124,9 @@
     const l = Object.create(DOMTokenList.prototype);
     l._el = el;
     l._attr = attr;
+    l._raw = null;
+    l._n = 0;
+    l._sync();
     return l;
   };
 
