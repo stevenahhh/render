@@ -106,7 +106,7 @@
   const globals = { TextEncoder, TextDecoder, structuredClone };
   const own = Object.getOwnPropertyDescriptor(g, 'Intl');
   if (own && own.get) globals.Intl = intl();
-  def(g, globals);
+  $.interfaces(globals);
 
   // Formatting in US English only: enough for pages that format numbers, dates and plurals.
   function intl() {

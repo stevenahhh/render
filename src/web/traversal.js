@@ -335,5 +335,5 @@
     createRange() { return new Range(); },
     getSelection() { return selection; },
   });
-  def(g, { NodeFilter, TreeWalker, NodeIterator, Range, StaticRange, AbstractRange, Selection, DOMParser, XMLSerializer, DOMImplementation });
+  $.interfaces({ NodeFilter, TreeWalker, NodeIterator, Range, StaticRange, AbstractRange, Selection, DOMParser, XMLSerializer, DOMImplementation });
 })

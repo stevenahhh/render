@@ -65,6 +65,12 @@ check('recursion', function(){
 });
 </script>
 <script>
+check('toStringTag', function(){
+  var t=function(o){return Object.prototype.toString.call(o).slice(8,-1);};
+  mark('MISC toStringTag '+[t(document.querySelectorAll('p')),t(document),t(document.body.classList),t(new Event('x')),t(new XMLHttpRequest()),t([]),t({})].join(' '));
+});
+</script>
+<script>
 check('streams', function(){
   var d=new TextDecoder(), euro=new TextEncoder().encode('\u20ac');
   var split=d.decode(euro.subarray(0,1),{stream:true})+d.decode(euro.subarray(1),{stream:true})+d.decode();

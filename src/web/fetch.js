@@ -587,5 +587,5 @@
     withCredentials: (v) => !!v,
   });
 
-  def(g, { fetch, Headers, Request, Response, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload, FormData, Blob, File, FileReader, ReadableStream, WritableStream, TransformStream, TextEncoderStream, TextDecoderStream });
+  $.interfaces({ fetch, Headers, Request, Response, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload, FormData, Blob, File, FileReader, ReadableStream, WritableStream, TransformStream, TextEncoderStream, TextDecoderStream });
 })

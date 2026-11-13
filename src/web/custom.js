@@ -192,5 +192,5 @@
       upgradeAll(__tagged(root[$.ID], CUSTOM));
     }
   }
-  def(g, { customElements: Object.create(CustomElementRegistry.prototype), CustomElementRegistry });
+  $.interfaces({ customElements: Object.create(CustomElementRegistry.prototype), CustomElementRegistry });
 })

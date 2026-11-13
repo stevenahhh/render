@@ -60,5 +60,5 @@
     }
   }
 
-  def(g, { MessageChannel, MessagePort, BroadcastChannel });
+  $.interfaces({ MessageChannel, MessagePort, BroadcastChannel });
 })

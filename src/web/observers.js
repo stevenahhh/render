@@ -251,5 +251,5 @@
   }
   const performance = g.performance;
 
-  def(g, { MutationObserver, WebKitMutationObserver: MutationObserver, MutationRecord, IntersectionObserver, IntersectionObserverEntry, ResizeObserver, ResizeObserverEntry, ResizeObserverSize, PerformanceObserver, PerformanceEntry, PerformanceObserverEntryList });
+  $.interfaces({ MutationObserver, WebKitMutationObserver: MutationObserver, MutationRecord, IntersectionObserver, IntersectionObserverEntry, ResizeObserver, ResizeObserverEntry, ResizeObserverSize, PerformanceObserver, PerformanceEntry, PerformanceObserverEntryList });
 })

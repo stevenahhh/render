@@ -30,6 +30,18 @@
     loaded.add(part);
     (0, geval)(__chunk(part))($);
   };
+  // Every interface the platform adds names itself through @@toStringTag, as WebIDL
+  // has it: `Object.prototype.toString` gives `[object NodeList]`, not `[object Object]`.
+  // Globals are defined through `interfaces`, which tags the classes among them.
+  const interfaces = (o) => {
+    def(g, o);
+    for (const k of Object.keys(o)) {
+      const C = o[k];
+      if (typeof C !== 'function' || C.name !== k || !C.prototype || Object.prototype.hasOwnProperty.call(C.prototype, Symbol.toStringTag)) continue;
+      Object.defineProperty(C.prototype, Symbol.toStringTag, { configurable: true, value: k });
+    }
+  };
+  $.interfaces = interfaces;
   const lazy = (part, names) => {
     for (const k of names) {
       Object.defineProperty(g, k, {
@@ -2292,7 +2304,9 @@
   for (const t of GLOBAL_HANDLERS.concat(WINDOW_ONLY)) Object.defineProperty(g, 'on' + t, handlerProp(t, bodyFor));
   for (const t of ['readystatechange', 'visibilitychange']) Object.defineProperty(Document.prototype, 'on' + t, handlerProp(t, noHost));
 
-  def(g, {
+  // The page's document is an HTML one, whose interface WebKit reports as HTMLDocument.
+  Object.defineProperty(Document.prototype, Symbol.toStringTag, { configurable: true, value: 'HTMLDocument' });
+  interfaces({
     globalThis: g, Navigator, Performance, VisualViewport, trustedTypes, CSS, console,
     Window, EventTarget, Node, CharacterData, Text, Comment, CDATASection, ProcessingInstruction, DocumentType, Element, Attr, NamedNodeMap, NodeList, HTMLCollection, DOMTokenList,
     Document, HTMLDocument: Document, XMLDocument: Document, DocumentFragment, ShadowRoot, DOMException, AbortController, AbortSignal, URL, URLSearchParams, webkitURL: URL, Location, History, Storage,
@@ -2344,8 +2358,8 @@
     sessionStorage: attribute(() => sessionStorage),
   });
   def(g, timers);
-  def(g, events);
-  def(g, ifaces);
+  interfaces(events);
+  interfaces(ifaces);
   Object.defineProperties(g, {
     innerWidth: view(0), innerHeight: view(1), outerWidth: view(0), outerHeight: view(1),
     scrollY: view(2), pageYOffset: view(2),

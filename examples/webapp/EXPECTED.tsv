@@ -99,6 +99,7 @@ misc-globals.html	MISC structuredClone deep:true date:true map:x cycle:true
 misc-globals.html	MISC substr bcd ef
 misc-globals.html	MISC html comment in script hc:2
 misc-globals.html	MISC recursion depth:1000
+misc-globals.html	MISC toStringTag NodeList HTMLDocument DOMTokenList Event XMLHttpRequest Array Object
 misc-globals.html	MISC streams piped:true split:true
 misc-globals.html	MISC visualViewport scale:1 width:true height:true offset:0,0 target:true
 misc-globals.html	MISC Intl without new nf:1,234 dtf:true collator:function

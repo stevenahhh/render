@@ -176,5 +176,5 @@
   def(g.Document.prototype, {
     getAnimations() { return [...byElement.values()].flat().filter((a) => relevant(a) && a.effect.target.isConnected); },
   });
-  def(g, { Animation, KeyframeEffect, AnimationEffect: KeyframeEffect });
+  $.interfaces({ Animation, KeyframeEffect, AnimationEffect: KeyframeEffect });
 })

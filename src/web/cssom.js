@@ -138,5 +138,5 @@
 
   class CSSRuleList { constructor() { illegal(); } }
   class CSSStyleDeclaration { constructor() { illegal(); } }
-  def(g, { CSSStyleSheet, StyleSheet, StyleSheetList, CSSRule, CSSStyleRule, CSSRuleList, CSSStyleDeclaration });
+  $.interfaces({ CSSStyleSheet, StyleSheet, StyleSheetList, CSSRule, CSSStyleRule, CSSRuleList, CSSStyleDeclaration });
 })
