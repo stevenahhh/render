@@ -695,7 +695,7 @@ pub fn parse_len(s: &str) -> Option<Len> {
         i += 1;
     }
     let n = num(&s[..i])?;
-    Some(match &s[i..] {
+    Some(match viewport_unit(&s[i..]) {
         "px" => Px(n),
         "" if n == 0.0 => Px(0.0),
         "%" => Pct(n),
@@ -709,8 +709,24 @@ pub fn parse_len(s: &str) -> Option<Len> {
         "cm" => Px(n * 37.8),
         "mm" => Px(n * 3.78),
         "pc" => Px(n * 16.0),
+        "q" => Px(n * 3.78 / 4.0),
+        // A line of normal height.
+        "lh" | "rlh" => Em(n * 1.2),
         _ => return None,
     })
+}
+
+/// The viewport unit a dynamic, small, large or container-relative unit
+/// measures here: the window does not resize its viewport as a phone's toolbars
+/// do, and a container query unit outside any container measures the viewport.
+pub fn viewport_unit(unit: &str) -> &str {
+    match unit {
+        "dvw" | "svw" | "lvw" | "cqw" | "cqi" => "vw",
+        "dvh" | "svh" | "lvh" | "cqh" | "cqb" => "vh",
+        "dvmin" | "svmin" | "lvmin" | "cqmin" => "vmin",
+        "dvmax" | "svmax" | "lvmax" | "cqmax" => "vmax",
+        u => u,
+    }
 }
 
 fn hex(h: &str) -> Option<Color> {
@@ -1798,7 +1814,7 @@ const CONTEXT_UNITS: [&str; 6] = ["vw", "vh", "vmin", "vmax", "rem", "em"];
 /// True when a function such as `calc()` or `min()` combines lengths in units
 /// known only while styling, which it cannot add up until then.
 fn needs_context(val: &str) -> bool {
-    val.contains('(') && absolute_lengths(val, |u| CONTEXT_UNITS.contains(&u).then_some(1.0)).is_some()
+    val.contains('(') && absolute_lengths(val, |u| CONTEXT_UNITS.contains(&viewport_unit(u)).then_some(1.0)).is_some()
 }
 
 /// `v` with every length whose unit `px_per` gives a size for rewritten in px,

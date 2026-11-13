@@ -495,7 +495,7 @@ fn text_from_background(st: &mut Style) {
 /// Pixels per `unit` in a value resolved while styling: viewport units and `rem`
 /// always, `em` only when its size is given (in `font-size`, the parent's).
 fn unit_px(unit: &str, em: Option<f32>, c: &Ctx) -> Option<f32> {
-    match unit {
+    match crate::css::viewport_unit(unit) {
         "vw" => Some(c.vw * 0.01),
         "vh" => Some(c.vh * 0.01),
         "vmin" => Some(c.vw.min(c.vh) * 0.01),
@@ -2308,6 +2308,17 @@ mod tests {
         assert_eq!(s.iter().map(|s| s.font_size).collect::<Vec<_>>(), [20.0, 20.0, 40.0]);
         assert_eq!(s.iter().map(|s| s.display).collect::<Vec<_>>(), [Display::Inline, Display::Inline, Display::Block]);
         assert_eq!(s.iter().map(|s| s.color.0 & 0xff_ffff).collect::<Vec<_>>(), [0x00ff00, 0xff0000, 0x00ff00]);
+    }
+
+    #[test]
+    fn dynamic_small_large_and_container_units_measure_the_viewport() {
+        let html = "<style>.a{height:50dvh;width:10cqw} .b{min-height:calc(100svh - 100px)} .c{height:2lh;max-width:50lvh}</style>\
+                    <p class=a></p><p class=b></p><p class=c></p>";
+        let s = styles_of(html, "p");
+        assert_eq!((s[0].height, s[0].width), (Len::Px(300.0), Len::Px(80.0)));
+        assert_eq!(s[1].rare().min_h, Len::Px(500.0));
+        assert_eq!(s[2].height, Len::Px(38.4));
+        assert_eq!(s[2].rare().max_w, Len::Px(300.0));
     }
 
     #[test]
