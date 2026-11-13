@@ -2264,24 +2264,31 @@ impl<'a> Engine<'a> {
         let node = &dom.nodes[n as usize];
         let (vw, vh) = (self.vw, self.vh);
         let misses = self.images.misses();
+        let sizes = dom.atoms.get("sizes").unwrap_or(0);
+        // The image and its density: how many of its pixels make one CSS pixel.
         let id = {
             let mut found = None;
             let parent = node.parent;
             if parent != NONE && dom.nodes[parent as usize].tag == atom::PICTURE {
                 let mut c = dom.nodes[parent as usize].first_child;
                 while c != NONE && found.is_none() {
-                    let usable = dom.nodes[c as usize].tag == atom::SOURCE && dom.attr(c, atom::MEDIA).is_none_or(|m| media_matches(m, vw, vh));
+                    let usable = dom.nodes[c as usize].tag == atom::SOURCE
+                        && dom.attr(c, atom::MEDIA).is_none_or(|m| media_matches(m, vw, vh))
+                        && dom.attr(c, atom::TYPE).is_none_or(image_type_supported);
                     if usable {
-                        found = dom.attr(c, atom::SRCSET).and_then(first_candidate).and_then(|u| self.images.file(u));
+                        let pick = dom.attr(c, atom::SRCSET).and_then(|set| choose_candidate(set, dom.attr(c, sizes), None, (vw, vh)));
+                        found = pick.and_then(|(u, d)| self.images.file(u).map(|id| (id, d)));
                     }
                     c = dom.nodes[c as usize].next;
                 }
             }
+            let src = dom.attr(n, if node.tag == atom::VIDEO { atom::POSTER } else { atom::SRC }).filter(|s| !s.is_empty());
+            let pick = dom.attr(n, atom::SRCSET).filter(|_| node.tag == atom::IMG).and_then(|set| choose_candidate(set, dom.attr(n, sizes), src, (vw, vh)));
             found
-                .or_else(|| dom.attr(n, if node.tag == atom::VIDEO { atom::POSTER } else { atom::SRC }).and_then(|u| self.images.file(u)))
-                .or_else(|| dom.attr(n, atom::SRCSET).and_then(first_candidate).and_then(|u| self.images.file(u)))
+                .or_else(|| pick.and_then(|(u, d)| self.images.file(u).map(|id| (id, d))))
+                .or_else(|| src.and_then(|u| self.images.file(u)).map(|id| (id, 1.0)))
         };
-        let p = id.map(|id| (id, self.images.size(id))).map(|(id, (w, h))| (id, w, h)).filter(|p| p.1 > 0.0 && p.2 > 0.0);
+        let p = id.map(|(id, d)| (id, self.images.size(id), d)).map(|(id, (w, h), d)| (id, w / d, h / d)).filter(|p| p.1 > 0.0 && p.2 > 0.0);
         if id.is_none() && self.images.misses() != misses {
             self.waiting.insert(n, ());
         }
@@ -2937,9 +2944,87 @@ fn set_root_attr(m: &mut String, name: &str, value: &str) {
     }
 }
 
-/// First URL of a `srcset` list.
-fn first_candidate(srcset: &str) -> Option<&str> {
-    srcset.split(',').next()?.split_ascii_whitespace().next()
+/// The candidate of a `srcset` a display of one device pixel per CSS pixel takes,
+/// with its density: the least dense of those with a density of 1 or more, else the
+/// densest. Width descriptors are divided by the slot width `sizes` gives in a
+/// viewport `vw` x `vh`. Without them, `src` is the 1x candidate unless one is listed.
+fn choose_candidate<'a>(srcset: &'a str, sizes: Option<&str>, src: Option<&'a str>, (vw, vh): (f32, f32)) -> Option<(&'a str, f32)> {
+    let slot = slot_width(sizes, vw, vh);
+    let mut list: Vec<(&str, f32)> = Vec::new();
+    let mut widths = false;
+    let mut rest = srcset;
+    loop {
+        rest = rest.trim_start_matches(|c: char| c == ',' || c.is_ascii_whitespace());
+        if rest.is_empty() {
+            break;
+        }
+        let end = rest.find(|c: char| c.is_ascii_whitespace()).unwrap_or(rest.len());
+        let url = rest[..end].trim_end_matches(',');
+        // A URL ending in a comma has no descriptors.
+        let (desc, next) = if rest[..end].ends_with(',') {
+            ("", &rest[end..])
+        } else {
+            let after = &rest[end..];
+            let stop = after.find(',').unwrap_or(after.len());
+            (after[..stop].trim(), &after[stop..])
+        };
+        rest = next;
+        let density = match desc.split_ascii_whitespace().next() {
+            None => Some(1.0),
+            Some(d) if d.ends_with('w') => {
+                widths = true;
+                d[..d.len() - 1].parse::<f32>().ok().map(|w| w / slot)
+            }
+            Some(d) if d.ends_with('x') => d[..d.len() - 1].parse::<f32>().ok(),
+            Some(_) => None,
+        };
+        if let Some(d) = density.filter(|d| *d > 0.0 && d.is_finite()) {
+            list.push((url, d));
+        }
+    }
+    if let Some(src) = src.filter(|_| !widths && !list.iter().any(|c| c.1 == 1.0)) {
+        list.push((src, 1.0));
+    }
+    let enough = list.iter().filter(|c| c.1 >= 1.0).min_by(|a, b| a.1.total_cmp(&b.1));
+    enough.or_else(|| list.iter().max_by(|a, b| a.1.total_cmp(&b.1))).copied()
+}
+
+/// The width of the slot an image of a `sizes` list fills: the length of the first
+/// entry whose media condition matches, 100vw when none does.
+fn slot_width(sizes: Option<&str>, vw: f32, vh: f32) -> f32 {
+    let length = |l: Len| match l {
+        Len::Px(v) => Some(v),
+        Len::Vw(v) => Some(v * vw / 100.0),
+        Len::Vh(v) => Some(v * vh / 100.0),
+        Len::Em(v) | Len::Rem(v) => Some(v * 16.0),
+        _ => None,
+    };
+    for entry in sizes.unwrap_or("").split(',') {
+        let entry = entry.trim().to_ascii_lowercase();
+        // The length is the last token outside parentheses; a media condition goes before it.
+        let (mut depth, mut cut) = (0, 0);
+        for (i, c) in entry.char_indices() {
+            match c {
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                c if c.is_ascii_whitespace() && depth == 0 => cut = i,
+                _ => {}
+            }
+        }
+        let (media, len) = (entry[..cut].trim(), entry[cut..].trim());
+        if media.is_empty() || media_matches(media, vw, vh) {
+            if let Some(w) = crate::css::parse_len(len).and_then(length).filter(|w| *w > 0.0) {
+                return w;
+            }
+        }
+    }
+    vw
+}
+
+/// True for an image `type` this renderer decodes.
+fn image_type_supported(t: &str) -> bool {
+    let t = t.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    matches!(t.as_str(), "" | "image/png" | "image/jpeg" | "image/jpg" | "image/gif" | "image/webp" | "image/svg+xml" | "image/avif" | "image/apng")
 }
 
 /// Makes serialized inline SVG parseable on its own: fill and color come from CSS.

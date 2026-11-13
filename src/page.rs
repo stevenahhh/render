@@ -1678,6 +1678,30 @@ mod tests {
     }
 
     #[test]
+    fn srcset_and_picture_sources_pick_an_image_and_its_density_as_webkit_does() {
+        let dir = std::env::temp_dir().join(format!("render-srcset-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbaImage::new(400, 200).save(dir.join("a.png")).unwrap();
+        image::RgbaImage::new(40, 20).save(dir.join("b.png")).unwrap();
+        // The size a 1x display gives each <img>, in a 1024px wide viewport.
+        let cases = [
+            ("<img id=i src=b.png srcset='a.png 2x'>", (40.0, 20.0)),
+            ("<img id=i src=b.png srcset='b.png 1x, a.png 2x'>", (40.0, 20.0)),
+            ("<img id=i srcset='b.png 40w, a.png 400w' sizes='(max-width: 500px) 10px, 200px'>", (200.0, 100.0)),
+            ("<img id=i srcset='b.png 40w, a.png 400w' sizes='20px'>", (20.0, 10.0)),
+            ("<img id=i srcset='b.png 40w, a.png 400w'>", (1024.0, 512.0)),
+            ("<picture><source type=image/jxl srcset=b.png><source media='(max-width: 100px)' srcset=b.png><source srcset='a.png 2x'><img id=i src=b.png></picture>", (200.0, 100.0)),
+        ];
+        for (html, want) in cases {
+            let mut page = Page::from_html(&format!("<body style='margin:0'>{html}"), Some(&dir));
+            page.update(&mut Fonts::new(), 1024.0, 768.0);
+            let it = page.layout.items.iter().find(|i| i.kind == crate::layout::Kind::Image);
+            assert_eq!(it.map(|i| (i.w, i.h)), Some(want), "{html}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn colour_changes_repaint_the_laid_out_boxes() {
         let css = "div{border:1px solid #000} .on{background:#f00;color:#0f0;opacity:.5}";
         let toggle = "$('a').classList.toggle('on');";
