@@ -887,7 +887,8 @@ impl<'a> Engine<'a> {
         } else {
             let open = !bfc && !s.overflow_hidden;
             let top = open && sd.pt == 0.0 && bt == 0.0;
-            let bottom = open && sd.pb == 0.0 && bb == 0.0 && spec_h.is_nan() && min_h.is_nan();
+            // `min-height` does not keep the last child's margin in (CSS 2.1 8.3.1).
+            let bottom = open && sd.pb == 0.0 && bb == 0.0 && spec_h.is_nan();
             self.layout_children(n, cx, cw, cy, inner_h, top, bottom)
         };
         if let Some(outer) = outer_bfc {

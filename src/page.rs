@@ -1645,6 +1645,14 @@ mod tests {
     }
 
     #[test]
+    fn a_last_child_margin_collapses_through_a_parent_with_min_height() {
+        let css = "body{margin:0} .a{height:10px}";
+        let body = "<div id=r style=min-height:5px><div class=a style=margin-bottom:50px></div></div><div class=a id=s></div>";
+        let (mut page, _) = after_script(css, body, "$('s').title='x';");
+        assert_eq!(rects(&mut page, &["r", "s"]), [[0.0, 0.0, 1024.0, 10.0], [0.0, 60.0, 1024.0, 10.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";
