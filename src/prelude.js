@@ -1313,6 +1313,111 @@
     'SVGDefsElement<SVGGraphicsElement:defs SVGSymbolElement<SVGElement:symbol SVGLinearGradientElement<SVGElement:lineargradient SVGRadialGradientElement<SVGElement:radialgradient ' +
     'SVGStopElement<SVGElement:stop SVGClipPathElement<SVGElement:clippath SVGMaskElement<SVGElement:mask SVGPatternElement<SVGElement:pattern SVGFilterElement<SVGElement:filter ' +
     'SVGDescElement<SVGElement:desc SVGMarkerElement<SVGElement:marker SVGAnimateElement<SVGElement:animate SVGFEGaussianBlurElement<SVGElement:fegaussianblur';
+  // The length of a shape's outline in user units, from its geometry attributes, as
+  // SVGGeometryElement.getTotalLength reports it. Curves and arcs are measured as 256 chords.
+  const STEPS = 256;
+  const chords = (at) => {
+    let len = 0, [x, y] = at(0);
+    for (let i = 1; i <= STEPS; i++) { const [nx, ny] = at(i / STEPS); len += Math.hypot(nx - x, ny - y); x = nx; y = ny; }
+    return len;
+  };
+  const ellipseLength = (rx, ry) => chords((t) => [rx * Math.cos(2 * Math.PI * t), ry * Math.sin(2 * Math.PI * t)]);
+  const pointsLength = (text, closed) => {
+    const n = (text || '').trim().split(/[\s,]+/).filter(Boolean).map(Number);
+    let len = 0;
+    for (let i = 2; i + 1 < n.length; i += 2) len += Math.hypot(n[i] - n[i - 2], n[i + 1] - n[i - 1]);
+    if (closed && n.length >= 4) len += Math.hypot(n[0] - n[n.length - 2], n[1] - n[n.length - 1]);
+    return len || 0;
+  };
+  // The arc from (x0, y0) to (x, y) as path data gives it, measured through its centre form.
+  const arcLength = (x0, y0, rx, ry, phi, large, sweep, x, y) => {
+    rx = Math.abs(rx); ry = Math.abs(ry);
+    if (!rx || !ry) return Math.hypot(x - x0, y - y0);
+    const c = Math.cos(phi * Math.PI / 180), s = Math.sin(phi * Math.PI / 180);
+    const dx = (x0 - x) / 2, dy = (y0 - y) / 2, x1 = c * dx + s * dy, y1 = -s * dx + c * dy;
+    const scale = Math.max(1, Math.sqrt((x1 * x1) / (rx * rx) + (y1 * y1) / (ry * ry)));
+    rx *= scale; ry *= scale;
+    const num = rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1, den = rx * rx * y1 * y1 + ry * ry * x1 * x1;
+    const k = (large === sweep ? -1 : 1) * Math.sqrt(Math.max(0, num / den));
+    const cx1 = k * rx * y1 / ry, cy1 = -k * ry * x1 / rx;
+    const angle = (ux, uy, vx, vy) => Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+    const t0 = angle(1, 0, (x1 - cx1) / rx, (y1 - cy1) / ry);
+    let dt = angle((x1 - cx1) / rx, (y1 - cy1) / ry, (-x1 - cx1) / rx, (-y1 - cy1) / ry);
+    if (!sweep && dt > 0) dt -= 2 * Math.PI;
+    if (sweep && dt < 0) dt += 2 * Math.PI;
+    return chords((t) => { const a = t0 + dt * t; return [rx * Math.cos(a), ry * Math.sin(a)]; });
+  };
+  const pathLength = (d) => {
+    const s = d || '';
+    let i = 0;
+    const space = () => { while (i < s.length && /[\s,]/.test(s[i])) i++; };
+    const num = () => {
+      space();
+      const m = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?/.exec(s.slice(i, i + 40));
+      if (!m) return null;
+      i += m[0].length;
+      return Number(m[0]);
+    };
+    const flag = () => { space(); const f = s[i]; if (f !== '0' && f !== '1') return null; i++; return f === '1'; };
+    let len = 0, x = 0, y = 0, sx = 0, sy = 0, cx = 0, cy = 0, prev = '', cmd = '';
+    const cubic = (x1, y1, x2, y2, ex, ey) => {
+      const [ax, ay] = [x, y];
+      len += chords((t) => { const u = 1 - t; return [u * u * u * ax + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * ex, u * u * u * ay + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t * t * t * ey]; });
+      cx = x2; cy = y2; x = ex; y = ey;
+    };
+    const quad = (x1, y1, ex, ey) => {
+      const [ax, ay] = [x, y];
+      len += chords((t) => { const u = 1 - t; return [u * u * ax + 2 * u * t * x1 + t * t * ex, u * u * ay + 2 * u * t * y1 + t * t * ey]; });
+      cx = x1; cy = y1; x = ex; y = ey;
+    };
+    for (;;) {
+      space();
+      if (i >= s.length) break;
+      if (/[a-zA-Z]/.test(s[i])) cmd = s[i++];
+      else if (!cmd || cmd === 'z' || cmd === 'Z') break;
+      const rel = cmd === cmd.toLowerCase(), C = cmd.toUpperCase(), ox = rel ? x : 0, oy = rel ? y : 0;
+      const nums = (k) => { const a = []; for (let j = 0; j < k; j++) { const v = num(); if (v === null) return null; a.push(v); } return a; };
+      let a;
+      if (C === 'Z') { len += Math.hypot(sx - x, sy - y); x = sx; y = sy; }
+      else if (C === 'M') { if (!(a = nums(2))) break; x = sx = ox + a[0]; y = sy = oy + a[1]; cmd = rel ? 'l' : 'L'; }
+      else if (C === 'L') { if (!(a = nums(2))) break; len += Math.hypot(a[0] + ox - x, a[1] + oy - y); x = a[0] + ox; y = a[1] + oy; }
+      else if (C === 'H') { if (!(a = nums(1))) break; len += Math.abs(a[0] + ox - x); x = a[0] + ox; }
+      else if (C === 'V') { if (!(a = nums(1))) break; len += Math.abs(a[0] + oy - y); y = a[0] + oy; }
+      else if (C === 'C') { if (!(a = nums(6))) break; cubic(a[0] + ox, a[1] + oy, a[2] + ox, a[3] + oy, a[4] + ox, a[5] + oy); }
+      else if (C === 'S') { if (!(a = nums(4))) break; const smooth = /[CcSs]/.test(prev); cubic(smooth ? 2 * x - cx : x, smooth ? 2 * y - cy : y, a[0] + ox, a[1] + oy, a[2] + ox, a[3] + oy); }
+      else if (C === 'Q') { if (!(a = nums(4))) break; quad(a[0] + ox, a[1] + oy, a[2] + ox, a[3] + oy); }
+      else if (C === 'T') { if (!(a = nums(2))) break; const smooth = /[QqTt]/.test(prev); quad(smooth ? 2 * x - cx : x, smooth ? 2 * y - cy : y, a[0] + ox, a[1] + oy); }
+      else if (C === 'A') {
+        const r = nums(3), large = r && flag(), sweep = large !== null && r ? flag() : null, e = sweep !== null ? nums(2) : null;
+        if (!e) break;
+        len += arcLength(x, y, r[0], r[1], r[2], large, sweep, e[0] + ox, e[1] + oy);
+        x = e[0] + ox; y = e[1] + oy;
+      } else break;
+      prev = C === 'M' ? 'M' : cmd;
+      if (C === 'Z') cmd = '';
+    }
+    return len;
+  };
+  const outlineLength = (el) => {
+    const n = (a) => parseFloat(el.getAttribute(a)) || 0;
+    switch (el[TAG]) {
+      case 'path': return pathLength(el.getAttribute('d'));
+      case 'line': return Math.hypot(n('x2') - n('x1'), n('y2') - n('y1'));
+      case 'polyline': return pointsLength(el.getAttribute('points'), false);
+      case 'polygon': return pointsLength(el.getAttribute('points'), true);
+      case 'circle': return Math.max(0, 2 * Math.PI * n('r'));
+      case 'ellipse': return n('rx') > 0 && n('ry') > 0 ? ellipseLength(n('rx'), n('ry')) : 0;
+      case 'rect': {
+        const w = n('width'), h = n('height');
+        if (w <= 0 || h <= 0) return 0;
+        const given = (a) => el.hasAttribute(a) && n(a) > 0 ? n(a) : null;
+        let rx = given('rx'), ry = given('ry');
+        rx = Math.min(rx ?? ry ?? 0, w / 2); ry = Math.min(ry ?? rx, h / 2);
+        return 2 * (w - 2 * rx) + 2 * (h - 2 * ry) + (rx > 0 && ry > 0 ? ellipseLength(rx, ry) : 0);
+      }
+      default: return 0;
+    }
+  };
   class SVGElement extends Element {
     constructor() { super(); illegal(); }
     get ownerSVGElement() { let p = this.parentNode; while (p && p[TAG] !== 'svg') p = p.parentNode; return p; }
@@ -1338,6 +1443,7 @@
     }
   }
   for (const t of 'article section nav aside header footer main address hgroup figure figcaption summary b i u s em strong small mark abbr cite code kbd samp var sub sup dfn bdi bdo ruby rt rp wbr noscript search center big tt strike acronym nobr'.split(' ')) protos.set(t, HTMLElement.prototype);
+  def(ifaces.SVGGeometryElement.prototype, { getTotalLength() { return outlineLength(this); } });
   for (const [name, C] of Object.entries(ifaces)) Object.defineProperty(C.prototype, Symbol.toStringTag, { configurable: true, value: name });
   const { HTMLUnknownElement, HTMLMediaElement, HTMLTemplateElement, HTMLAnchorElement, HTMLAreaElement, HTMLImageElement, HTMLInputElement, HTMLScriptElement, HTMLLinkElement, HTMLSelectElement, HTMLOptionElement, HTMLTextAreaElement, HTMLFormElement, HTMLButtonElement, HTMLCanvasElement, HTMLIFrameElement, HTMLVideoElement } = ifaces;
   $.ifaces = ifaces;
