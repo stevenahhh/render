@@ -51,6 +51,7 @@ fetch-xhr.html	FX fetch bad url rejected:TypeError
 fetch-xhr.html	FX xhr onload status:200 readyState:4 text:hello from data.txt
 fetch-xhr.html	FX xhr readyState sequence:1 2 3 4
 fetch-xhr.html	FX xhr responseType json name:render
+fetch-xhr.html	FX xhr hooked readyState state:0 calls:1
 modules.html	STATIC modules
 modules.html	MOD static import result:42
 modules.html	MOD scope strict:true noLeak:true

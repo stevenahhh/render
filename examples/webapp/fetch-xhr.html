@@ -72,5 +72,13 @@ check('xhr-json', function(){
   x.send();
 });
 </script>
+<script>
+check('xhr-hooked-readyState', function(){
+  var P=XMLHttpRequest.prototype, d=Object.getOwnPropertyDescriptor(P,'readyState'), calls=0;
+  Object.defineProperty(P,'readyState',{configurable:true,get:function(){calls++;this.responseText;this.response;return d.get.call(this);}});
+  try { var x=new XMLHttpRequest(); mark('FX xhr hooked readyState state:'+x.readyState+' calls:'+calls); }
+  finally { Object.defineProperty(P,'readyState',d); }
+});
+</script>
 </body>
 </html>

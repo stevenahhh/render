@@ -419,25 +419,25 @@
       this._state(1);
     }
     setRequestHeader(k, v) {
-      if (this.readyState !== 1 || this._sent) throw domError('InvalidStateError', "Failed to execute 'setRequestHeader' on 'XMLHttpRequest': The object's state must be OPENED.");
+      if (this._readyState !== 1 || this._sent) throw domError('InvalidStateError', "Failed to execute 'setRequestHeader' on 'XMLHttpRequest': The object's state must be OPENED.");
       this._headers.push(String(k), String(v));
     }
     overrideMimeType(m) { this._mime = String(m); }
     getResponseHeader(k) {
-      if (this.readyState < 2) return null;
+      if (this._readyState < 2) return null;
       k = String(k).toLowerCase();
       const v = [];
       for (let i = 0; i < this._got.length; i += 2) if (this._got[i] === k) v.push(this._got[i + 1]);
       return v.length ? v.join(', ') : null;
     }
     getAllResponseHeaders() {
-      if (this.readyState < 2) return '';
+      if (this._readyState < 2) return '';
       let s = '';
       for (let i = 0; i < this._got.length; i += 2) s += this._got[i] + ': ' + this._got[i + 1] + '\r\n';
       return s;
     }
     send(body) {
-      if (this.readyState !== 1 || this._sent) throw domError('InvalidStateError', "Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED.");
+      if (this._readyState !== 1 || this._sent) throw domError('InvalidStateError', "Failed to execute 'send' on 'XMLHttpRequest': The object's state must be OPENED.");
       this._sent = true;
       const [bytes, type] = this._method === 'GET' || this._method === 'HEAD' ? [null, null] : bodyOf(body);
       if (type && !this._headers.some((h, i) => i % 2 === 0 && h.toLowerCase() === 'content-type')) this._headers.push('content-type', type);
@@ -448,13 +448,13 @@
         return;
       }
       this._id = send(this._method, this._url, this._headers, bytes, false, done);
-      if (this.timeout > 0) {
+      if (this._timeout > 0) {
         const id = this._id;
         addTimer(() => {
-          if (this._id !== id || this.readyState === 4) return;
+          if (this._id !== id || this._readyState === 4) return;
           cancel(id);
           this._fail('timeout');
-        }, this.timeout, false, []);
+        }, this._timeout, false, []);
       }
     }
     _done(r) {
@@ -480,19 +480,22 @@
       if (this._id) {
         cancel(this._id);
         this._id = 0;
-        if (this.readyState > 0 && this.readyState < 4 && this._sent) {
+        if (this._readyState > 0 && this._readyState < 4 && this._sent) {
           this._fail('abort');
         }
       }
       this._readyState = 0;
     }
+    // Internal reads go to the slots, never through the accessors a page may have replaced.
     get responseText() {
-      if (this.responseType !== '' && this.responseType !== 'text') throw domError('InvalidStateError', "Failed to read the 'responseText' property from 'XMLHttpRequest': The value is only accessible if the object's 'responseType' is '' or 'text'.");
-      return this.readyState < 3 || !this._bytes ? '' : decode(this._bytes);
+      if (this._responseType !== '' && this._responseType !== 'text') throw domError('InvalidStateError', "Failed to read the 'responseText' property from 'XMLHttpRequest': The value is only accessible if the object's 'responseType' is '' or 'text'.");
+      return this._text();
     }
-    get response() {
-      if (this.readyState < 4 || !this._bytes) return this.responseType === '' || this.responseType === 'text' ? this.responseText : null;
-      switch (this.responseType) {
+    _text() { return this._readyState < 3 || !this._bytes ? '' : decode(this._bytes); }
+    get response() { return this._response(); }
+    _response() {
+      if (this._readyState < 4 || !this._bytes) return this._responseType === '' || this._responseType === 'text' ? this._text() : null;
+      switch (this._responseType) {
         case 'json': try { return JSON.parse(decode(this._bytes)); } catch (e) { return null; }
         case 'arraybuffer': return this._bytes.slice().buffer;
         case 'blob': return new Blob([this._bytes], { type: this._mime || this.getResponseHeader('content-type') || '' });
@@ -500,7 +503,7 @@
         default: return decode(this._bytes);
       }
     }
-    get responseXML() { return this.responseType === 'document' ? this.response : null; }
+    get responseXML() { return this._responseType === 'document' ? this._response() : null; }
   }
   Object.assign(XMLHttpRequest, STATES);
   Object.assign(XMLHttpRequest.prototype, STATES);
