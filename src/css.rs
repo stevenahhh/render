@@ -1492,8 +1492,12 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             "none" => Some(Display::None),
             "inline" => Some(Display::Inline),
             "inline-block" | "inline-table" => Some(Display::InlineBlock),
-            "flex" | "table-row" => Some(Display::Flex),
-            "inline-flex" => Some(Display::InlineFlex),
+            "flex" | "-webkit-flex" | "table-row" | "block flex" => Some(Display::Flex),
+            "inline-flex" | "-webkit-inline-flex" | "inline flex" => Some(Display::InlineFlex),
+            "block grid" | "inline grid" => Some(Display::Grid),
+            "inline flow-root" => Some(Display::InlineBlock),
+            "inline flow" => Some(Display::Inline),
+            "block flow" => Some(Display::Block),
             "list-item" => Some(Display::ListItem),
             "grid" | "inline-grid" => Some(Display::Grid),
             "contents" => Some(Display::Contents),
@@ -1715,6 +1719,10 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             push(if v == "normal" { Some(Len::Px(0.0)) } else { parse_len(v) }.map(D::LetterSpacing))
         }
         "list-style" | "list-style-type" => {
+            // The shorthand sets the type, `disc` when it gives only a position or an image.
+            if name == "list-style" && tokens(v).all(|t| matches!(t, "inside" | "outside") || t.starts_with("url(")) {
+                out.push(D::ListStyle(ListStyle::Disc));
+            }
             for t in tokens(v) {
                 let ls = match t {
                     "none" => ListStyle::None,

@@ -2342,6 +2342,15 @@ mod tests {
     }
 
     #[test]
+    fn prefixed_and_two_value_display_and_list_style_without_a_type() {
+        let html = "<style>.a{display:-webkit-flex} .b{display:-webkit-inline-flex} .c{display:inline flow-root} ul{list-style:none} ul.d{list-style:inside}</style>\
+                    <p class=a></p><p class=b></p><p class=c></p><ul class=d></ul>";
+        let s = styles_of(html, "p");
+        assert_eq!(s.iter().map(|s| s.display).collect::<Vec<_>>(), [Display::Flex, Display::InlineFlex, Display::InlineBlock]);
+        assert_eq!(styles_of(html, "ul")[0].list_style, crate::css::ListStyle::Disc);
+    }
+
+    #[test]
     fn dynamic_small_large_and_container_units_measure_the_viewport() {
         let html = "<style>.a{height:50dvh;width:10cqw} .b{min-height:calc(100svh - 100px)} .c{height:2lh;max-width:50lvh}</style>\
                     <p class=a></p><p class=b></p><p class=c></p>";
