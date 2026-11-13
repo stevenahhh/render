@@ -2351,6 +2351,17 @@ mod tests {
     }
 
     #[test]
+    fn nested_rules_apply_relative_to_their_parent() {
+        let html = "<style>.a, .z{height:1px; .b{width:1px} > .c{width:2px} &.d{width:4px;.e &{width:5px}} @media (min-width:1px){height:3px} &:hover{width:9px}; color:red}\
+                    .e{display:block}</style><div class=a><p class=b></p><span class=c></span></div><div class='a d'></div><i class=e><b class='a d'></b></i>";
+        assert_eq!(widths(&styles_of(html, "p, span")), [Len::Px(1.0), Len::Px(2.0)]);
+        let divs = styles_of(html, "div");
+        assert_eq!((divs[0].height, divs[0].width, divs[1].width), (Len::Px(3.0), Len::Auto, Len::Px(4.0)));
+        assert_eq!(divs[0].color.0 & 0xff_ffff, 0xff0000, "declarations after nested rules belong to the parent");
+        assert_eq!(styles_of(html, "b")[0].width, Len::Px(5.0));
+    }
+
+    #[test]
     fn dynamic_small_large_and_container_units_measure_the_viewport() {
         let html = "<style>.a{height:50dvh;width:10cqw} .b{min-height:calc(100svh - 100px)} .c{height:2lh;max-width:50lvh}</style>\
                     <p class=a></p><p class=b></p><p class=c></p>";

@@ -2542,6 +2542,54 @@ fn strip_comments(css: &str) -> Cow<'_, str> {
     Cow::Owned(out)
 }
 
+/// Where a rule applies: its media condition (index into `Sheet::media`, or
+/// `u32::MAX`) and its cascade level.
+#[derive(Clone, Copy)]
+struct Scope {
+    media: u32,
+    level: u8,
+}
+
+/// Splits a style rule's body into its own declarations and its nested rules,
+/// each as a prelude and a block.
+fn split_nested(body: &str) -> (Cow<'_, str>, Vec<(&str, &str)>) {
+    let b = body.as_bytes();
+    let (mut own, mut children) = (String::new(), Vec::new());
+    let (mut seg, mut i) = (0, 0);
+    while i < b.len() {
+        match b[i] {
+            b'{' => {
+                let end = skip_block(b, i + 1);
+                children.push((body[seg..i].trim(), &body[i + 1..(end - 1).max(i + 1)]));
+                (seg, i) = (end, end);
+                continue;
+            }
+            b';' => {
+                own.push_str(&body[seg..=i]);
+                seg = i + 1;
+            }
+            b'(' | b'[' => i = block_end(b, i).unwrap_or(b.len() - 1),
+            q @ (b'"' | b'\'') => i = string_end(b, i + 1, q),
+            b'\\' => i += 1,
+            _ => {}
+        }
+        i += 1;
+    }
+    own.push_str(&body[seg.min(b.len())..]);
+    (Cow::Owned(own), children)
+}
+
+/// A nested selector made absolute against its parent's selector list: `&`
+/// stands for the parent, and a selector without one is its descendant.
+fn nest_selector(parent: &str, nested: &str) -> String {
+    let p = format!(":is({parent})");
+    if nested.contains('&') {
+        nested.replace('&', &p)
+    } else {
+        format!("{p} {nested}")
+    }
+}
+
 impl Sheet {
     /// Adds the rules of a stylesheet. `base` is where it was loaded from, which
     /// its relative `url()`s resolve against; empty when that is the page itself.
@@ -2616,22 +2664,53 @@ impl Sheet {
             let end = skip_block(b, open + 1);
             *i = end;
             let body = &s[open + 1..(end - 1).max(open + 1)];
-            let (decls, important, dynamic) = parse_declarations(body);
-            if decls.is_empty() && important.is_empty() {
-                continue;
-            }
+            self.style_rule(&s[start..open], body, Scope { media, level }, atoms);
+        }
+    }
+
+    /// A style rule: its selector list and its body, whose declarations may be
+    /// followed by nested rules (CSS nesting) that apply relative to it.
+    fn style_rule(&mut self, selectors: &str, body: &str, at: Scope, atoms: &mut Interner) {
+        let nested = body.contains('{');
+        let (own, children) = if nested { split_nested(body) } else { (Cow::Borrowed(body), Vec::new()) };
+        let (decls, important, dynamic) = parse_declarations(&own);
+        if !decls.is_empty() || !important.is_empty() {
             let rule = self.rules.len() as u32;
             let before = self.sels.len();
-            for sel in SplitTop::new(&s[start..open], b',') {
+            for sel in SplitTop::new(selectors, b',') {
                 if let Some((parts, spec)) = parse_selector(sel.trim(), atoms, &mut self.uses_hover) {
                     let (anc, anc_n) = ancestor_slots(&parts);
                     let elem = parts[0].c.elem;
                     self.generates |= elem != 0;
-                    self.sels.push(SelEntry { parts, spec, rule, level, anc, anc_n, elem });
+                    self.sels.push(SelEntry { parts, spec, rule, level: at.level, anc, anc_n, elem });
                 }
             }
             if self.sels.len() > before {
-                self.rules.push(Rule { decls, important, media, dynamic });
+                self.rules.push(Rule { decls, important, media: at.media, dynamic });
+            }
+        }
+        for (prelude, inner) in children {
+            let parent = selectors.trim();
+            if let Some(q) = prelude.strip_prefix("@media") {
+                let own = Media::parse(q);
+                let m = match self.media.get(at.media as usize) {
+                    Some(outer) => own.within(outer),
+                    None => own,
+                };
+                self.media.push(m);
+                let media = self.media.len() as u32 - 1;
+                self.style_rule(parent, inner, Scope { media, ..at }, atoms);
+            } else if let Some(cond) = prelude.strip_prefix("@supports") {
+                if supports(cond, atoms) {
+                    self.style_rule(parent, inner, at, atoms);
+                }
+            } else if prelude.starts_with("@layer") || prelude.starts_with("@scope") {
+                self.style_rule(parent, inner, at, atoms);
+            } else if prelude.starts_with('@') {
+                drops::note("at-rule", prelude.split(|c: char| c.is_ascii_whitespace() || c == '(').next().unwrap_or(prelude));
+            } else {
+                let joined: Vec<String> = SplitTop::new(prelude, b',').map(|n| nest_selector(parent, n.trim())).collect();
+                self.style_rule(&joined.join(", "), inner, at, atoms);
             }
         }
     }
