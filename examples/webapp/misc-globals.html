@@ -108,5 +108,13 @@ check('idl-accessors', function(){
     ' request:'+get(Request.prototype,'url').call(new Request('x.json')).endsWith('/x.json'));
 });
 </script>
+<style>.hidden-box{display:none} .gap{--gap:12px} .gap>i{display:block;margin-inline-end:var(--gap);height:7px}</style>
+<div class="hidden-box gap"><i id="undisplayed"></i></div>
+<script>
+check('undisplayed-style', function(){
+  var s=getComputedStyle(document.getElementById('undisplayed'));
+  mark('MISC undisplayed style display:'+s.display+' margin:'+s.getPropertyValue('margin-inline-end')+' height:'+s.height+' var:'+s.getPropertyValue('--gap').trim());
+});
+</script>
 </body>
 </html>

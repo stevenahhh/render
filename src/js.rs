@@ -427,7 +427,11 @@ fn computed(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> 
         h.page.fresh_rect(&mut h.fonts, n);
         let page = &h.page;
         let parent = page.dom.nodes[n as usize].parent;
-        let style = page.styles.get(n as usize)?;
+        let undisplayed = page.undisplayed_style(n);
+        let style = match &undisplayed {
+            Some(s) => s,
+            None => page.styles.get(n as usize)?,
+        };
         let parent = page.styles.get(parent as usize).zip(page.rect_of(parent));
         let el = crate::computed::Element { style, rect: page.rect_of(n), parent };
         Some(match &name {

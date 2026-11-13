@@ -173,3 +173,4 @@ css-wide-grid.html	STATIC css-wide-grid
 css-wide-grid.html	GW unset 1fr columns second:320 width:300
 css-wide-grid.html	GW initial one column second-left:0 width:400
 navigate.html	NAV arrived at navigate-target.html
+misc-globals.html	MISC undisplayed style display:block margin:12px height:7px var:12px

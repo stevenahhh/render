@@ -762,6 +762,13 @@ impl Page {
         self.rects.get(&n).copied().unwrap_or([0.0; 4])
     }
 
+    /// The style of an element below a `display: none` element, which the style
+    /// passes skip; `None` for every other element.
+    pub(crate) fn undisplayed_style(&self, n: NodeId) -> Option<Style> {
+        let [vw, vh, _] = self.script_view();
+        crate::style::undisplayed_style(&self.dom, &self.sheet, vw, vh, &self.styles, n)
+    }
+
     /// The border box of a node in the last layout, if it has one.
     pub(crate) fn rect_of(&self, n: NodeId) -> Option<[f32; 4]> {
         self.rects.get(&n).copied()

@@ -1713,6 +1713,38 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
     styles
 }
 
+/// The style of an element below a `display: none` element, which the passes leave
+/// at the initial style because nothing there is drawn. Scripts still read these
+/// computed values, as in browsers. `None` when the element was styled already.
+pub fn undisplayed_style(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, styles: &[Style], n: NodeId) -> Option<Style> {
+    let mut chain = Vec::new();
+    let mut p = n;
+    while p != NONE && p != 0 {
+        chain.push(p);
+        p = dom.nodes[p as usize].parent;
+    }
+    chain.reverse();
+    let top = chain.iter().position(|&c| styles.get(c as usize).is_some_and(|s| s.display == Display::None))?;
+    if top + 1 >= chain.len() {
+        return None;
+    }
+    let mut s = Styler::new(dom, sheet, vw, vh, &[]);
+    if let Some(&html) = chain.iter().find(|&&c| dom.nodes[c as usize].tag == atom::HTML) {
+        s.ctx.root_fs = styles[html as usize].font_size;
+    }
+    for &c in &chain[..=top] {
+        s.push(c);
+    }
+    // Kept until the end: the styler's caches know custom-property maps by address.
+    let mut made: Vec<Style> = vec![styles[chain[top] as usize].clone()];
+    for &c in &chain[top + 1..] {
+        let st = s.style(c, made.last().unwrap());
+        s.push(c);
+        made.push(st);
+    }
+    made.pop()
+}
+
 /// Marks on elements whose style must be computed again: what changed since the
 /// last pass, and while a pass runs, what it found depends on a style that changed.
 #[derive(Default)]
