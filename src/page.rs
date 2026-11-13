@@ -1787,6 +1787,13 @@ mod tests {
     }
 
     #[test]
+    fn replaced_flex_items_take_their_width_from_a_definite_height() {
+        let css = "body{margin:0} .f{display:flex;width:24px;height:24px}";
+        let (mut page, _) = after_script(css, "<div class=f id=f><img id=v width=56 height=56 style=height:100%></div>", "$('f').title='x';");
+        assert_eq!(rects(&mut page, &["v"]), [[0.0, 0.0, 24.0, 24.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";

@@ -418,6 +418,9 @@ struct FItem {
     clamped: i8,
     /// Its first baseline from the top of its margin box, once laid out.
     bl: f32,
+    /// For a replaced item with a definite height: the border-box width that height
+    /// gives through its aspect ratio; NaN otherwise.
+    transferred: f32,
 }
 
 /// Lengths of the layout output at one point, for [`Engine::rewind`].
@@ -1729,6 +1732,7 @@ impl<'a> Engine<'a> {
                 frozen: false,
                 clamped: 0,
                 bl: NAN,
+                transferred: NAN,
             };
             if node.tag == atom::TEXT {
                 if !is_ws(dom.text_of(c)) {
@@ -1764,9 +1768,18 @@ impl<'a> Engine<'a> {
             } else {
                 let cs = &st[it.node as usize];
                 let sd = it.sd;
+                // A replaced item sized in height takes its width from its ratio (CSS Flexbox 9.2, 4.5).
+                if let (Some((iw, ih)), Some(h)) = (self.natural(it.node), definite(cs.height, inner_h)) {
+                    let vextra = sd.pt + sd.pb + cs.bw[0] + cs.bw[2];
+                    let content_h = if cs.border_box { (h - vextra).max(0.0) } else { h };
+                    it.transferred = content_h * iw / ih + hextra(cs, &sd);
+                }
+                let transferred = it.transferred;
                 match cs.basis {
-                    Len::Auto => spec_w(cs, cw, &sd)
-                        .unwrap_or_else(|| clamp_w(cs, self.intrinsic(it.node) - sd.ml - sd.mr, cw, &sd)),
+                    Len::Auto => spec_w(cs, cw, &sd).unwrap_or_else(|| {
+                        let w = if transferred.is_nan() { self.intrinsic(it.node) - sd.ml - sd.mr } else { transferred };
+                        clamp_w(cs, w, cw, &sd)
+                    }),
                     l => {
                         let v = rs(l, cw);
                         clamp_w(cs, if cs.border_box { v } else { v + hextra(cs, &sd) }, cw, &sd)
@@ -2486,6 +2499,7 @@ impl<'a> Engine<'a> {
             return 0.0;
         }
         let content = self.min_contents(it.node) + hextra(s, &sd);
+        let content = if it.transferred.is_nan() { content } else { content.min(it.transferred) };
         let specified = spec_w(s, cw, &sd).map_or(content, |w| w.min(content));
         if s.rare().max_w == Len::Auto { specified } else { specified.min(rs(s.rare().max_w, cw) + extra) }
     }
