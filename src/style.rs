@@ -2331,6 +2331,17 @@ mod tests {
     }
 
     #[test]
+    fn logical_sizes_insets_radii_and_borders_map_to_physical_sides() {
+        let html = "<style>p{inline-size:10px;block-size:20px;max-inline-size:30px;inset-inline:1px 2px;inset-block:3px;\
+                    border-end-start-radius:4px;border-block:2px solid red;border-inline-width:5px 6px}</style><p></p>";
+        let p = &styles_of(html, "p")[0];
+        assert_eq!((p.width, p.height, p.rare().max_w), (Len::Px(10.0), Len::Px(20.0), Len::Px(30.0)));
+        assert_eq!(p.rare().inset, [Len::Px(3.0), Len::Px(2.0), Len::Px(3.0), Len::Px(1.0)]);
+        assert_eq!(p.radius[3], Len::Px(4.0));
+        assert_eq!(p.bw, [2.0, 0.0, 2.0, 0.0], "inline borders have widths but no style");
+    }
+
+    #[test]
     fn dynamic_small_large_and_container_units_measure_the_viewport() {
         let html = "<style>.a{height:50dvh;width:10cqw} .b{min-height:calc(100svh - 100px)} .c{height:2lh;max-width:50lvh}</style>\
                     <p class=a></p><p class=b></p><p class=c></p>";

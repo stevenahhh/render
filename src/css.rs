@@ -1400,8 +1400,47 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "border-inline-end" => "border-right",
         "border-block-start" => "border-top",
         "border-block-end" => "border-bottom",
+        "inline-size" => "width",
+        "block-size" => "height",
+        "min-inline-size" => "min-width",
+        "max-inline-size" => "max-width",
+        "min-block-size" => "min-height",
+        "max-block-size" => "max-height",
+        "border-start-start-radius" => "border-top-left-radius",
+        "border-start-end-radius" => "border-top-right-radius",
+        "border-end-start-radius" => "border-bottom-left-radius",
+        "border-end-end-radius" => "border-bottom-right-radius",
+        "border-inline-start-width" => "border-left-width",
+        "border-inline-end-width" => "border-right-width",
+        "border-block-start-width" => "border-top-width",
+        "border-block-end-width" => "border-bottom-width",
+        "border-inline-start-style" => "border-left-style",
+        "border-inline-end-style" => "border-right-style",
+        "border-block-start-style" => "border-top-style",
+        "border-block-end-style" => "border-bottom-style",
+        "border-inline-start-color" => "border-left-color",
+        "border-inline-end-color" => "border-right-color",
+        "border-block-start-color" => "border-top-color",
+        "border-block-end-color" => "border-bottom-color",
         n => n,
     };
+    // Logical shorthands of two sides, in a left-to-right horizontal flow.
+    if let Some(rest) = name.strip_prefix("inset-").or_else(|| name.strip_prefix("border-")).filter(|r| r.starts_with("inline") || r.starts_with("block")) {
+        let inline = rest.starts_with("inline");
+        let part = rest.trim_start_matches("inline").trim_start_matches("block");
+        if matches!(part, "" | "-width" | "-style" | "-color") && !(name.starts_with("inset") && !part.is_empty()) {
+            let sides = if inline { ["left", "right"] } else { ["top", "bottom"] };
+            let t: Vec<&str> = if name.starts_with("border") && part.is_empty() { vec![v] } else { tokens(v).collect() };
+            if let Some(&first) = t.first() {
+                for (k, side) in sides.iter().enumerate() {
+                    let value = if k == 1 { *t.get(1).unwrap_or(&first) } else { first };
+                    let longhand = if name.starts_with("inset") { side.to_string() } else { format!("border-{side}{part}") };
+                    parse_decl(&longhand, value, out);
+                }
+            }
+            return;
+        }
+    }
     // CSS-wide keywords: `inherit` and `revert` copy the property from the parent or
     // from the built-in style; `unset` inherits an inherited property; `initial`, and
     // `unset` otherwise, reset a property to its initial value.
