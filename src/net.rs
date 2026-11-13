@@ -704,6 +704,11 @@ fn exchange(conn: &mut Conn, ask: &Ask, referer: Option<&str>, watch: Option<&mu
     Ok((response, reusable))
 }
 
+fn loopback_only() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("RENDER_LOOPBACK_ONLY").is_some_and(|v| v == "1"))
+}
+
 /// Connects to the first of `addresses` that answers. Attempts start one stagger
 /// apart and overlap, so an address that never answers does not hold up the next.
 fn connect_any(addresses: &[SocketAddr]) -> io::Result<TcpStream> {
@@ -791,6 +796,13 @@ impl Client {
         let started = Instant::now();
         let mut addresses: Vec<_> = (url.host.as_str(), url.port).to_socket_addrs().map_err(|e| FetchError::Dns(fail(&e)))?.collect();
         let resolved = Instant::now();
+        // RENDER_LOOPBACK_ONLY=1 keeps a replayed page from reaching the network.
+        if loopback_only() {
+            addresses.retain(|a| a.ip().is_loopback());
+            if addresses.is_empty() {
+                return Err(FetchError::Connect(fail(&"not a loopback address (RENDER_LOOPBACK_ONLY)")));
+            }
+        }
         // IPv4 first: an IPv6 address without a working route then only costs a stagger.
         addresses.sort_by_key(SocketAddr::is_ipv6);
         let tcp = connect_any(&addresses).map_err(|e| match e.kind() {
