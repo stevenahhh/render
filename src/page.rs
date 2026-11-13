@@ -1716,6 +1716,18 @@ mod tests {
     }
 
     #[test]
+    fn flex_items_aligned_by_baseline_share_their_first_baseline() {
+        let css = "body{margin:0;font:10px/10px sans-serif} .f{display:flex;align-items:baseline} i{display:block;width:5px}";
+        let body = "<div class=f><i id=p style=height:30px></i><i id=q style=height:10px></i><i id=r style=height:10px;margin-top:5px></i></div>\
+                    <div class=f><div id=t1>a<br>b</div><div id=t2>c</div></div>";
+        let (mut page, _) = after_script(css, body, "$('p').title='x';");
+        let got = rects(&mut page, &["p", "q", "r"]);
+        assert_eq!(got, [[0.0, 0.0, 5.0, 30.0], [5.0, 20.0, 5.0, 10.0], [10.0, 20.0, 5.0, 10.0]]);
+        let [t1, t2] = rects(&mut page, &["t1", "t2"]).try_into().unwrap();
+        assert_eq!((t1[1], t2[1]), (30.0, 30.0));
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";

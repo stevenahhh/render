@@ -121,6 +121,8 @@ pub enum Align {
     Start,
     Center,
     End,
+    /// Flex items line up their first baselines.
+    Baseline,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -1302,7 +1304,8 @@ fn unicode_ranges(v: &str) -> Option<Vec<(u32, u32)>> {
 fn align(v: &str) -> Option<Align> {
     Some(match v {
         "stretch" | "normal" => Align::Stretch,
-        "flex-start" | "start" | "baseline" => Align::Start,
+        "flex-start" | "start" => Align::Start,
+        "baseline" | "first baseline" | "last baseline" => Align::Baseline,
         "center" => Align::Center,
         "flex-end" | "end" => Align::End,
         "auto" => Align::Auto,

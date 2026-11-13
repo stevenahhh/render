@@ -358,6 +358,7 @@ impl Style {
             Align::Start => "start",
             Align::Center => "center",
             Align::End => "end",
+            Align::Baseline => "baseline",
         };
         let text_align = match self.text_align {
             TextAlign::Left => "left",

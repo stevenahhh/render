@@ -538,7 +538,8 @@ impl Engine<'_> {
                     _ if it.text => 0.0,
                     Align::Center => (area_h(it) - outer) / 2.0,
                     Align::End => area_h(it) - outer,
-                    Align::Start | Align::Stretch | Align::Auto => 0.0,
+                    // Grid items are not aligned by baseline here: as at the start.
+                    Align::Start | Align::Baseline | Align::Stretch | Align::Auto => 0.0,
                 };
                 self.shift(it.first, it.end, 0.0, dy);
                 continue;
@@ -553,7 +554,7 @@ impl Engine<'_> {
                 match align {
                     Align::Center => dy += (area_h - outer) / 2.0,
                     Align::End => dy += area_h - outer,
-                    Align::Start => {}
+                    Align::Start | Align::Baseline => {}
                     Align::Stretch | Align::Auto => {
                         if cs.height == Len::Auto && it.item != NONE && outer < area_h {
                             self.out.items[it.item as usize].h = area_h - it.sd.mt - it.sd.mb;

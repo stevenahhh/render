@@ -312,6 +312,8 @@ struct Res {
     item: u32,
     /// Last line's baseline from the border-box top, NaN without lines.
     baseline: f32,
+    /// First line's baseline from the border-box top, NaN without lines.
+    first: f32,
 }
 
 const F_TEXT: u8 = 0;
@@ -412,6 +414,8 @@ struct FItem {
     bound: f32,
     frozen: bool,
     clamped: i8,
+    /// Its first baseline from the top of its margin box, once laid out.
+    bl: f32,
 }
 
 /// Lengths of the layout output at one point, for [`Engine::rewind`].
@@ -427,6 +431,7 @@ struct Snapshot {
     floats: usize,
     next_ord: u32,
     last_bl: f32,
+    first_bl: f32,
 }
 
 #[derive(Default)]
@@ -478,6 +483,8 @@ struct Engine<'a> {
     segs: Vec<Seg>,
     pool: Vec<Inl>,
     last_bl: f32,
+    /// The first line's baseline in the box being laid out, NaN before it.
+    first_bl: f32,
     next_ord: u32,
     /// Floats placed so far, in the block formatting contexts being laid out.
     floats: Vec<FloatBox>,
@@ -511,6 +518,7 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
         segs: Vec::new(),
         pool: Vec::new(),
         last_bl: NAN,
+        first_bl: NAN,
         next_ord: 1,
         floats: Vec::new(),
         bfc: 0,
@@ -907,6 +915,7 @@ impl<'a> Engine<'a> {
 
         let saved_bl = self.last_bl;
         self.last_bl = NAN;
+        let saved_first = std::mem::replace(&mut self.first_bl, NAN);
         let outer_bfc = (bfc || bfc_root(s)).then(|| self.enter_bfc());
         let (mut content_h, mb_out) = if tag == atom::INPUT || self.dom.shows_image(n) {
             (self.replaced(n, s, cx, cy, cw, inner_h, tag), 0.0)
@@ -949,11 +958,16 @@ impl<'a> Engine<'a> {
         } else {
             self.last_bl - y
         };
+        // The first line inside an ancestor is the first one in document order.
+        let first = self.first_bl - y;
+        if !saved_first.is_nan() {
+            self.first_bl = saved_first;
+        }
         // A transformed box is the containing block of the positioned boxes in it.
         if s.position != Position::Static || s.rare().translate != [Len::Px(0.0); 2] {
-            let keep = self.last_bl;
+            let keep = (self.last_bl, self.first_bl);
             self.layout_abs_children(abs_mark, x + bl, y + bt, w - bl - br, h - bt - bb);
-            self.last_bl = keep;
+            (self.last_bl, self.first_bl) = keep;
         }
         if s.z_ctx || s.overflow_hidden || s.position == Position::Fixed {
             self.flush_z(zmark, content_start);
@@ -976,7 +990,7 @@ impl<'a> Engine<'a> {
             let end = self.mark();
             self.zranges.push((first_item, end, s.z, seq));
         }
-        Res { h, mb: if bfc { sd.mb } else { collapse(sd.mb, mb_out) }, item, baseline }
+        Res { h, mb: if bfc { sd.mb } else { collapse(sd.mb, mb_out) }, item, baseline, first }
     }
 
     /// Content of `<img>` (alt text placeholder) and `<input>` (its value).
@@ -1251,6 +1265,9 @@ impl<'a> Engine<'a> {
             }
         }
         self.last_bl = baseline;
+        if self.first_bl.is_nan() {
+            self.first_bl = baseline;
+        }
         il.y += above + below;
         il.lines += 1;
         if il.lines == il.clamp {
@@ -1660,6 +1677,7 @@ impl<'a> Engine<'a> {
                 bound: NAN,
                 frozen: false,
                 clamped: 0,
+                bl: NAN,
             };
             if node.tag == atom::TEXT {
                 if !is_ws(dom.text_of(c)) {
@@ -1766,7 +1784,12 @@ impl<'a> Engine<'a> {
                     it.first = self.mark();
                     if it.text {
                         let next = dom.nodes[it.node as usize].next;
+                        let saved = std::mem::replace(&mut self.first_bl, NAN);
                         it.h = self.layout_inline(n, it.node, next, px, it.w, cy);
+                        it.bl = self.first_bl - cy;
+                        if !saved.is_nan() {
+                            self.first_bl = saved;
+                        }
                     } else {
                         let cs = &st[it.node as usize];
                         let stretch = matches!(it.align, Align::Stretch | Align::Auto) && cs.height == Len::Auto;
@@ -1774,10 +1797,21 @@ impl<'a> Engine<'a> {
                         let r = self.layout_box(it.node, px, cy + it.sd.mt, it.w, cw, inner_h, fh, true);
                         it.h = r.h;
                         it.item = r.item;
+                        // Without lines, the bottom of the border box stands for the baseline.
+                        it.bl = it.sd.mt + if r.first.is_nan() { r.h } else { r.first };
                     }
                     it.end = self.mark();
                     line_h = line_h.max(it.h + it.sd.mt + it.sd.mb);
                     px += it.w + it.sd.mr + if it.sd.auto_r { auto_m } else { 0.0 } + between;
+                }
+                // Items aligned by baseline move down to the lowest first baseline among them (CSS Flexbox 8.3).
+                let shared = line.iter().filter(|it| it.align == Align::Baseline).map(|it| it.bl).fold(NAN, f32::max);
+                if !shared.is_nan() {
+                    for it in line.iter().filter(|it| it.align == Align::Baseline) {
+                        let dy = shared - it.bl;
+                        self.shift(it.first, it.end, 0.0, dy);
+                        line_h = line_h.max(dy + it.h + it.sd.mt + it.sd.mb);
+                    }
                 }
                 if single {
                     if !inner_h.is_nan() {
@@ -1798,7 +1832,7 @@ impl<'a> Engine<'a> {
                 match it.align {
                     Align::Center => self.shift(it.first, it.end, 0.0, (line_h - outer) / 2.0),
                     Align::End => self.shift(it.first, it.end, 0.0, line_h - outer),
-                    Align::Start => {}
+                    Align::Start | Align::Baseline => {}
                     Align::Stretch | Align::Auto => {
                         let auto_h = !it.text && st[it.node as usize].height == Len::Auto;
                         if auto_h && it.item != NONE && outer < line_h {
@@ -1952,6 +1986,7 @@ impl<'a> Engine<'a> {
             floats: self.floats.len(),
             next_ord: self.next_ord,
             last_bl: self.last_bl,
+            first_bl: self.first_bl,
         }
     }
 
@@ -1968,6 +2003,7 @@ impl<'a> Engine<'a> {
         self.floats.truncate(s.floats);
         self.next_ord = s.next_ord;
         self.last_bl = s.last_bl;
+        self.first_bl = s.first_bl;
     }
 
     /// Children that take part in a flex container's layout: a
