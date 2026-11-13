@@ -1790,6 +1790,22 @@ mod tests {
     }
 
     #[test]
+    fn intersection_observers_look_again_after_a_scroll() {
+        let script = "new IntersectionObserver((es)=>{for(const e of es) if(e.isIntersecting) $('low').textContent='seen';}).observe($('low'));";
+        let (mut page, mut fonts) = after_script("#gap{height:2000px}", "<div id=gap></div><p id=low>lazy</p>", script);
+        let text = |page: &Page| {
+            let mut out = String::new();
+            page.dom.text_content(page.dom.by_id(0, "low"), &mut out);
+            out
+        };
+        page.settle(&mut fonts, 1024.0, 768.0, std::time::Duration::from_millis(100));
+        assert_eq!(text(&page), "lazy", "below the fold");
+        page.scroll_to(&mut fonts, 1500.0);
+        page.settle(&mut fonts, 1024.0, 768.0, std::time::Duration::from_millis(100));
+        assert_eq!(text(&page), "seen");
+    }
+
+    #[test]
     fn shadow_trees_restyle_their_scoped_rules_and_slots() {
         let script = "const r=$('h').attachShadow({mode:'open'});\
                       r.innerHTML='<style>.in{color:#f00} .on .in{color:#0f0}</style><div><p class=in><slot></slot></p></div>';;\

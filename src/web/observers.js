@@ -112,7 +112,7 @@
   }
 
   // Each observer looks at its targets when it starts observing one, and again a
-  // frame after the document changed, and hears about the targets whose
+  // frame after the document changed or scrolled, and hears about the targets whose
   // intersection with its root changed since it last looked, as in browsers.
   const viewport = () => new g.DOMRect(0, 0, g.innerWidth, g.innerHeight);
   // `rootMargin` as pixels [top, right, bottom, left]; percentages are of the root's size.
@@ -124,7 +124,8 @@
   };
   const watching = new Set();
   let looked = '', looking = false;
-  const stamp = () => $.version + ' ' + $.attrVersion + ' ' + $.dataVersion;
+  // A scroll moves every target against the viewport as much as a change to the document does.
+  const stamp = () => $.version + ' ' + $.attrVersion + ' ' + $.dataVersion + ' ' + g.scrollY;
   const look = () => {
     looking = false;
     looked = stamp();
