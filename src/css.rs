@@ -160,6 +160,21 @@ pub enum LineHeight {
     Len(Len),
 }
 
+/// `vertical-align`: where an inline-level box sits on its line.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum VAlign {
+    Baseline,
+    Middle,
+    Top,
+    Bottom,
+    TextTop,
+    TextBottom,
+    Sub,
+    Super,
+    /// Raises the baseline; percentages refer to the box's `line-height`.
+    Len(Len),
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum FontSize {
     Len(Len),
@@ -373,6 +388,7 @@ pub enum Decl {
     GridRow(Option<GridLine>),
     /// `order` of a flex or grid item.
     Order(i32),
+    VAlign(VAlign),
     /// SVG fill; `None` is currentColor.
     Fill(Option<Color>),
     /// Custom property definition.
@@ -1541,6 +1557,20 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "grid-template-areas" | "grid-template" | "grid" | "grid-auto-rows" | "grid-auto-columns" | "grid-column" | "grid-row-end"
         | "grid-column-start" | "grid-column-end" | "justify-items" | "justify-self" | "place-items" | "place-self" => grid::parse_grid(name, v, out),
         "order" => push(v.parse().ok().map(D::Order)),
+        "vertical-align" => push(
+            match v {
+                "baseline" => Some(VAlign::Baseline),
+                "middle" => Some(VAlign::Middle),
+                "top" => Some(VAlign::Top),
+                "bottom" => Some(VAlign::Bottom),
+                "text-top" => Some(VAlign::TextTop),
+                "text-bottom" => Some(VAlign::TextBottom),
+                "sub" => Some(VAlign::Sub),
+                "super" => Some(VAlign::Super),
+                _ => parse_len(v).map(VAlign::Len),
+            }
+            .map(D::VAlign),
+        ),
         "position" => push(Some(D::Position(match v {
             "relative" => Position::Relative,
             "absolute" => Position::Absolute,

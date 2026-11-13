@@ -133,6 +133,7 @@ pub struct Rare {
     pub grid_row: u16,
     /// `order`: flex and grid items are laid out by ascending order.
     pub order: i32,
+    pub valign: crate::css::VAlign,
     /// `-webkit-line-clamp`, which counts only for a `-webkit-box`.
     pub line_clamp: u16,
     /// A grid's track lists for rows (0) and columns (1), its areas, the sizes of
@@ -169,6 +170,7 @@ const NO_RARE: Rare = Rare {
     row_lines: None,
     grid_row: 0,
     order: 0,
+    valign: crate::css::VAlign::Baseline,
     line_clamp: 0,
     tracks: [None, None],
     areas: None,
@@ -625,6 +627,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::GridRows(ref l) => put_rare(st, |r| &mut r.row_lines, l.clone().or_else(|| parent.rare().row_lines.clone())),
         Decl::GridRow(ref g) => put_rare(st, |r| &mut r.grid_row, g.as_ref().map_or(0, |g| row_line(parent, g))),
         Decl::Order(v) => put_rare(st, |r| &mut r.order, v),
+        Decl::VAlign(a) => put_rare(st, |r| &mut r.valign, if let crate::css::VAlign::Len(l) = a { crate::css::VAlign::Len(r(l)) } else { a }),
         Decl::Content(ref c) => st.rare_mut().content = c.clone(),
         Decl::GridTracks(axis, ref l) => {
             st.rare_mut().tracks[axis as usize] = l.as_ref().map(|l| {

@@ -326,6 +326,8 @@ struct LFrag {
     below: f32,
     top: f32,
     kind: u8,
+    /// `vertical-align: top` (1) or `bottom` (2) puts it at that edge of the line.
+    edge: u8,
 }
 
 /// An inline element whose box is still open on the current line.
@@ -370,6 +372,8 @@ struct Inl {
     /// Floats met on the current line that did not fit beside its content; they
     /// are placed below it.
     queued: Vec<NodeId>,
+    /// How far `vertical-align` of the open inline boxes raises their content.
+    shift: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -1111,6 +1115,7 @@ impl<'a> Engine<'a> {
             clamp: if s.webkit_box { s.rare().line_clamp as u32 } else { 0 },
             lines: 0,
             kept: (NONE, y, cx + cw),
+            shift: 0.0,
             ..il
         };
         il.queued.clear();
@@ -1139,7 +1144,7 @@ impl<'a> Engine<'a> {
         let (node, top, h, x) = (o.node, o.top, o.h, il.cx + o.start_x);
         let idx = self.push_box(node, &st[node as usize], x, 0.0, 0.0, h);
         il.open[i].item = idx;
-        il.frags.push(LFrag { first: idx, end: idx + 1, above: 0.0, below: 0.0, top, kind: F_DECO });
+        il.frags.push(LFrag { first: idx, end: idx + 1, above: 0.0, below: 0.0, top, kind: F_DECO, edge: 0 });
     }
 
     fn begin_line(&mut self, il: &mut Inl) {
@@ -1173,17 +1178,34 @@ impl<'a> Engine<'a> {
                 o.item = NONE;
             }
         }
-        let (mut above, mut below) = (il.above, il.below);
+        let (mut above, mut below, mut edges) = (il.above, il.below, false);
         for f in &il.frags {
-            above = above.max(f.above);
-            below = below.max(f.below);
+            if f.edge == 0 {
+                above = above.max(f.above);
+                below = below.max(f.below);
+            } else {
+                edges = true;
+            }
+        }
+        if edges {
+            // Boxes aligned to the top or bottom of the line make it tall enough to hold them.
+            for f in il.frags.iter().filter(|f| f.edge != 0) {
+                let h = f.above + f.below;
+                if above + below < h {
+                    if f.edge == 1 { below = h - above } else { above = h - below }
+                }
+            }
         }
         let baseline = il.y + above;
         let dx = (il.right - il.x).max(0.0) * il.align;
         for f in &il.frags {
             let range = &mut items[f.first as usize..f.end as usize];
             if f.kind == F_ATOMIC {
-                let dy = above - f.top;
+                let dy = match f.edge {
+                    0 => above - f.top,
+                    1 => 0.0,
+                    _ => above + below - f.above - f.below,
+                };
                 for it in range {
                     it.x += dx;
                     it.y += dy;
@@ -1271,13 +1293,15 @@ impl<'a> Engine<'a> {
                 }
                 let face = face_of(self.fonts, s);
                 let (asc, desc, _) = self.fonts.metrics(face);
+                let shift = self.span_shift(n, asc, desc);
+                il.shift += shift;
                 il.x += sd.ml;
                 il.open.push(Open {
                     node: n,
                     item: NONE,
                     start_x: il.x,
                     has_deco,
-                    top: asc * s.font_size + sd.pt + s.bw[0],
+                    top: asc * s.font_size + sd.pt + s.bw[0] + il.shift,
                     h: (asc + desc) * s.font_size + sd.pt + sd.pb + s.bw[0] + s.bw[2],
                 });
                 if has_deco {
@@ -1303,6 +1327,7 @@ impl<'a> Engine<'a> {
                     c = cn.next;
                 }
                 il.x += sd.pr + br;
+                il.shift -= shift;
                 let o = il.open.pop().unwrap();
                 if o.item != NONE {
                     let it = &mut self.out.items[o.item as usize];
@@ -1311,6 +1336,35 @@ impl<'a> Engine<'a> {
                 il.x += sd.mr;
             }
             _ => self.inline_atomic(il, n),
+        }
+    }
+
+    /// How far `vertical-align` raises the content of the inline box `n` (with font
+    /// ascent and descent `asc` and `desc`, in em) above its parent's baseline. The
+    /// sub and super offsets are WebKit's; `top` and `bottom` raise nothing here.
+    fn span_shift(&mut self, n: NodeId, asc: f32, desc: f32) -> f32 {
+        let s = &self.st[n as usize];
+        let valign = s.rare().valign;
+        if valign == VAlign::Baseline {
+            return 0.0;
+        }
+        let ps = &self.st[self.dom.nodes[n as usize].parent as usize];
+        let (fs, pfs) = (s.font_size, ps.font_size);
+        let pface = face_of(self.fonts, ps);
+        let (pasc, pdesc, _) = self.fonts.metrics(pface);
+        match valign {
+            VAlign::Baseline | VAlign::Top | VAlign::Bottom => 0.0,
+            VAlign::Sub => -(pfs / 5.0 + 1.0),
+            VAlign::Super => pfs / 3.0 + 1.0,
+            VAlign::Middle => pfs * 0.25 - (asc - desc) * fs / 2.0,
+            VAlign::TextTop => pasc * pfs - asc * fs,
+            VAlign::TextBottom => desc * fs - pdesc * pfs,
+            VAlign::Len(l) => {
+                let face = face_of(self.fonts, s);
+                let (a, d, g) = self.fonts.metrics(face);
+                let (above, below) = line_extent(s, a, d, g);
+                rs(l, above + below)
+            }
         }
     }
 
@@ -1338,8 +1392,27 @@ impl<'a> Engine<'a> {
         let first = self.mark();
         let r = self.layout_box(n, il.cx + il.x + space_w + sd.ml, il.y + sd.mt, w, il.cw, NAN, NAN, true);
         let outer_h = r.h + sd.mt + sd.mb;
-        let above = if r.baseline.is_nan() || s.overflow_hidden { outer_h } else { sd.mt + r.baseline };
-        il.frags.push(LFrag { first, end: self.mark(), above, below: outer_h - above, top: above, kind: F_ATOMIC });
+        let base = if r.baseline.is_nan() || s.overflow_hidden { outer_h } else { sd.mt + r.baseline };
+        let (pasc, pdesc, _) = self.fonts.metrics(face);
+        let pfs = ps.font_size;
+        let (above, edge) = match s.rare().valign {
+            VAlign::Baseline => (base + il.shift, 0),
+            VAlign::Top => (outer_h, 1),
+            VAlign::Bottom => (outer_h, 2),
+            // The box's middle at half the parent's x-height (taken as 0.5em) above its baseline.
+            VAlign::Middle => ((outer_h + pfs * 0.5) / 2.0 + il.shift, 0),
+            VAlign::TextTop => (pasc * pfs + il.shift, 0),
+            VAlign::TextBottom => (outer_h - pdesc * pfs + il.shift, 0),
+            VAlign::Sub => (base - (pfs / 5.0 + 1.0) + il.shift, 0),
+            VAlign::Super => (base + pfs / 3.0 + 1.0 + il.shift, 0),
+            VAlign::Len(l) => {
+                let own = face_of(self.fonts, s);
+                let (asc, desc, gap) = self.fonts.metrics(own);
+                let (a, b) = line_extent(s, asc, desc, gap);
+                (base + rs(l, a + b) + il.shift, 0)
+            }
+        };
+        il.frags.push(LFrag { first, end: self.mark(), above, below: outer_h - above, top: above, kind: F_ATOMIC, edge });
         il.x += space_w + outer_w;
         il.content = true;
         il.last_text = NONE;
@@ -1517,7 +1590,7 @@ impl<'a> Engine<'a> {
                     });
                     let idx = out.items.len() as u32;
                     out.items.push(Item { x, y: 0.0, w: sg.w, h: ts.asc + ts.desc, kind: Kind::Text, node: ts.node, data });
-                    il.frags.push(LFrag { first: idx, end: idx + 1, above: ts.above, below: ts.below, top: ts.asc, kind: F_TEXT });
+                    il.frags.push(LFrag { first: idx, end: idx + 1, above: ts.above + il.shift, below: ts.below - il.shift, top: ts.asc + il.shift, kind: F_TEXT, edge: 0 });
                     il.last_text = idx;
                 }
             }

@@ -71,6 +71,8 @@ u, ins { text-decoration: underline }
 s, strike, del { text-decoration: line-through }
 a[href] { color: #0000ee; text-decoration: underline; cursor: pointer }
 small, sub, sup { font-size: smaller }
+sub { vertical-align: sub }
+sup { vertical-align: super }
 big { font-size: larger }
 mark { background: yellow; color: black }
 center { text-align: center }
@@ -1662,6 +1664,20 @@ mod tests {
         let (mut page, _) = after_script(css, body, "$('x1').title='x';");
         let got = rects(&mut page, &["x1", "x2", "y1", "y2", "z1", "z2", "g", "g2"]);
         assert_eq!(got, [[0.0, 0.0, 80.0, 10.0], [80.0, 0.0, 20.0, 10.0], [0.0, 10.0, 70.0, 10.0], [70.0, 10.0, 30.0, 10.0], [0.0, 20.0, 50.0, 10.0], [50.0, 20.0, 50.0, 10.0], [0.0, 30.0, 100.0, 10.0], [100.0, 30.0, 0.0, 10.0]]);
+    }
+
+    #[test]
+    fn vertical_align_places_inline_boxes_on_their_line() {
+        let css = "body{margin:0;font:20px/20px sans-serif} i{display:inline-block;width:10px;height:10px} .tall{height:40px}";
+        let body = "<div id=l><i class=tall id=i></i><i id=m style=vertical-align:middle></i><i id=t style=vertical-align:top></i><i id=b style=vertical-align:bottom></i></div>\
+                    <div><i id=r></i><sup><i id=q></i></sup></div>";
+        let (mut page, _) = after_script(css, body, "$('l').title='x';");
+        let [l, i, m, t, b, r, q] = rects(&mut page, &["l", "i", "m", "t", "b", "r", "q"]).try_into().unwrap();
+        let baseline = i[1] + 40.0;
+        assert_eq!(t[1], l[1]);
+        assert_eq!(b[1] + 10.0, l[1] + l[3]);
+        assert!((m[1] + 5.0 - (baseline - 5.0)).abs() < 0.2, "{m:?} {baseline}");
+        assert!((r[1] - q[1] - (20.0 / 3.0 + 1.0)).abs() < 0.2, "{r:?} {q:?}");
     }
 
     #[test]
