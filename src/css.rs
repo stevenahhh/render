@@ -1864,9 +1864,12 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
 const CONTEXT_UNITS: [&str; 6] = ["vw", "vh", "vmin", "vmax", "rem", "em"];
 
 /// True when a function such as `calc()` or `min()` combines lengths in units
-/// known only while styling, which it cannot add up until then.
+/// known only while styling, which it cannot add up until then, or when a value
+/// uses `vmin` or `vmax`.
 fn needs_context(val: &str) -> bool {
-    val.contains('(') && absolute_lengths(val, |u| CONTEXT_UNITS.contains(&viewport_unit(u)).then_some(1.0)).is_some()
+    // `vmin` and `vmax` have no length of their own: they wait for the viewport too.
+    (val.contains('(') || val.contains("vmin") || val.contains("vmax"))
+        && absolute_lengths(val, |u| CONTEXT_UNITS.contains(&viewport_unit(u)).then_some(1.0)).is_some()
 }
 
 /// `v` with every length whose unit `px_per` gives a size for rewritten in px,

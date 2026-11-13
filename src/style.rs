@@ -2493,6 +2493,8 @@ mod tests {
         assert_eq!(s[1].rare().min_h, Len::Px(500.0));
         assert_eq!(s[2].height, Len::Px(38.4));
         assert_eq!(s[2].rare().max_w, Len::Px(300.0));
+        let m = &styles_of("<style>p{width:50vmin;height:50dvmax;margin-left:10vmin}</style><p></p>", "p")[0];
+        assert_eq!((m.width, m.height, m.margin[3]), (Len::Px(300.0), Len::Px(400.0), Len::Px(60.0)), "vmin and vmax take the smaller and larger side of 800x600");
     }
 
     #[test]
