@@ -758,6 +758,13 @@ fn is_void(t: Atom) -> bool {
     matches!(t, AREA | BASE | BR | COL | EMBED | HR | IMG | INPUT | LINK | META | SOURCE | TRACK | WBR)
 }
 
+/// Elements of a table's structure that hold no content of their own: what
+/// else is written in them is moved before the table.
+fn is_table_box(t: Atom) -> bool {
+    use atom::*;
+    matches!(t, TABLE | TBODY | THEAD | TFOOT | TR)
+}
+
 fn is_head_tag(t: Atom) -> bool {
     use atom::*;
     matches!(t, TITLE | META | LINK | STYLE | SCRIPT | BASE | TEMPLATE | NOSCRIPT)
@@ -890,6 +897,48 @@ impl<'a> Parser<'a> {
         self.dom.append(parent, n);
     }
 
+    /// The tag of the current node.
+    fn current(&self) -> Atom {
+        self.dom.nodes[*self.stack.last().unwrap() as usize].tag
+    }
+
+    /// Opens the elements in `tags` the table structure implies above the current
+    /// node, a row group and a row for a cell written straight in a `<table>`.
+    fn open_implied(&mut self, tags: &[Atom]) {
+        use atom::*;
+        for &t in tags {
+            let have = match self.current() {
+                TABLE => false,
+                TBODY | THEAD | TFOOT => t == TBODY,
+                _ => true,
+            };
+            if !have {
+                let n = self.dom.new_node(t);
+                self.insert(n, false);
+                self.stack.push(n);
+            }
+        }
+    }
+
+    /// Inserts `n` at the current node or, when `foster`, before the table it
+    /// is written in, where a browser moves content a table cannot hold.
+    fn insert(&mut self, n: NodeId, foster: bool) {
+        let parent = *self.stack.last().unwrap();
+        if foster {
+            if let Some(i) = self.stack.iter().rposition(|&s| self.dom.nodes[s as usize].tag == atom::TABLE) {
+                let table = self.stack[i];
+                let tp = self.dom.nodes[table as usize].parent;
+                if tp != NONE {
+                    self.dom.insert_before(tp, n, table);
+                } else {
+                    self.dom.append(self.stack[i - 1], n);
+                }
+                return;
+            }
+        }
+        self.dom.append(parent, n);
+    }
+
     fn text(&mut self, t: &str) {
         let ws = t.bytes().all(|c| c.is_ascii_whitespace());
         if self.templates == 0 && (self.stack.len() <= 2 || self.body == NONE) {
@@ -903,8 +952,8 @@ impl<'a> Parser<'a> {
         push_decoded(&mut self.dom.text, t);
         let n = self.dom.new_node(atom::TEXT);
         self.dom.nodes[n as usize].text = (start, self.dom.text.len() as u32 - start);
-        let parent = *self.stack.last().unwrap();
-        self.dom.append(parent, n);
+        let foster = !ws && is_table_box(self.current());
+        self.insert(n, foster);
     }
 
     fn set_attrs(&mut self, n: NodeId, attrs: (u32, u32), classes: (u32, u32), id: Atom) {
@@ -1022,6 +1071,19 @@ impl<'a> Parser<'a> {
             self.ensure_body_open();
         }
         self.auto_close(tag);
+        let mut foster = false;
+        if is_table_box(self.current()) {
+            use atom::*;
+            match tag {
+                TR => self.open_implied(&[TBODY]),
+                TD | TH => self.open_implied(&[TBODY, TR]),
+                // A table in a table ends the first one.
+                TABLE => self.close_if_open(TABLE, &[]),
+                CAPTION | COL | THEAD | TBODY | TFOOT | SCRIPT | STYLE | TEMPLATE | FORM => {}
+                INPUT => foster = !self.dom.attrs[attrs.0 as usize..(attrs.0 + attrs.1) as usize].iter().any(|a| a.name == TYPE && self.dom.text[a.value.0 as usize..(a.value.0 + a.value.1) as usize].eq_ignore_ascii_case("hidden")),
+                _ => foster = self.dom.atoms.name(tag) != "colgroup",
+            }
+        }
 
         let n = self.dom.new_node(tag);
         {
@@ -1030,8 +1092,11 @@ impl<'a> Parser<'a> {
             node.classes = classes;
             node.id = id;
         }
-        let parent = *self.stack.last().unwrap();
-        self.dom.append(parent, n);
+        self.insert(n, foster);
+        // A form in a table holds nothing: what follows it stays in the table.
+        if tag == atom::FORM && is_table_box(self.current()) {
+            return;
+        }
         if tag == atom::TEMPLATE {
             let content = self.dom.template_content(n);
             self.stack.push(n);
@@ -1126,6 +1191,10 @@ impl<'a> Parser<'a> {
                 self.close_if_open(TFOOT, &[TABLE]);
             }
             OPTION => self.close_if_open(OPTION, &[SELECT]),
+            // A heading does not nest in another.
+            H1 | H2 | H3 | H4 | H5 | H6 if self.stack.len() > 3 && matches!(self.current(), H1 | H2 | H3 | H4 | H5 | H6) => {
+                self.stack.pop();
+            }
             _ => {}
         }
     }
@@ -1141,6 +1210,10 @@ impl<'a> Parser<'a> {
             }
             _ => {}
         }
+        use atom::*;
+        // An end tag closes nothing outside the table cell, caption or table it
+        // is written in; the parts of a table reach up to their table.
+        let table_part = matches!(tag, TABLE | TBODY | THEAD | TFOOT | TR | TD | TH | CAPTION);
         for i in (3..self.stack.len()).rev() {
             let t = self.dom.nodes[self.stack[i] as usize].tag;
             if t == tag {
@@ -1156,6 +1229,16 @@ impl<'a> Parser<'a> {
             if t == atom::FRAGMENT && tag != atom::TEMPLATE {
                 return;
             }
+            let bound = if table_part { t == TABLE } else { matches!(t, TABLE | TD | TH | CAPTION) || (tag == P && t == BUTTON) };
+            if bound {
+                break;
+            }
+        }
+        // `</p>` with no open paragraph makes an empty one, `</br>` a line break.
+        if matches!(tag, P | BR) && self.templates == 0 && self.body != NONE {
+            let n = self.dom.new_node(tag);
+            let foster = is_table_box(self.current());
+            self.insert(n, foster);
         }
     }
 }
@@ -1271,6 +1354,32 @@ mod tests {
         let mut inner = String::new();
         dom.serialize(first(&dom, atom::BODY), false, &mut inner);
         assert_eq!(inner, "<noscript><iframe src=x></iframe></noscript><iframe>a<b>c</b>&amp;</iframe><p>after</p>");
+    }
+
+    fn body_html(src: &str) -> String {
+        let dom = parse_html(src);
+        let mut html = String::new();
+        dom.serialize(first(&dom, atom::BODY), false, &mut html);
+        html
+    }
+
+    #[test]
+    fn tables_imply_row_groups_and_rows_and_move_other_content_before_them() {
+        assert_eq!(body_html("<table><tr><td>a<td>b</table>"), "<table><tbody><tr><td>a</td><td>b</td></tr></tbody></table>");
+        assert_eq!(body_html("<table><td>a</table>"), "<table><tbody><tr><td>a</td></tr></tbody></table>");
+        assert_eq!(body_html("<table><thead><tr><th>h</thead><tr><td>c</table>"), "<table><thead><tr><th>h</th></tr></thead><tbody><tr><td>c</td></tr></tbody></table>");
+        assert_eq!(
+            body_html("<table> <tr>x<div>y</div><input type=hidden><input><td>c</td></tr></table>"),
+            "x<div>y</div><input><table> <tbody><tr><input type=\"hidden\"><td>c</td></tr></tbody></table>"
+        );
+        assert_eq!(body_html("<table><form><tr><td>a</td></tr></form></table>"), "<table><form></form><tbody><tr><td>a</td></tr></tbody></table>");
+    }
+
+    #[test]
+    fn end_tags_stay_inside_their_cell_and_stray_ones_insert_elements() {
+        assert_eq!(body_html("<div><table><tr><td><b>a</div>b</td></tr></table>c</div>"), "<div><table><tbody><tr><td><b>ab</b></td></tr></tbody></table>c</div>");
+        assert_eq!(body_html("<div>a</p>b</br>c</div>"), "<div>a<p></p>b<br>c</div>");
+        assert_eq!(body_html("<h1>a<h2>b</h2>c"), "<h1>a</h1><h2>b</h2>c");
     }
 
     #[test]
