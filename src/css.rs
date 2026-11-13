@@ -1036,6 +1036,27 @@ fn as_written<'a>(written: &'a str, v: &str, t: &str) -> &'a str {
     &written[at..at + t.len()]
 }
 
+/// The length of the `url()` token that `s` starts with, through its own closing
+/// parenthesis, so that `url(a.woff2)format("woff2")` splits without a space;
+/// the whole of `s` when it starts with something else.
+fn url_token_len(s: &str) -> usize {
+    if !s.starts_with("url(") {
+        return s.len();
+    }
+    let mut quote = None;
+    let mut bytes = s.bytes().enumerate().skip(4);
+    while let Some((i, b)) = bytes.next() {
+        match (quote, b) {
+            (_, b'\\') => drop(bytes.next()),
+            (Some(q), _) if b == q => quote = None,
+            (None, b'"' | b'\'') => quote = Some(b),
+            (None, b')') => return i + 1,
+            _ => {}
+        }
+    }
+    s.len()
+}
+
 /// The address in a `url()` token, without quotes and with its escapes decoded.
 fn css_url(t: &str) -> Option<Cow<'_, str>> {
     let inner = t.get(..4).filter(|p| p.eq_ignore_ascii_case("url(")).and(t.get(4..))?.strip_suffix(')')?.trim();
@@ -1089,7 +1110,7 @@ fn rebase_urls<'a>(css: &'a str, base: &str) -> Cow<'a, str> {
     let mut out = String::with_capacity(css.len());
     let mut rest = css;
     while let Some(p) = rest.find("url(") {
-        let Some(len) = rest[p..].find(')') else { break };
+        let len = url_token_len(&rest[p..]) - 1;
         let token = &rest[p..p + len + 1];
         out.push_str(&rest[..p]);
         let absolute = |u: &str| u.starts_with(['/', '#']) || u.starts_with("data:") || u.contains("://");
@@ -1353,9 +1374,9 @@ fn font_face(body: &str) -> Option<FontFace> {
             }
             "src" => {
                 for entry in SplitTop::new(value, b',') {
-                    let mut parts = tokens(entry.trim());
-                    let Some(url) = parts.next().and_then(css_url) else { continue };
-                    let format = parts.find_map(|p| p.strip_prefix("format(")?.strip_suffix(')'));
+                    let (head, tail) = entry.trim().split_at(url_token_len(entry.trim()));
+                    let Some(url) = css_url(head) else { continue };
+                    let format = tokens(tail).find_map(|p| p.strip_prefix("format(")?.strip_suffix(')'));
                     let format = format.map(|f| unquote(f.trim()).to_ascii_lowercase().into());
                     face.srcs.push((url.trim().into(), format));
                 }
@@ -3016,13 +3037,16 @@ mod tests {
                    @font-face{font-family:NoSource}\
                    @font-face{font-family:Sub;src:url(s.woff2);unicode-range:U+0400-045F, u+4??,U+20AC}\
                    @font-face{font-family:Bad;src:url(b.woff2);unicode-range:U+41,U+5A-41}\
+                   @font-face{font-family:Glued;src:url(g.woff2)format(\"woff2\"),url('h).woff')format('woff')}\
                    p{font-weight:600}";
         let mut sheet = Sheet::default();
         sheet.add(css, &mut Interner::new(), 1, "https://example.com/css/site.css");
         let faces: Vec<_> = sheet.fonts.iter().map(|f| (&*f.family, f.weight, f.italic, f.srcs.len())).collect();
-        assert_eq!(faces, [("sf pro text", (100, 900), false, 2), ("fira", (700, 700), true, 1), ("sub", (400, 400), false, 1), ("bad", (400, 400), false, 1)]);
+        assert_eq!(faces, [("sf pro text", (100, 900), false, 2), ("fira", (700, 700), true, 1), ("sub", (400, 400), false, 1), ("bad", (400, 400), false, 1), ("glued", (400, 400), false, 2)]);
         let ranges: Vec<_> = sheet.fonts.iter().map(|f| &f.ranges[..]).collect();
-        assert_eq!(ranges, [&[(0, 0xff)][..], &[], &[(0x400, 0x45f), (0x400, 0x4ff), (0x20ac, 0x20ac)], &[]]);
+        assert_eq!(ranges, [&[(0, 0xff)][..], &[], &[(0x400, 0x45f), (0x400, 0x4ff), (0x20ac, 0x20ac)], &[], &[]]);
+        let glued: Vec<_> = sheet.fonts[4].srcs.iter().map(|(u, f)| (&**u, f.as_deref())).collect();
+        assert_eq!(glued, [("https://example.com/css/g.woff2", Some("woff2")), ("https://example.com/css/h).woff", Some("woff"))]);
         let srcs: Vec<_> = sheet.fonts[0].srcs.iter().map(|(u, f)| (&**u, f.as_deref())).collect();
         assert_eq!(srcs, [("/wss/a.woff2", Some("woff2")), ("https://example.com/css/a.ttf", Some("truetype"))]);
         assert_eq!(&*sheet.fonts[1].srcs[0].0, "https://example.com/css/f.woff");
