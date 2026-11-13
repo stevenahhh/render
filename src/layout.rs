@@ -765,6 +765,7 @@ impl<'a> Engine<'a> {
     /// True for a block whose top and bottom margins are adjoining when it has
     /// no in-flow content: no border or padding between them, a zero or auto
     /// height, no min-height, and no formatting context of its own (CSS 2.1 8.3.1).
+    #[inline(never)]
     fn collapses_through(&self, n: NodeId) -> bool {
         let s = &self.st[n as usize];
         let zero = Len::Px(0.0);
@@ -783,6 +784,7 @@ impl<'a> Engine<'a> {
 
     /// True for a block that `collapses_through` and holds no in-flow content:
     /// only white space, out-of-flow boxes and blocks that are empty in turn.
+    #[inline(never)]
     fn empty_through(&self, n: NodeId) -> bool {
         if !self.collapses_through(n) {
             return false;
@@ -2551,6 +2553,7 @@ impl<'a> Engine<'a> {
 
     /// Min-content width of a box including its margins, memoized per node:
     /// its widest piece of content that cannot be broken across lines.
+    #[inline(never)]
     fn min_content(&mut self, n: NodeId) -> f32 {
         let cached = self.intr_min[n as usize];
         if !cached.is_nan() {
@@ -2620,6 +2623,7 @@ impl<'a> Engine<'a> {
     /// than the widest one of its face, and any other takes at least two bytes,
     /// each counted 1.5em wide. Infinite when `n` holds anything but text and
     /// inline boxes.
+    #[inline(never)]
     fn min_bound(&mut self, n: NodeId) -> f32 {
         let mut state = IState::default();
         if self.bound_children(n, &mut state) { state.max.max(state.cur) } else { f32::INFINITY }
@@ -2765,6 +2769,7 @@ impl<'a> Engine<'a> {
     /// The smallest a row flex item may be made: its `min-width`, or for `auto`
     /// the automatic minimum of CSS Flexbox 4.5, the smaller of its min-content
     /// width and its specified width; none for a scroll container.
+    #[inline(never)]
     fn flex_min(&mut self, it: &FItem, cw: f32) -> f32 {
         if it.text {
             return self.text_min(it.node);
@@ -2789,6 +2794,7 @@ impl<'a> Engine<'a> {
     /// Sizes the items of one flex line along its main axis as CSS Flexbox 9.7
     /// resolves flexible lengths: items that reach their minimum or maximum
     /// are frozen there and the remaining free space goes to the others.
+    #[inline(never)]
     fn flex_lengths(&mut self, line: &mut [FItem], cw: f32, avail: f32) {
         let st = self.st;
         let max_of = |it: &FItem| {
