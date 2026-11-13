@@ -1,0 +1,2400 @@
+{
+ "commit": "828aa8251840c71d49ea3e38c9ff529c3db8006b",
+ "groups": [
+  "css/CSS2/box-display",
+  "css/CSS2/margin-padding-clear",
+  "css/CSS2/normal-flow",
+  "css/CSS2/floats",
+  "css/CSS2/floats-clear",
+  "css/CSS2/positioning",
+  "css/CSS2/backgrounds",
+  "css/CSS2/borders",
+  "css/CSS2/text",
+  "css/CSS2/linebox",
+  "css/CSS2/selectors",
+  "css/css-flexbox",
+  "css/css-grid",
+  "css/css-backgrounds",
+  "css/css-text",
+  "css/css-box",
+  "css/selectors",
+  "css/css-display"
+ ],
+ "perGroup": 18,
+ "tests": [
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/anonymous-box-generation-001.xht",
+   "ref": "css/CSS2/box-display/anonymous-box-generation-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/block-in-inline-007.xht",
+   "ref": "css/CSS2/box-display/block-in-inline-007-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/block-in-inline-margin-collapses-through-intervening-float.html",
+   "ref": "css/CSS2/box-display/block-in-inline-margin-collapses-through-intervening-float-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/block-in-inline-margin-with-multi-line-text-before.html",
+   "ref": "css/CSS2/box-display/block-in-inline-margin-with-multi-line-text-before-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/block-in-inline-relpos-001.xht",
+   "ref": "css/CSS2/box-display/block-in-inline-relpos-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/box-generation-001.xht",
+   "ref": "css/CSS2/box-display/box-generation-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/containing-block-006.xht",
+   "ref": "css/CSS2/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/containing-block-020.xht",
+   "ref": "css/CSS2/box-display/containing-block-020-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/containing-block-029.xht",
+   "ref": "css/CSS2/box-display/containing-block-029-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/delete-inline-in-blocks-middle-001.xht",
+   "ref": "css/CSS2/box-display/delete-inline-in-blocks-beginning-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/display-002.xht",
+   "ref": "css/CSS2/box-display/display-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/display-011.xht",
+   "ref": "css/CSS2/box-display/display-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/display-018.xht",
+   "ref": "css/CSS2/box-display/display-018-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/inline-text-after-block-in-inline-margin.html",
+   "ref": "css/CSS2/box-display/inline-text-after-block-in-inline-margin-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/insert-block-in-blocks-n-inlines-end-003.xht",
+   "ref": "css/CSS2/box-display/insert-block-in-blocks-n-inlines-end-003-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/insert-inline-in-blocks-beginning-001.xht",
+   "ref": "css/CSS2/box-display/insert-inline-in-blocks-beginning-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/insert-inline-in-blocks-n-inlines-begin-003.xht",
+   "ref": "css/CSS2/box-display/insert-inline-in-blocks-n-inlines-begin-003-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/box-display/multiple-block-in-inlines-margins-collapse.html",
+   "ref": "css/CSS2/box-display/multiple-block-in-inlines-margins-collapse-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/margin-001.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/margin-bottom-028.xht",
+   "ref": "css/CSS2/reference/ref-no-vert-space-between.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/margin-bottom-112.xht",
+   "ref": "css/CSS2/reference/ref-no-vert-space-between.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/margin-collapse-037.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-collapse-037-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/margin-left-016.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-left-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/margin-left-103.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-left-103-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/margin-right-042.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-left-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/margin-right-applies-to-005.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-left-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/margin-top-064.xht",
+   "ref": "css/CSS2/reference/ref-no-vert-space-between.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/padding-001.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/padding-bottom-025.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-top-031-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/padding-bottom-084.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-top-031-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/padding-left-023.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-left-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/padding-left-081.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-left-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/padding-right-013.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-left-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/padding-right-071.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-left-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/padding-top-002.xht",
+   "ref": "css/CSS2/reference/ref-no-vert-space-between.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/margin-padding-clear/padding-top-062.xht",
+   "ref": "css/CSS2/margin-padding-clear/margin-top-043-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/block-formatting-context-height-001.xht",
+   "ref": "css/CSS2/reference/ref-filled-black-96px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/block-in-inline-insert-001k.xht",
+   "ref": "css/CSS2/normal-flow/block-in-inline-insert-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/block-in-inline-remove-004.xht",
+   "ref": "css/CSS2/normal-flow/block-in-inline-remove-004-nosplit-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/dynamic-padding-change-with-style-update-before-layout.html",
+   "ref": "css/reference/ref-filled-green-100px-square-only.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/height-067.xht",
+   "ref": "css/CSS2/normal-flow/height-067-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/height-percentage-001.xht",
+   "ref": "css/CSS2/normal-flow/height-percentage-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/inline-non-replaced-height-002.xht",
+   "ref": "css/CSS2/normal-flow/inline-non-replaced-height-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/inlines-002.xht",
+   "ref": "css/CSS2/normal-flow/inlines-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/max-height-036.xht",
+   "ref": "css/CSS2/normal-flow/max-height-036-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/max-height-102.xht",
+   "ref": "css/CSS2/reference/ref-if-there-is-no-red.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/max-width-035.xht",
+   "ref": "css/CSS2/reference/ref-if-there-is-no-red.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/max-width-100.xht",
+   "ref": "css/CSS2/reference/ref-if-there-is-no-red.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/min-height-026.xht",
+   "ref": "css/CSS2/normal-flow/height-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/min-height-091.xht",
+   "ref": "css/CSS2/normal-flow/height-003-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/min-width-025.xht",
+   "ref": "css/CSS2/normal-flow/max-width-025-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/min-width-091.xht",
+   "ref": "css/CSS2/normal-flow/max-width-003-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/width-003.xht",
+   "ref": "css/CSS2/normal-flow/max-width-003-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/normal-flow/width-069.xht",
+   "ref": "css/CSS2/normal-flow/max-width-069-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/adjoining-floats-dynamic.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/float-avoids-float-with-margin-004.html",
+   "ref": "css/CSS2/floats/float-avoids-float-with-margin-004-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/float-avoids-float-with-margin-011.html",
+   "ref": "css/CSS2/floats/float-avoids-float-with-margin-011-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/float-no-content-beside-001.html",
+   "ref": "css/CSS2/floats/float-no-content-beside-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/float-nowrap-7.html",
+   "ref": "css/CSS2/floats/float-nowrap-1.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/float-table-align-left-quirk.html",
+   "ref": "css/CSS2/floats/float-table-align-left-quirk-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-placement-001.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-placement-008.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-rule3-outside-left-002.xht",
+   "ref": "css/CSS2/floats/floats-rule3-outside-left-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-wrap-bfc-001-right-overflow.xht",
+   "ref": "css/CSS2/floats/floats-wrap-bfc-001-right-overflow-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-wrap-bfc-003-left-overflow.xht",
+   "ref": "css/CSS2/floats/floats-wrap-bfc-003-left-overflow-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-wrap-bfc-007.xht",
+   "ref": "css/CSS2/floats/floats-wrap-bfc-007-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-wrap-bfc-with-margin-004.html",
+   "ref": "css/CSS2/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-wrap-top-below-bfc-001l.xht",
+   "ref": "css/CSS2/floats/floats-wrap-top-below-001l-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-wrap-top-below-inline-001l.xht",
+   "ref": "css/CSS2/floats/floats-wrap-top-below-001l-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/floats-zero-height-wrap-002.xht",
+   "ref": "css/CSS2/floats/floats-zero-height-wrap-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/new-fc-beside-float-with-margin.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats/overflow-scroll-float-paint-order.html",
+   "ref": "css/CSS2/floats/overflow-scroll-float-paint-order-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/adjacent-floats-001.xht",
+   "ref": "css/CSS2/floats-clear/adjacent-floats-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/clear-005.xht",
+   "ref": "css/CSS2/floats-clear/clear-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/clear-applies-to-012.xht",
+   "ref": "css/CSS2/floats-clear/clear-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/clear-float-003.xht",
+   "ref": "css/CSS2/floats-clear/clear-float-003-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/clear-on-parent-with-margins-no-clearance.html",
+   "ref": "css/reference/ref-filled-green-100px-square-only.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/float-applies-to-003.xht",
+   "ref": "css/CSS2/reference/float-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/float-applies-to-015.xht",
+   "ref": "css/CSS2/reference/float-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/float-non-replaced-width-012.xht",
+   "ref": "css/CSS2/positioning/absolute-non-replaced-width-017-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/float-replaced-width-005.xht",
+   "ref": "css/CSS2/floats-clear/float-non-replaced-width-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/floats-007.xht",
+   "ref": "css/CSS2/floats-clear/floats-007-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/floats-027.xht",
+   "ref": "css/CSS2/floats-clear/floats-027-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/floats-111.xht",
+   "ref": "css/CSS2/floats-clear/floats-111-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/floats-123.xht",
+   "ref": "css/CSS2/floats-clear/floats-123-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/floats-143.xht",
+   "ref": "css/CSS2/floats-clear/floats-143-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/floats-bfc-003.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/margin-collapse-027.xht",
+   "ref": "css/CSS2/floats-clear/clearance-006-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/margin-collapse-157.xht",
+   "ref": "css/CSS2/floats-clear/margin-collapse-157-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/floats-clear/margin-collapse-clear-016.xht",
+   "ref": "css/CSS2/floats-clear/margin-collapse-clear-016-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/absolute-non-replaced-height-002.xht",
+   "ref": "css/CSS2/positioning/absolute-non-replaced-height-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/absolute-non-replaced-width-003.xht",
+   "ref": "css/CSS2/positioning/absolute-non-replaced-width-003-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/absolute-replaced-height-006.xht",
+   "ref": "css/CSS2/positioning/absolute-replaced-height-006-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/absolute-replaced-height-036.xht",
+   "ref": "css/CSS2/reference/ref-if-there-is-no-red.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/absolute-replaced-width-039.xht",
+   "ref": "css/CSS2/positioning/absolute-replaced-width-039-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/abspos-017.xht",
+   "ref": "css/CSS2/positioning/abspos-013-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/abspos-overflow-004.xht",
+   "ref": "css/CSS2/positioning/abspos-overflow-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/bottom-030.xht",
+   "ref": "css/CSS2/reference/ref-no-vert-space-between.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/bottom-101.xht",
+   "ref": "css/CSS2/reference/ref-no-vert-space-between.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/left-004.xht",
+   "ref": "css/CSS2/positioning/left-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/left-068.xht",
+   "ref": "css/CSS2/reference/ref-black-96px-square-no-red.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/left-applies-to-012.xht",
+   "ref": "css/CSS2/positioning/left-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/position-fixed-001.xht",
+   "ref": "css/CSS2/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/position-static-001.xht",
+   "ref": "css/CSS2/positioning/position-static-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/right-044.xht",
+   "ref": "css/CSS2/positioning/right-019-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/right-112.xht",
+   "ref": "css/CSS2/positioning/right-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/top-020.xht",
+   "ref": "css/CSS2/positioning/top-019-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/positioning/top-091.xht",
+   "ref": "css/CSS2/positioning/top-019-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-001.xht",
+   "ref": "css/CSS2/backgrounds/background-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-025.xht",
+   "ref": "css/CSS2/reference/ref-nothing-below.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-058.xht",
+   "ref": "css/CSS2/reference/ref-nothing-below.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-090.xht",
+   "ref": "css/CSS2/backgrounds/background-090-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-137.xht",
+   "ref": "css/CSS2/backgrounds/background-030-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-185.xht",
+   "ref": "css/CSS2/backgrounds/background-030-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-applies-to-006.xht",
+   "ref": "css/CSS2/reference/ref-filled-black-96px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-attachment-applies-to-014.xht",
+   "ref": "css/CSS2/backgrounds/background-attachment-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-color-applies-to-014.xht",
+   "ref": "css/CSS2/reference/ref-filled-black-96px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-image-cover-004.xht",
+   "ref": "css/CSS2/backgrounds/background-image-cover-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-position-007.xht",
+   "ref": "css/CSS2/backgrounds/background-position-007-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-position-078.xht",
+   "ref": "css/CSS2/backgrounds/background-position-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-position-121.xht",
+   "ref": "css/CSS2/backgrounds/background-position-117-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-position-139.xht",
+   "ref": "css/CSS2/backgrounds/background-position-119-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-position-applies-to-001e.xht",
+   "ref": "css/CSS2/backgrounds/background-position-applies-to-001e-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-position-applies-to-006.xht",
+   "ref": "css/CSS2/backgrounds/background-position-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-repeat-005.xht",
+   "ref": "css/CSS2/backgrounds/background-repeat-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/backgrounds/background-root-007.xht",
+   "ref": "css/CSS2/backgrounds/background-root-007-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-001.xht",
+   "ref": "css/CSS2/borders/border-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-bottom-applies-to-006.xht",
+   "ref": "css/CSS2/borders/border-bottom-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-bottom-width-004.xht",
+   "ref": "css/CSS2/reference/ref-if-there-is-no-red.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-bottom-width-051.xht",
+   "ref": "css/CSS2/borders/border-bottom-width-006-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-bottom-width-applies-to-003.xht",
+   "ref": "css/CSS2/reference/ref-filled-black-96px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-color-shorthand-001.xht",
+   "ref": "css/CSS2/borders/border-color-shorthand-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-left-color-129.xht",
+   "ref": "css/CSS2/borders/border-bottom-color-129-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-left-width-016.xht",
+   "ref": "css/CSS2/reference/ref-if-there-is-no-red.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-left-width-062.xht",
+   "ref": "css/CSS2/borders/border-left-width-061-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-left-width-applies-to-014.xht",
+   "ref": "css/CSS2/reference/ref-filled-black-96px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-right-color-applies-to-006.xht",
+   "ref": "css/CSS2/borders/border-left-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-right-width-028.xht",
+   "ref": "css/CSS2/borders/border-left-width-006-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-right-width-078.xht",
+   "ref": "css/CSS2/borders/border-left-width-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-style-applies-to-018.xht",
+   "ref": "css/CSS2/borders/border-conflict-style-101-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-top-color-129.xht",
+   "ref": "css/CSS2/borders/border-bottom-color-129-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-top-width-016.xht",
+   "ref": "css/CSS2/reference/ref-if-there-is-no-red.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-top-width-062.xht",
+   "ref": "css/CSS2/borders/border-bottom-width-061-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/borders/border-top-width-applies-to-013.xht",
+   "ref": "css/CSS2/reference/ref-filled-black-96px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/bidi-flag-emoji-02.html",
+   "ref": "css/CSS2/text/bidi-flag-emoji-02-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/letter-spacing-042.xht",
+   "ref": "css/CSS2/text/letter-spacing-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/letter-spacing-097.xht",
+   "ref": "css/CSS2/text/letter-spacing-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/text-align-justify-with-overflow.html",
+   "ref": "css/CSS2/text/text-align-justify-with-overflow-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/text-indent-005.xht",
+   "ref": "css/CSS2/text/text-indent-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/text-indent-044.xht",
+   "ref": "css/CSS2/reference/pass_if_box_ahem.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/text-indent-102.xht",
+   "ref": "css/CSS2/text/text-indent-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/text-indent-applies-to-012.xht",
+   "ref": "css/CSS2/text/text-indent-applies-to-012-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/text-transform-001.xht",
+   "ref": "css/CSS2/text/text-transform-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/text-transform-bicameral-005.xht",
+   "ref": "css/CSS2/text/text-transform-bicameral-005-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/text-transform-uppercase-001.xht",
+   "ref": "css/CSS2/text/text-transform-uppercase-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/white-space-applies-to-014.xht",
+   "ref": "css/CSS2/text/white-space-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/white-space-normal-008.xht",
+   "ref": "css/CSS2/text/white-space-normal-008-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/white-space-processing-012.xht",
+   "ref": "css/CSS2/text/white-space-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/white-space-processing-035.xht",
+   "ref": "css/CSS2/text/white-space-processing-031-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/word-spacing-004.xht",
+   "ref": "css/CSS2/text/word-spacing-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/word-spacing-055.xht",
+   "ref": "css/CSS2/text/word-spacing-007-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/text/word-spacing-applies-to-002.xht",
+   "ref": "css/CSS2/text/word-spacing-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/anonymous-inline-inherit-001.html",
+   "ref": "css/CSS2/linebox/anonymous-inline-inherit-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/iframe-in-wrapped-span.html",
+   "ref": "css/CSS2/linebox/iframe-in-wrapped-span-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/inline-formatting-context-009.xht",
+   "ref": "css/CSS2/linebox/inline-formatting-context-009-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/line-height-004.xht",
+   "ref": "css/CSS2/linebox/line-height-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/line-height-026.xht",
+   "ref": "css/CSS2/linebox/line-height-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/line-height-048.xht",
+   "ref": "css/CSS2/linebox/line-height-002-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/line-height-069.xht",
+   "ref": "css/CSS2/linebox/line-height-069-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/line-height-084.xht",
+   "ref": "css/CSS2/linebox/line-height-006-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/line-height-106.xht",
+   "ref": "css/CSS2/linebox/line-height-105-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/line-height-applies-to-004.xht",
+   "ref": "css/CSS2/linebox/line-height-applies-to-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/line-height-applies-to-016.xht",
+   "ref": "css/CSS2/linebox/line-height-applies-to-016-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/vertical-align-017.xht",
+   "ref": "css/CSS2/linebox/vertical-align-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/vertical-align-041.xht",
+   "ref": "css/CSS2/linebox/vertical-align-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/vertical-align-066.xht",
+   "ref": "css/CSS2/linebox/vertical-align-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/vertical-align-090.xht",
+   "ref": "css/CSS2/linebox/vertical-align-004-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/vertical-align-117a.xht",
+   "ref": "css/CSS2/linebox/vertical-align-117a-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/vertical-align-applies-to-007.xht",
+   "ref": "css/CSS2/linebox/vertical-align-applies-to-007-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/linebox/vertical-align-baseline-005a.xht",
+   "ref": "css/CSS2/linebox/vertical-align-baseline-004a-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/attribute-selector-001.xht",
+   "ref": "css/CSS2/reference/no-red-filler-text-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/class-selector-009.xht",
+   "ref": "css/CSS2/reference/ref-green-background.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-child-selector-003.xht",
+   "ref": "css/CSS2/reference/ref-this-text-should-be-green.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-014.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-014-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-040.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-040-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-068.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-068-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-094.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-094-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-122.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-122-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-148.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-148-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-175.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-175-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-202.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-202-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-230.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-230-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-257.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-257-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-284.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-284-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-311.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-311-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-letter-punctuation-337.xht",
+   "ref": "css/CSS2/selectors/first-letter-punctuation-337-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/first-line-floats-001.xht",
+   "ref": "css/CSS2/selectors/first-line-floats-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/CSS2/selectors/lang-pseudoclass-002.xht",
+   "ref": "css/CSS2/selectors/lang-pseudoclass-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/abspos/dynamic-align-self-001.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/align-self-015.html",
+   "ref": "css/css-flexbox/reference/align-self-015-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/balance/balance-line-count-intrinsic-001.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/dynamic-orthogonal-flex-item.html",
+   "ref": "css/reference/ref-filled-green-100px-square-only.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flex-aspect-ratio-img-row-016.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flex-inline.html",
+   "ref": "css/css-flexbox/reference/flex-inline-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flex-minimum-width-flex-items-004.xht",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flexbox-align-self-vert-rtl-003.xhtml",
+   "ref": "css/css-flexbox/flexbox-align-self-vert-rtl-003-ref.xhtml",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flexbox-definite-sizes-001.html",
+   "ref": "css/css-flexbox/flexbox-definite-sizes-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flexbox-mbp-horiz-001-reverse.xhtml",
+   "ref": "css/css-flexbox/flexbox-mbp-horiz-001-reverse-ref.xhtml",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flexbox-vert-lr-with-img.html",
+   "ref": "css/reference/ref-filled-green-100px-square-only.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flexbox_box-clear.html",
+   "ref": "css/css-flexbox/flexbox_box-clear-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flexbox_flex-1-1-Npercent.html",
+   "ref": "css/css-flexbox/flexbox_flex-1-1-Npercent-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flexbox_flow-column-wrap-reverse.html",
+   "ref": "css/css-flexbox/flexbox_flow-column-wrap-reverse-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/flexbox_stf-table-row-group.html",
+   "ref": "css/reference/blank.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/gap-collapse.html",
+   "ref": "css/css-flexbox/gap-collapse-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/multiline-reverse-wrap-baseline.html",
+   "ref": "css/css-flexbox/reference/multiline-reverse-wrap-baseline-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-flexbox/scrollbars-no-margin.html",
+   "ref": "css/css-flexbox/scrollbars-no-margin-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/abspos/absolute-positioning-changing-containing-block-001.html",
+   "ref": "css/css-grid/abspos/absolute-positioning-changing-containing-block-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/abspos/orthogonal-positioned-grid-items-007.html",
+   "ref": "css/css-grid/abspos/orthogonal-positioned-grid-items-007-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/alignment/grid-content-distribution-with-collapsed-tracks-006.html",
+   "ref": "css/reference/ref-filled-green-200px-square.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/alignment/self-baseline/grid-self-baseline-changes-grid-area-size-011.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-items/aspect-ratio-nonreplaced-max-content-contribution-002.html",
+   "ref": "css/css-grid/grid-items/aspect-ratio-nonreplaced-max-content-contribution-002-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-items/grid-items-percentage-paddings-006.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/abspos/column-grid-lanes-out-of-flow-004.html",
+   "ref": "css/css-grid/grid-lanes/abspos/column-grid-lanes-out-of-flow-004-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/alignment/row-align-items-center-001.html",
+   "ref": "css/css-grid/grid-lanes/alignment/row-align-items-center-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/baseline/row-grid-lanes-item-baseline-002.html",
+   "ref": "css/css-grid/grid-lanes/baseline/row-grid-lanes-item-baseline-002-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/item-placement/dense-packing/column-dense-packing-003.html",
+   "ref": "css/css-grid/grid-lanes/item-placement/dense-packing/column-dense-packing-003-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/order/column-order-property-auto-placement-002.html",
+   "ref": "css/css-grid/grid-lanes/order/column-order-property-auto-placement-002-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-002.html",
+   "ref": "css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/baseline/column-grid-lanes-item-baseline-subgrid-002-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/line-names/column-line-names-014.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-subgrid-auto-fill-001.html",
+   "ref": "css/css-grid/grid-lanes/subgrid/grid-subgridded-to-grid-lanes/track-sizing/row-subgrid-auto-fill-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/track-sizing/auto-repeat/intrinsic-auto-repeat/column-auto-repeat-auto-005.html",
+   "ref": "css/css-grid/grid-lanes/track-sizing/auto-repeat/intrinsic-auto-repeat/column-auto-repeat-auto-005-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-lanes/track-sizing/auto-repeat/row-auto-repeat-002.html",
+   "ref": "css/css-grid/grid-lanes/track-sizing/auto-repeat/row-auto-repeat-002-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/grid-overflowing-item-below-container-is-painted.html",
+   "ref": "css/css-grid/grid-overflowing-item-below-container-is-painted-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-grid/subgrid/dynamic-min-content-002.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/animations/background-color-animation-custom-property.html",
+   "ref": "css/css-backgrounds/animations/background-color-animation-custom-property-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/animations/two-background-color-animation-diff-length2.html",
+   "ref": "css/css-backgrounds/animations/two-background-color-animation-diff-length2-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-clip-010.html",
+   "ref": "css/css-backgrounds/reference/ref-if-there-is-no-red.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-clip/clip-text-descendants.html",
+   "ref": "css/css-backgrounds/background-clip/clip-text-descendants-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-gradient-interpolation-002.html",
+   "ref": "css/css-backgrounds/background-gradient-interpolation-002-notref.html",
+   "match": false,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-origin-008.html",
+   "ref": "css/css-backgrounds/reference/background-origin-005-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-repeat-space-8.html",
+   "ref": "css/css-backgrounds/background-repeat-space-8-ref.html",
+   "match": true,
+   "fuzzy": {
+    "maxDiff": 80,
+    "pixels": 15880
+   }
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-size-043.html",
+   "ref": "css/css-backgrounds/reference/background-size-043-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-size/vector/background-size-vector-020.html",
+   "ref": "css/css-backgrounds/background-size/vector/reference/ref-t-lime8x16-aqua8x16.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-size/vector/tall--contain--nonpercent-width-omitted-height.html",
+   "ref": "css/css-backgrounds/background-size/vector/reference/ref-tall-lime256x384-aqua256x384.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-size/vector/wide--12px-auto--nonpercent-width-omitted-height-viewbox.html",
+   "ref": "css/css-backgrounds/background-size/vector/reference/ref-wide-lime12x96-aqua12x96.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-size/vector/wide--auto-32px--omitted-width-nonpercent-height-viewbox.html",
+   "ref": "css/css-backgrounds/background-size/vector/reference/ref-wide-lime2x16-aqua2x16.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/background-size/vector/wide--cover--omitted-width-nonpercent-height.html",
+   "ref": "css/css-backgrounds/background-size/vector/reference/ref-wide-lime768x128-aqua768x128.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/border-bottom-right-radius-014.xht",
+   "ref": "css/css-backgrounds/border-radius-001-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/border-image-repeat-space-3.html",
+   "ref": "css/css-backgrounds/border-image-repeat-space-3-ref.html",
+   "match": true,
+   "fuzzy": {
+    "maxDiff": 27,
+    "pixels": 1600
+   }
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/border-radius-007.xht",
+   "ref": "css/css-backgrounds/border-radius-007-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/box-shadow-029.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-backgrounds/color-mix-currentcolor-outline-repaint-parent.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/bidi/bidi-lines-001.html",
+   "ref": "css/css-text/bidi/reference/bidi-lines-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/hyphens/hyphens-punctuation-001.html",
+   "ref": "css/css-text/hyphens/reference/hyphens-punctuation-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/line-break/line-break-anywhere-and-white-space-009.html",
+   "ref": "css/css-text/line-break/reference/line-break-anywhere-004-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/line-breaking/line-breaking-014.html",
+   "ref": "css/css-text/line-breaking/reference/line-breaking-013-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/line-breaking/segment-break-transformation-rules-017.html",
+   "ref": "css/css-text/line-breaking/segment-break-transformation-rules-017-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/overflow-wrap/overflow-wrap-min-content-size-005.html",
+   "ref": "css/css-text/overflow-wrap/reference/overflow-wrap-min-content-size-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/text-align/text-align-justify-003.html",
+   "ref": "css/css-text/text-align/reference/text-align-justify-ref-003.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/text-autospace/text-autospace-elements-002.html",
+   "ref": "css/css-text/text-autospace/text-autospace-elements-002-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/text-indent/text-indent-length-002.html",
+   "ref": "css/css-text/text-indent/reference/text-indent-length-002-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/text-transform/text-transform-full-size-kana-008.html",
+   "ref": "css/css-text/text-transform/reference/text-transform-full-size-kana-008-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/text-transform/text-transform-upperlower-105.html",
+   "ref": "css/css-text/text-transform/reference/text-transform-upperlower-105-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/white-space/break-spaces-with-overflow-wrap-002.html",
+   "ref": "css/css-text/white-space/reference/white-space-break-spaces-005-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/white-space/eol-spaces-bidi-002.html",
+   "ref": "css/css-text/white-space/reference/eol-spaces-bidi-002-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/white-space/pre-wrap-tab-002.html",
+   "ref": "css/css-text/white-space/reference/pre-wrap-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/white-space/trailing-ideographic-space-013.html",
+   "ref": "css/css-text/white-space/reference/white-space-pre-wrap-trailing-spaces-004-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/white-space/white-space-pre-wrap-justify-004.html",
+   "ref": "css/css-text/white-space/reference/white-space-pre-wrap-justify-004-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/word-break/word-break-break-all-001.html",
+   "ref": "css/css-text/word-break/reference/word-break-break-all-ref-001.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-text/word-break/word-break-normal-ja-004.html",
+   "ref": "css/css-text/word-break/reference/word-break-normal-ja-ref-004.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-end-collapsed-margins.html",
+   "ref": "css/css-box/margin-trim/block-container-block-end-collapsed-margins-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-end-self-collapsing-and-border.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-end-self-collapsing-block-start-margin.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-end-self-collapsing-item-has-larger-block-start.html",
+   "ref": "css/css-box/margin-trim/block-container-block-end-self-collapsing-item-has-larger-block-start-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-end-start-margin.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-in-inline-002.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-in-inline-004.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-in-inline-005.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-in-inline-007.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-in-inline-009.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-in-inline-010.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-start-004.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-start-self-collapsing-item-has-larger-block-end.html",
+   "ref": "css/css-box/margin-trim/block-container-block-start-self-collapsing-item-has-larger-block-end-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/block-container-block-start-self-collapsing-item-larger-block-start.html",
+   "ref": "css/css-box/margin-trim/block-container-block-start-self-collapsing-item-larger-block-start-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/multicol-spanner-001.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/multicol-spanner-003.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/multicol-spanner-004.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-box/margin-trim/multicol-spanner-006.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/caret-color-visited-inheritance.html",
+   "ref": "css/selectors/caret-color-visited-inheritance-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/dir-selector-rtl-001.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/floating-first-letter-05d0.html",
+   "ref": "css/selectors/floating-first-letter-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/focus-within-012.html",
+   "ref": "css/selectors/focus-within-012-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/has-style-sharing-002.html",
+   "ref": "css/selectors/has-style-sharing-002-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/has-style-sharing-pseudo-007.html",
+   "ref": "css/selectors/has-style-sharing-pseudo-007-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/invalidation/lang-pseudo-class-in-has-document-element.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/invalidation/negated-last-of-type-invalidation.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/invalidation/nth-child-of-class.html",
+   "ref": "css/selectors/invalidation/nth-child-of-class-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/invalidation/nth-last-child-containing-ancestor.html",
+   "ref": "css/selectors/invalidation/nth-child-containing-ancestor-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/invalidation/nth-last-child-of-pseudo-class.html",
+   "ref": "css/selectors/invalidation/nth-last-child-of-pseudo-class-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/nth-child-of-classname.html",
+   "ref": "css/selectors/nth-child-of-classname-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/nth-child-of-universal-selector.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/nth-last-child-of-tagname.html",
+   "ref": "css/selectors/nth-last-child-of-tagname-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/selection-image-002.html",
+   "ref": "css/selectors/selection-image-001-no-selection-noref.html",
+   "match": false,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/selectors-4/details-open-pseudo-003.html",
+   "ref": "css/selectors/selectors-4/details-open-pseudo-003-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/selectors-4/lang-011.html",
+   "ref": "css/selectors/selectors-4/lang-000-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/selectors/selectors-4/lang-023.html",
+   "ref": "css/selectors/selectors-4/lang-000-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/display-change-iframe.html",
+   "ref": "css/reference/ref-filled-green-100px-square.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/display-contents-dynamic-before-after-001.html",
+   "ref": "css/css-display/display-contents-pass-green-no-red-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/display-contents-dynamic-inline-parent-style.html",
+   "ref": "css/css-display/display-contents-pass-green-no-red-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/display-contents-first-letter-001.html",
+   "ref": "css/css-display/display-contents-pass-green-no-red-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/display-contents-list-001.html",
+   "ref": "css/css-display/display-contents-list-001-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/display-contents-svg-elements.html",
+   "ref": "css/css-display/display-contents-svg-elements-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/display-contents-unusual-html-elements-none.html",
+   "ref": "css/css-display/display-contents-pass-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/display-table-cell-on-button.html",
+   "ref": "css/css-display/display-table-cell-on-button-ref.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/min-height-applies-to-011.xht",
+   "ref": "css/reference/pass_if_square_96px_black.html",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/run-in-basic-007.xht",
+   "ref": "css/css-display/run-in/run-in-basic-007-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/run-in-block-between-001.xht",
+   "ref": "css/css-display/run-in/run-in-text-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/run-in-contains-block-inside-inline-001.xht",
+   "ref": "css/css-display/run-in/run-in-text-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/run-in-contains-inline-table-001.xht",
+   "ref": "css/css-display/run-in/run-in-basic-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/run-in-contains-table-column-group-001.xht",
+   "ref": "css/css-display/run-in/run-in-basic-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/run-in-float-between-001.xht",
+   "ref": "css/css-display/run-in/run-in-basic-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/run-in-inline-table-between-003.xht",
+   "ref": "css/css-display/run-in/run-in-basic-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/run-in-run-in-between-003.xht",
+   "ref": "css/css-display/run-in/run-in-basic-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "reftest",
+   "path": "css/css-display/run-in/run-in-table-row-between-001.xht",
+   "ref": "css/css-display/run-in/run-in-text-ref.xht",
+   "match": true,
+   "fuzzy": null
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/Attr-prefix.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/ChildNode-replaceWith.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/Document-contentType/contentType/contenttype_bmp.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/Document-contentType/contentType/contenttype_xml.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/Document-createTreeWalker.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/DocumentType-remove.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/Element-getElementsByTagName-change-document-HTMLNess.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/Element-matches.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/Element-webkitMatchesSelector.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/MutationObserver-textContent.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/Node-compareDocumentPosition.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/Node-normalize.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/NodeList-static-length-getter-tampered-indexOf-2.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/ParentNode-querySelector-basic-has.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/ParentNode-querySelector-is-not.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/ParentNode-querySelector-tag-case.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/ParentNode-querySelectors-space-and-dash-attribute-value.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/getElementsByClassName-empty-set.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/insertion-removing-steps/Node-appendChild-script-with-mutation-observer-takeRecords.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/moveBefore/continue-css-transition-left.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/moveBefore/focus-within.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/moveBefore/moveBefore-id-map.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/moveBefore/moveBefore-shadow-root.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/moveBefore/select-option-optgroup.html"
+  },
+  {
+   "kind": "testharness",
+   "path": "dom/nodes/node-realm-preserved-across-frameless-adoption.html"
+  }
+ ]
+}

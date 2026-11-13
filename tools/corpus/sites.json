@@ -1,0 +1,6048 @@
+{
+ "source": "Tranco list 947W2 (https://tranco-list.eu/list/947W2/1000000)",
+ "selectedOn": "2026-11-13",
+ "sites": [
+  {
+   "rank": 1,
+   "domain": "google.com",
+   "url": "https://www.google.com/",
+   "status": "included"
+  },
+  {
+   "rank": 2,
+   "domain": "cloudflare.com",
+   "url": "https://www.cloudflare.com/",
+   "status": "included"
+  },
+  {
+   "rank": 3,
+   "domain": "ezviz7.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 4,
+   "domain": "amazonaws.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 5,
+   "domain": "facebook.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 6,
+   "domain": "fbcdn.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 7,
+   "domain": "gstatic.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 8,
+   "domain": "googleapis.com",
+   "status": "skipped",
+   "reason": "HTTP 404"
+  },
+  {
+   "rank": 9,
+   "domain": "hicloudcam.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 10,
+   "domain": "youtube.com",
+   "url": "https://www.youtube.com/",
+   "status": "included"
+  },
+  {
+   "rank": 11,
+   "domain": "microsoft.com",
+   "url": "https://www.microsoft.com/",
+   "status": "included"
+  },
+  {
+   "rank": 12,
+   "domain": "apple.com",
+   "url": "https://www.apple.com/",
+   "status": "included"
+  },
+  {
+   "rank": 13,
+   "domain": "akamai.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND akamai.net"
+  },
+  {
+   "rank": 14,
+   "domain": "instagram.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 15,
+   "domain": "akamaiedge.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND akamaiedge.net"
+  },
+  {
+   "rank": 16,
+   "domain": "twitter.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 17,
+   "domain": "linkedin.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 18,
+   "domain": "azure.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 19,
+   "domain": "triplinkintl.com",
+   "url": "https://www.triplinkintl.com/en/home/",
+   "status": "included"
+  },
+  {
+   "rank": 20,
+   "domain": "gwfb.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 21,
+   "domain": "akadns.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 22,
+   "domain": "domaincontrol.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 23,
+   "domain": "googlevideo.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 24,
+   "domain": "appsflyersdk.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 25,
+   "domain": "googletagmanager.com",
+   "status": "skipped",
+   "reason": "HTTP 404"
+  },
+  {
+   "rank": 26,
+   "domain": "cloudfront.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 27,
+   "domain": "gtld-servers.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 28,
+   "domain": "amazon.com",
+   "status": "skipped",
+   "reason": "empty or interstitial page (2012 bytes, 157 chars of text)"
+  },
+  {
+   "rank": 29,
+   "domain": "mail.ru",
+   "status": "skipped",
+   "reason": "empty or interstitial page (936 bytes, 0 chars of text)"
+  },
+  {
+   "rank": 30,
+   "domain": "sharepoint.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 31,
+   "domain": "office.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 32,
+   "domain": "live.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 33,
+   "domain": "github.com",
+   "url": "https://github.com/",
+   "status": "included"
+  },
+  {
+   "rank": 34,
+   "domain": "aaplimg.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 35,
+   "domain": "trafficmanager.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 36,
+   "domain": "shiabank.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND shiabank.com"
+  },
+  {
+   "rank": 37,
+   "domain": "lsrelayaccess.com",
+   "status": "skipped",
+   "reason": "no website: The socket connection was closed unexpectedly. For more information, pass `verbo"
+  },
+  {
+   "rank": 38,
+   "domain": "cloud.microsoft",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 39,
+   "domain": "w2rt6byl5nf1opmc-a.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND w2rt6byl5nf1opmc-a.com"
+  },
+  {
+   "rank": 40,
+   "domain": "wikipedia.org",
+   "url": "https://www.wikipedia.org/",
+   "status": "included"
+  },
+  {
+   "rank": 41,
+   "domain": "fastly.net",
+   "url": "https://www.fastly.com/",
+   "status": "included"
+  },
+  {
+   "rank": 42,
+   "domain": "apple-dns.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 43,
+   "domain": "netflix.com",
+   "url": "https://www.netflix.com/kr-en/",
+   "status": "included"
+  },
+  {
+   "rank": 44,
+   "domain": "dzen.ru",
+   "status": "skipped",
+   "reason": "empty or interstitial page (2886 bytes, 0 chars of text)"
+  },
+  {
+   "rank": 45,
+   "domain": "office.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 46,
+   "domain": "whatsapp.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 47,
+   "domain": "bing.com",
+   "url": "https://www.bing.com/?toWww=1&redig=0DED30C8EEC24543A07C8C5B2873E107",
+   "status": "included"
+  },
+  {
+   "rank": 48,
+   "domain": "pv-cdn.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 49,
+   "domain": "x.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 50,
+   "domain": "googleusercontent.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 51,
+   "domain": "doubleclick.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 52,
+   "domain": "googlesyndication.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 53,
+   "domain": "youtu.be",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 54,
+   "domain": "windows.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 55,
+   "domain": "pinterest.com",
+   "url": "https://www.pinterest.com/",
+   "status": "included"
+  },
+  {
+   "rank": 56,
+   "domain": "icloud.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 57,
+   "domain": "myfritz.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 58,
+   "domain": "cloudflare.net",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 59,
+   "domain": "zoom.us",
+   "url": "https://www.zoom.com/",
+   "status": "included"
+  },
+  {
+   "rank": 60,
+   "domain": "adobe.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 61,
+   "domain": "goo.gl",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 62,
+   "domain": "h264.io",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND h264.io"
+  },
+  {
+   "rank": 63,
+   "domain": "tiktok.com",
+   "status": "skipped",
+   "reason": "empty or interstitial page (1462 bytes, 14 chars of text)"
+  },
+  {
+   "rank": 64,
+   "domain": "microsoftonline.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND microsoftonline.com"
+  },
+  {
+   "rank": 65,
+   "domain": "whatsapp.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 66,
+   "domain": "windowsupdate.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND windowsupdate.com"
+  },
+  {
+   "rank": 67,
+   "domain": "wordpress.org",
+   "url": "https://wordpress.org/",
+   "status": "included"
+  },
+  {
+   "rank": 68,
+   "domain": "gandi.net",
+   "url": "https://www.gandi.net/en-US",
+   "status": "included"
+  },
+  {
+   "rank": 69,
+   "domain": "yahoo.com",
+   "url": "https://www.yahoo.com/",
+   "status": "included"
+  },
+  {
+   "rank": 70,
+   "domain": "gvt1.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND gvt1.com"
+  },
+  {
+   "rank": 71,
+   "domain": "wa.me",
+   "status": "skipped",
+   "reason": "HTTP 400"
+  },
+  {
+   "rank": 72,
+   "domain": "googledomains.com",
+   "url": "https://domains.google/",
+   "status": "included"
+  },
+  {
+   "rank": 73,
+   "domain": "skype.com",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 74,
+   "domain": "edgekey.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND edgekey.net"
+  },
+  {
+   "rank": 75,
+   "domain": "digicert.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 76,
+   "domain": "tiktokcdn.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 77,
+   "domain": "spotify.com",
+   "url": "https://open.spotify.com/",
+   "status": "included"
+  },
+  {
+   "rank": 78,
+   "domain": "a2z.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND a2z.com"
+  },
+  {
+   "rank": 79,
+   "domain": "opera.com",
+   "url": "https://www.opera.com/",
+   "status": "included"
+  },
+  {
+   "rank": 80,
+   "domain": "b-cdn.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 81,
+   "domain": "amazonvideo.com",
+   "url": "https://www.primevideo.com/offers/nonprimehomepage?ref_=dv_web_force_root",
+   "status": "included"
+  },
+  {
+   "rank": 82,
+   "domain": "roblox.com",
+   "url": "https://www.roblox.com/",
+   "status": "included"
+  },
+  {
+   "rank": 83,
+   "domain": "epicgames.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 84,
+   "domain": "tiktokv.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 85,
+   "domain": "vimeo.com",
+   "url": "https://vimeo.com/",
+   "status": "included"
+  },
+  {
+   "rank": 86,
+   "domain": "ntp.org",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 87,
+   "domain": "aws.dev",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND aws.dev"
+  },
+  {
+   "rank": 88,
+   "domain": "3gppnetwork.org",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND 3gppnetwork.org"
+  },
+  {
+   "rank": 89,
+   "domain": "workers.dev",
+   "status": "skipped",
+   "reason": "same site as another entry (www.cloudflare.com)"
+  },
+  {
+   "rank": 90,
+   "domain": "baidu.com",
+   "url": "https://www.baidu.com/",
+   "status": "included"
+  },
+  {
+   "rank": 91,
+   "domain": "qq.com",
+   "url": "https://www.qq.com/",
+   "status": "included"
+  },
+  {
+   "rank": 92,
+   "domain": "blogspot.com",
+   "url": "https://www.blogger.com/about/?bpli=1",
+   "status": "included"
+  },
+  {
+   "rank": 93,
+   "domain": "mozilla.org",
+   "url": "https://www.mozilla.org/en-US/",
+   "status": "included"
+  },
+  {
+   "rank": 94,
+   "domain": "cdn77.org",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND cdn77.org"
+  },
+  {
+   "rank": 95,
+   "domain": "nginx.org",
+   "url": "https://nginx.org/",
+   "status": "included"
+  },
+  {
+   "rank": 96,
+   "domain": "msn.com",
+   "url": "https://www.msn.com/ko-kr",
+   "status": "included"
+  },
+  {
+   "rank": 97,
+   "domain": "t-online.de",
+   "url": "https://www.t-online.de/",
+   "status": "included"
+  },
+  {
+   "rank": 98,
+   "domain": "f5.com",
+   "url": "https://www.f5.com/",
+   "status": "included"
+  },
+  {
+   "rank": 99,
+   "domain": "wordpress.com",
+   "url": "https://wordpress.com/",
+   "status": "included"
+  },
+  {
+   "rank": 100,
+   "domain": "intuit.com",
+   "url": "https://www.intuit.com/",
+   "status": "included"
+  },
+  {
+   "rank": 101,
+   "domain": "akam.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 102,
+   "domain": "t.me",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 103,
+   "domain": "dotaplabs.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND dotaplabs.net"
+  },
+  {
+   "rank": 104,
+   "domain": "sentry.io",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 105,
+   "domain": "virginm.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND virginm.net"
+  },
+  {
+   "rank": 106,
+   "domain": "lencr.org",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 107,
+   "domain": "nginx.com",
+   "status": "skipped",
+   "reason": "same site as another entry (www.f5.com)"
+  },
+  {
+   "rank": 108,
+   "domain": "yandex.net",
+   "url": "https://ya.ru/?nr=1&redirect_ts=1794532920.00000",
+   "status": "included"
+  },
+  {
+   "rank": 109,
+   "domain": "cdninstagram.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 110,
+   "domain": "edgesuite.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND edgesuite.net"
+  },
+  {
+   "rank": 111,
+   "domain": "reddit.com",
+   "url": "https://www.reddit.com/",
+   "status": "included"
+  },
+  {
+   "rank": 112,
+   "domain": "2mdn.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND 2mdn.net"
+  },
+  {
+   "rank": 113,
+   "domain": "ui.com",
+   "url": "https://ui.com/",
+   "status": "included"
+  },
+  {
+   "rank": 114,
+   "domain": "europa.eu",
+   "url": "https://european-union.europa.eu/select-language?destination=/node/1",
+   "status": "included"
+  },
+  {
+   "rank": 115,
+   "domain": "chatgpt.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 116,
+   "domain": "gvt2.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND gvt2.com"
+  },
+  {
+   "rank": 117,
+   "domain": "bit.ly",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 118,
+   "domain": "aliyuncs.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 119,
+   "domain": "yandex.ru",
+   "status": "skipped",
+   "reason": "empty or interstitial page (2901 bytes, 0 chars of text)"
+  },
+  {
+   "rank": 120,
+   "domain": "azurefd.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 121,
+   "domain": "amazon.dev",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND amazon.dev"
+  },
+  {
+   "rank": 122,
+   "domain": "fastly-edge.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 123,
+   "domain": "samsung.com",
+   "url": "https://www.samsung.com/sec/",
+   "status": "included"
+  },
+  {
+   "rank": 124,
+   "domain": "webex.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 125,
+   "domain": "openai.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 126,
+   "domain": "adobe.io",
+   "url": "https://developer.adobe.com/",
+   "status": "included"
+  },
+  {
+   "rank": 127,
+   "domain": "office365.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 128,
+   "domain": "github.io",
+   "url": "https://pages.github.com/",
+   "status": "included"
+  },
+  {
+   "rank": 129,
+   "domain": "nih.gov",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 130,
+   "domain": "dropbox.com",
+   "url": "https://www.dropbox.com/",
+   "status": "included"
+  },
+  {
+   "rank": 131,
+   "domain": "ipify.org",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 132,
+   "domain": "registrar-servers.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 133,
+   "domain": "android.com",
+   "url": "https://www.android.com/",
+   "status": "included"
+  },
+  {
+   "rank": 134,
+   "domain": "root-servers.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 135,
+   "domain": "outlook.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 136,
+   "domain": "ytimg.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 137,
+   "domain": "nflxso.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 138,
+   "domain": "cloudflare-dns.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 139,
+   "domain": "akamaized.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND akamaized.net"
+  },
+  {
+   "rank": 140,
+   "domain": "windows.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 141,
+   "domain": "static.microsoft",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 142,
+   "domain": "duckdns.org",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 143,
+   "domain": "apache.org",
+   "url": "https://apache.org/",
+   "status": "included"
+  },
+  {
+   "rank": 144,
+   "domain": "okcdn.ru",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 145,
+   "domain": "tm-azurefd.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 146,
+   "domain": "supertms.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND supertms.com"
+  },
+  {
+   "rank": 147,
+   "domain": "skybridge.click",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 148,
+   "domain": "archive.org",
+   "url": "https://archive.org/",
+   "status": "included"
+  },
+  {
+   "rank": 149,
+   "domain": "azurewebsites.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 150,
+   "domain": "discord.gg",
+   "url": "https://discord.com/",
+   "status": "included"
+  },
+  {
+   "rank": 151,
+   "domain": "dns-parking.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 152,
+   "domain": "forms.gle",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 153,
+   "domain": "nic.ru",
+   "url": "https://www.nic.ru/",
+   "status": "included"
+  },
+  {
+   "rank": 154,
+   "domain": "tumblr.com",
+   "url": "https://www.tumblr.com/",
+   "status": "included"
+  },
+  {
+   "rank": 155,
+   "domain": "yccdn.ru",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND yccdn.ru"
+  },
+  {
+   "rank": 156,
+   "domain": "vk.ru",
+   "url": "https://vk.ru/",
+   "status": "included"
+  },
+  {
+   "rank": 157,
+   "domain": "telekom.net",
+   "url": "https://www.telekom.com/",
+   "status": "included"
+  },
+  {
+   "rank": 158,
+   "domain": "crashlytics.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 159,
+   "domain": "nytimes.com",
+   "url": "https://www.nytimes.com/",
+   "status": "included"
+  },
+  {
+   "rank": 160,
+   "domain": "jomodns.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND jomodns.com"
+  },
+  {
+   "rank": 161,
+   "domain": "snapchat.com",
+   "url": "https://www.snapchat.com/",
+   "status": "included"
+  },
+  {
+   "rank": 162,
+   "domain": "vk.com",
+   "url": "https://vk.com/",
+   "status": "included"
+  },
+  {
+   "rank": 163,
+   "domain": "samsungcloud.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 164,
+   "domain": "ubuntu.com",
+   "url": "https://ubuntu.com/",
+   "status": "included"
+  },
+  {
+   "rank": 165,
+   "domain": "telegram.org",
+   "url": "https://telegram.org/",
+   "status": "included"
+  },
+  {
+   "rank": 166,
+   "domain": "godaddy.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 167,
+   "domain": "meraki.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 168,
+   "domain": "gravatar.com",
+   "url": "https://gravatar.com/",
+   "status": "included"
+  },
+  {
+   "rank": 169,
+   "domain": "shopify.com",
+   "url": "https://www.shopify.com/",
+   "status": "included"
+  },
+  {
+   "rank": 170,
+   "domain": "dnsowl.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND dnsowl.com"
+  },
+  {
+   "rank": 171,
+   "domain": "pages.dev",
+   "status": "skipped",
+   "reason": "same site as another entry (www.cloudflare.com)"
+  },
+  {
+   "rank": 172,
+   "domain": "ksyuncdn.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND ksyuncdn.com"
+  },
+  {
+   "rank": 173,
+   "domain": "amazon-adsystem.com",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 174,
+   "domain": "google-analytics.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 175,
+   "domain": "paypal.com",
+   "url": "https://www.paypal.com/kr/home",
+   "status": "included"
+  },
+  {
+   "rank": 176,
+   "domain": "astrumu.io",
+   "url": "https://ww38.astrumu.io/",
+   "status": "included"
+  },
+  {
+   "rank": 177,
+   "domain": "tbcache.com",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 178,
+   "domain": "spo-msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 179,
+   "domain": "ax-msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 180,
+   "domain": "creativecommons.org",
+   "url": "https://creativecommons.org/",
+   "status": "included"
+  },
+  {
+   "rank": 181,
+   "domain": "flickr.com",
+   "url": "https://flickr.com/",
+   "status": "included"
+  },
+  {
+   "rank": 182,
+   "domain": "example.com",
+   "status": "skipped",
+   "reason": "empty or interstitial page (577 bytes, 171 chars of text)"
+  },
+  {
+   "rank": 183,
+   "domain": "forter.com",
+   "url": "https://www.forter.com/",
+   "status": "included"
+  },
+  {
+   "rank": 184,
+   "domain": "discord.com",
+   "status": "skipped",
+   "reason": "same site as another entry (discord.com)"
+  },
+  {
+   "rank": 185,
+   "domain": "firefox-portal-detection.com",
+   "status": "skipped",
+   "reason": "not an HTML page (text/plain)"
+  },
+  {
+   "rank": 186,
+   "domain": "scorecardresearch.com",
+   "url": "https://www.scorecardresearch.com/Home.aspx",
+   "status": "included"
+  },
+  {
+   "rank": 187,
+   "domain": "w3.org",
+   "url": "https://www.w3.org/",
+   "status": "included"
+  },
+  {
+   "rank": 188,
+   "domain": "nflximg.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 189,
+   "domain": "comcast.net",
+   "status": "skipped",
+   "reason": "no website: The socket connection was closed unexpectedly. For more information, pass `verbo"
+  },
+  {
+   "rank": 190,
+   "domain": "awswaf.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND awswaf.com"
+  },
+  {
+   "rank": 191,
+   "domain": "reg.ru",
+   "url": "https://reg.ru/",
+   "status": "included"
+  },
+  {
+   "rank": 192,
+   "domain": "cnn.com",
+   "url": "https://edition.cnn.com/",
+   "status": "included"
+  },
+  {
+   "rank": 193,
+   "domain": "quickconnect.to",
+   "url": "https://quickconnect.to/",
+   "status": "included"
+  },
+  {
+   "rank": 194,
+   "domain": "trbcdn.net",
+   "status": "skipped",
+   "reason": "no website: ERR_TLS_CERT_ALTNAME_INVALID fetching \"https://trbcdn.net/\". For more informatio"
+  },
+  {
+   "rank": 195,
+   "domain": "pki.goog",
+   "url": "https://pki.goog/",
+   "status": "included"
+  },
+  {
+   "rank": 196,
+   "domain": "kaspersky.com",
+   "url": "https://www.kaspersky.co.kr/",
+   "status": "included"
+  },
+  {
+   "rank": 197,
+   "domain": "skyhigh.cloud",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 198,
+   "domain": "omtrdc.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND omtrdc.net"
+  },
+  {
+   "rank": 199,
+   "domain": "ebay.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 200,
+   "domain": "brave.com",
+   "url": "https://brave.com/",
+   "status": "included"
+  },
+  {
+   "rank": 201,
+   "domain": "macromedia.com",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 202,
+   "domain": "soundcloud.com",
+   "url": "https://soundcloud.com/",
+   "status": "included"
+  },
+  {
+   "rank": 203,
+   "domain": "theguardian.com",
+   "url": "https://www.theguardian.com/international",
+   "status": "included"
+  },
+  {
+   "rank": 204,
+   "domain": "hichina.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND hichina.com"
+  },
+  {
+   "rank": 205,
+   "domain": "youtube-nocookie.com",
+   "status": "skipped",
+   "reason": "no website: ERR_TLS_CERT_ALTNAME_INVALID fetching \"https://youtube-nocookie.com/\". For more "
+  },
+  {
+   "rank": 206,
+   "domain": "hcaptcha.com",
+   "url": "https://www.hcaptcha.com/",
+   "status": "included"
+  },
+  {
+   "rank": 207,
+   "domain": "unity3d.com",
+   "url": "https://unity.com/",
+   "status": "included"
+  },
+  {
+   "rank": 208,
+   "domain": "doi.org",
+   "url": "https://www.doi.org/",
+   "status": "included"
+  },
+  {
+   "rank": 209,
+   "domain": "msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 210,
+   "domain": "medium.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 211,
+   "domain": "stripe.com",
+   "url": "https://stripe.com/",
+   "status": "included"
+  },
+  {
+   "rank": 212,
+   "domain": "afternic.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 213,
+   "domain": "azureedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 214,
+   "domain": "oracle.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 215,
+   "domain": "ttdns2.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND ttdns2.com"
+  },
+  {
+   "rank": 216,
+   "domain": "publicnode.com",
+   "url": "https://publicnode.com/",
+   "status": "included"
+  },
+  {
+   "rank": 217,
+   "domain": "mtgglobals.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND mtgglobals.com"
+  },
+  {
+   "rank": 218,
+   "domain": "roku.com",
+   "url": "https://www.roku.com/",
+   "status": "included"
+  },
+  {
+   "rank": 219,
+   "domain": "wikimedia.org",
+   "url": "https://www.wikimedia.org//",
+   "status": "included"
+  },
+  {
+   "rank": 220,
+   "domain": "bbc.com",
+   "url": "https://www.bbc.com/",
+   "status": "included"
+  },
+  {
+   "rank": 221,
+   "domain": "cdngslb.com",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 222,
+   "domain": "amplitude.com",
+   "url": "https://amplitude.com/",
+   "status": "included"
+  },
+  {
+   "rank": 223,
+   "domain": "mts.ru",
+   "url": "https://moskva.mts.ru/personal",
+   "status": "included"
+  },
+  {
+   "rank": 224,
+   "domain": "criteo.com",
+   "url": "https://www.criteo.com/",
+   "status": "included"
+  },
+  {
+   "rank": 225,
+   "domain": "app-measurement.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 226,
+   "domain": "weather.com",
+   "url": "https://weather.com/?Goto=Redirected",
+   "status": "included"
+  },
+  {
+   "rank": 227,
+   "domain": "forbes.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 228,
+   "domain": "googletagservices.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND googletagservices.com"
+  },
+  {
+   "rank": 229,
+   "domain": "twitch.tv",
+   "url": "https://www.twitch.tv/",
+   "status": "included"
+  },
+  {
+   "rank": 230,
+   "domain": "licdn.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 231,
+   "domain": "sciencedirect.com",
+   "url": "https://www.sciencedirect.com/",
+   "status": "included"
+  },
+  {
+   "rank": 232,
+   "domain": "namecheap.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 233,
+   "domain": "xiaomi.com",
+   "url": "https://www.mi.com/kr/",
+   "status": "included"
+  },
+  {
+   "rank": 234,
+   "domain": "researchgate.net",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 235,
+   "domain": "vkuserphoto.ru",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 236,
+   "domain": "mit.edu",
+   "url": "https://web.mit.edu/",
+   "status": "included"
+  },
+  {
+   "rank": 237,
+   "domain": "nist.gov",
+   "url": "https://www.nist.gov/",
+   "status": "included"
+  },
+  {
+   "rank": 238,
+   "domain": "avcdn.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND avcdn.net"
+  },
+  {
+   "rank": 239,
+   "domain": "ailawandorder.com",
+   "status": "skipped",
+   "reason": "no website: ERR_TLS_CERT_ALTNAME_INVALID fetching \"https://ailawandorder.com/\". For more inf"
+  },
+  {
+   "rank": 240,
+   "domain": "charter.net",
+   "url": "https://www.spectrum.net/",
+   "status": "included"
+  },
+  {
+   "rank": 241,
+   "domain": "bbc.co.uk",
+   "url": "https://www.bbc.co.uk/",
+   "status": "included"
+  },
+  {
+   "rank": 242,
+   "domain": "rbxcdn.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 243,
+   "domain": "applovin.com",
+   "url": "https://applovin.com/en",
+   "status": "included"
+  },
+  {
+   "rank": 244,
+   "domain": "playstation.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 245,
+   "domain": "cisco.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 246,
+   "domain": "iiko.it",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND iiko.it"
+  },
+  {
+   "rank": 247,
+   "domain": "wsdvs.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND wsdvs.com"
+  },
+  {
+   "rank": 248,
+   "domain": "shifen.com",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 249,
+   "domain": "t.co",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 250,
+   "domain": "msftconnecttest.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND msftconnecttest.com"
+  },
+  {
+   "rank": 251,
+   "domain": "adtrafficquality.google",
+   "status": "skipped",
+   "reason": "same site as another entry (www.google.com)"
+  },
+  {
+   "rank": 252,
+   "domain": "sourceforge.net",
+   "url": "https://sourceforge.net/",
+   "status": "included"
+  },
+  {
+   "rank": 253,
+   "domain": "dnsmadeeasy.com",
+   "url": "https://dnsmadeeasy.com/",
+   "status": "included"
+  },
+  {
+   "rank": 254,
+   "domain": "xcal.tv",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 255,
+   "domain": "salesforce.com",
+   "url": "https://www.salesforce.com/kr/?ir=1&bc=OTH",
+   "status": "included"
+  },
+  {
+   "rank": 256,
+   "domain": "akamaihd.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND akamaihd.net"
+  },
+  {
+   "rank": 257,
+   "domain": "bybanking.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND bybanking.com"
+  },
+  {
+   "rank": 258,
+   "domain": "alibabadns.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND alibabadns.com"
+  },
+  {
+   "rank": 259,
+   "domain": "cpanel.net",
+   "url": "https://www.cpanel.net/",
+   "status": "included"
+  },
+  {
+   "rank": 260,
+   "domain": "hubspot.com",
+   "url": "https://www.hubspot.com/",
+   "status": "included"
+  },
+  {
+   "rank": 261,
+   "domain": "sfx.ms",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND sfx.ms"
+  },
+  {
+   "rank": 262,
+   "domain": "icanhazip.com",
+   "status": "skipped",
+   "reason": "not an HTML page (text/plain)"
+  },
+  {
+   "rank": 263,
+   "domain": "aliyuncsslbintl.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND aliyuncsslbintl.com"
+  },
+  {
+   "rank": 264,
+   "domain": "bytefcdn-oversea.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND bytefcdn-oversea.com"
+  },
+  {
+   "rank": 265,
+   "domain": "imdb.com",
+   "status": "skipped",
+   "reason": "empty or interstitial page (1997 bytes, 157 chars of text)"
+  },
+  {
+   "rank": 266,
+   "domain": "cdn-apple.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND cdn-apple.com"
+  },
+  {
+   "rank": 267,
+   "domain": "googleblog.com",
+   "url": "https://blog.google/",
+   "status": "included"
+  },
+  {
+   "rank": 268,
+   "domain": "linktr.ee",
+   "url": "https://linktr.ee/",
+   "status": "included"
+  },
+  {
+   "rank": 269,
+   "domain": "who.int",
+   "url": "https://www.who.int/",
+   "status": "included"
+  },
+  {
+   "rank": 270,
+   "domain": "name-services.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND name-services.com"
+  },
+  {
+   "rank": 271,
+   "domain": "alidns.com",
+   "url": "https://alidns.com/",
+   "status": "included"
+  },
+  {
+   "rank": 272,
+   "domain": "mybluehost.me",
+   "status": "skipped",
+   "reason": "no website: unknown certificate verification error"
+  },
+  {
+   "rank": 273,
+   "domain": "wixsite.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND wixsite.com"
+  },
+  {
+   "rank": 274,
+   "domain": "ttvnw.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND ttvnw.net"
+  },
+  {
+   "rank": 275,
+   "domain": "googleadservices.com",
+   "status": "skipped",
+   "reason": "HTTP 404"
+  },
+  {
+   "rank": 276,
+   "domain": "datadoghq.com",
+   "url": "https://www.datadoghq.com/",
+   "status": "included"
+  },
+  {
+   "rank": 277,
+   "domain": "centinel-analytica.com",
+   "url": "https://www.centinelanalytica.com/",
+   "status": "included"
+  },
+  {
+   "rank": 278,
+   "domain": "namebrightdns.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND namebrightdns.com"
+  },
+  {
+   "rank": 279,
+   "domain": "demdex.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND demdex.net"
+  },
+  {
+   "rank": 280,
+   "domain": "slack.com",
+   "url": "https://slack.com/",
+   "status": "included"
+  },
+  {
+   "rank": 281,
+   "domain": "ibm.com",
+   "url": "https://www.ibm.com/kr-ko",
+   "status": "included"
+  },
+  {
+   "rank": 282,
+   "domain": "launchdarkly.com",
+   "url": "https://launchdarkly.com/",
+   "status": "included"
+  },
+  {
+   "rank": 283,
+   "domain": "yandexcloud.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND yandexcloud.net"
+  },
+  {
+   "rank": 284,
+   "domain": "hp.com",
+   "url": "https://www.hp.com/kr-ko/home.html",
+   "status": "included"
+  },
+  {
+   "rank": 285,
+   "domain": "reuters.com",
+   "status": "skipped",
+   "reason": "HTTP 401"
+  },
+  {
+   "rank": 286,
+   "domain": "online-metrix.net",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND online-metrix.net"
+  },
+  {
+   "rank": 287,
+   "domain": "ozon.ru",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 288,
+   "domain": "telegram.me",
+   "status": "skipped",
+   "reason": "same site as another entry (telegram.org)"
+  },
+  {
+   "rank": 289,
+   "domain": "booking.com",
+   "url": "https://www.booking.com/",
+   "status": "included"
+  },
+  {
+   "rank": 290,
+   "domain": "myshopify.com",
+   "status": "skipped",
+   "reason": "HTTP 404"
+  },
+  {
+   "rank": 291,
+   "domain": "arubanetworks.com",
+   "status": "skipped",
+   "reason": "no website: ERR_TLS_CERT_ALTNAME_INVALID fetching \"https://arubanetworks.com/\". For more inf"
+  },
+  {
+   "rank": 292,
+   "domain": "archive.ph",
+   "url": "https://archive.li/",
+   "status": "included"
+  },
+  {
+   "rank": 293,
+   "domain": "launchpad.net",
+   "url": "https://launchpad.net/",
+   "status": "included"
+  },
+  {
+   "rank": 294,
+   "domain": "nature.com",
+   "url": "https://www.nature.com/?error=cookies_not_supported&code=9b4dbe19-49d7-4ab5-83cf-f2bbdf060bc9",
+   "status": "included"
+  },
+  {
+   "rank": 295,
+   "domain": "www.gov.uk",
+   "url": "https://www.gov.uk/",
+   "status": "included"
+  },
+  {
+   "rank": 296,
+   "domain": "steampowered.com",
+   "url": "https://store.steampowered.com/",
+   "status": "included"
+  },
+  {
+   "rank": 297,
+   "domain": "app-analytics-services.com",
+   "status": "skipped",
+   "reason": "HTTP 404"
+  },
+  {
+   "rank": 298,
+   "domain": "geobasket.ru",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND geobasket.ru"
+  },
+  {
+   "rank": 299,
+   "domain": "vedcdnlb.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND vedcdnlb.com"
+  },
+  {
+   "rank": 300,
+   "domain": "ggpht.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND ggpht.com"
+  },
+  {
+   "rank": 301,
+   "domain": "media-amazon.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND media-amazon.com"
+  },
+  {
+   "rank": 302,
+   "domain": "tinyurl.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 303,
+   "domain": "ip-api.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 304,
+   "domain": "onelink.me",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 305,
+   "domain": "tiktokcdn-us.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND tiktokcdn-us.com"
+  },
+  {
+   "rank": 306,
+   "domain": "gamepass.com",
+   "status": "skipped",
+   "reason": "no website: The socket connection was closed unexpectedly. For more information, pass `verbo"
+  },
+  {
+   "rank": 307,
+   "domain": "crcdn.pro",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND crcdn.pro"
+  },
+  {
+   "rank": 308,
+   "domain": "wac-msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 309,
+   "domain": "canva.com",
+   "status": "skipped",
+   "reason": "blocked or region-restricted (HTTP 403)"
+  },
+  {
+   "rank": 310,
+   "domain": "grammarly.com",
+   "url": "https://www.grammarly.com/",
+   "status": "included"
+  },
+  {
+   "rank": 311,
+   "domain": "jsdelivr.net",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 312,
+   "domain": "springer.com",
+   "url": "https://link.springer.com/brands/springer",
+   "status": "included"
+  },
+  {
+   "rank": 313,
+   "domain": "msftncsi.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND msftncsi.com"
+  },
+  {
+   "rank": 314,
+   "domain": "byteoversea.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 315,
+   "domain": "manulife-sinochem.com",
+   "status": "skipped",
+   "reason": "no website: The operation timed out."
+  },
+  {
+   "rank": 316,
+   "domain": "alibaba.com",
+   "url": "https://www.alibaba.com/",
+   "status": "included"
+  },
+  {
+   "rank": 317,
+   "domain": "plex.direct",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 318,
+   "domain": "cloudflareinsights.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 319,
+   "domain": "miui.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 320,
+   "domain": "wiley.com",
+   "url": "https://www.wiley.com/en-kr",
+   "status": "included"
+  },
+  {
+   "rank": 321,
+   "domain": "avast.com",
+   "url": "https://www.avast.com/ko-kr/index",
+   "status": "included"
+  },
+  {
+   "rank": 322,
+   "domain": "zendesk.com",
+   "url": "https://www.zendesk.kr/#georedirect",
+   "status": "included"
+  },
+  {
+   "rank": 323,
+   "domain": "casalemedia.com",
+   "url": "https://www.indexexchange.com/",
+   "status": "included"
+  },
+  {
+   "rank": 324,
+   "domain": "anthropic.com",
+   "url": "https://www.anthropic.com/",
+   "status": "included"
+  },
+  {
+   "rank": 325,
+   "domain": "vercel-dns-016.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 326,
+   "domain": "douyincdn.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND douyincdn.com"
+  },
+  {
+   "rank": 327,
+   "domain": "debian.org",
+   "url": "https://www.debian.org/",
+   "status": "included"
+  },
+  {
+   "rank": 328,
+   "domain": "vungle.com",
+   "url": "https://liftoff.ai/",
+   "status": "included"
+  },
+  {
+   "rank": 329,
+   "domain": "volcfcdndvs.com",
+   "status": "skipped",
+   "reason": "no website: getaddrinfo ENOTFOUND volcfcdndvs.com"
+  },
+  {
+   "rank": 330,
+   "domain": "weibo.com",
+   "url": "https://passport.weibo.com/visitor/visitor?entry=miniblog&a=enter&url=https%3A%2F%2Fweibo.com%2F&domain=weibo.com&ua=Mozilla%2F5.0%20%28Macintosh%3B%20Intel%20Mac%20OS%20X%2010_15_7%29%20AppleWebKit%2F605.1.15%20%28KHTML%2C%20like%20Gecko%29%20Version%2F18.0%20Safari%2F605.1.15&_rand=1794532947187&sudaref=",
+   "status": "included"
+  },
+  {
+   "rank": 331,
+   "domain": "amazon.co.uk",
+   "status": "skipped",
+   "reason": "empty or interstitial page (2012 bytes, 157 chars of text)"
+  },
+  {
+   "rank": 332,
+   "domain": "heytapmobile.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 333,
+   "domain": "harvard.edu",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 334,
+   "domain": "rubiconproject.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 335,
+   "domain": "imcmdb.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 336,
+   "domain": "archive.is",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 337,
+   "domain": "withgoogle.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 338,
+   "domain": "nflxvideo.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 339,
+   "domain": "userapi.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 340,
+   "domain": "espn.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 341,
+   "domain": "autodesk.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 342,
+   "domain": "etsy.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 343,
+   "domain": "steamserver.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 344,
+   "domain": "php.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 345,
+   "domain": "trustpilot.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 346,
+   "domain": "paloaltonetworks.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 347,
+   "domain": "unisys.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 348,
+   "domain": "clarity.ms",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 349,
+   "domain": "naver.com",
+   "url": "https://www.naver.com/",
+   "status": "included"
+  },
+  {
+   "rank": 350,
+   "domain": "smartadserver.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 351,
+   "domain": "telecid.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 352,
+   "domain": "ok.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 353,
+   "domain": "chatgpt.site",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 354,
+   "domain": "okta.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 355,
+   "domain": "ea.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 356,
+   "domain": "bilibili.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 357,
+   "domain": "shopifysvc.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 358,
+   "domain": "mi.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 359,
+   "domain": "nvidia.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 360,
+   "domain": "branch.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 361,
+   "domain": "tradingview.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 362,
+   "domain": "gnu.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 363,
+   "domain": "tp-link.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 364,
+   "domain": "dell.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 365,
+   "domain": "checkpoint.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 366,
+   "domain": "dynatrace.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 367,
+   "domain": "grammarly.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 368,
+   "domain": "gmail.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 369,
+   "domain": "dotomi.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 370,
+   "domain": "weebly.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 371,
+   "domain": "cdc.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 372,
+   "domain": "elasticbeanstalk.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 373,
+   "domain": "browser-intake-datadoghq.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 374,
+   "domain": "on.aws",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 375,
+   "domain": "atlassian.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 376,
+   "domain": "un.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 377,
+   "domain": "wsj.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 378,
+   "domain": "cdnbuild.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 379,
+   "domain": "aliyun.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 380,
+   "domain": "bsky.app",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 381,
+   "domain": "netease.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 382,
+   "domain": "worldnic.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 383,
+   "domain": "google.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 384,
+   "domain": "amazon.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 385,
+   "domain": "awsglobalaccelerator.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 386,
+   "domain": "globo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 387,
+   "domain": "pubmatic.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 388,
+   "domain": "dns.google",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 389,
+   "domain": "stanford.edu",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 390,
+   "domain": "go.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 391,
+   "domain": "gitlab.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 392,
+   "domain": "impervadns.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 393,
+   "domain": "adnxs.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 394,
+   "domain": "wps.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 395,
+   "domain": "allawnos.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 396,
+   "domain": "xboxlive.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 397,
+   "domain": "issuu.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 398,
+   "domain": "myhuaweicloud.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 399,
+   "domain": "live-video.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 400,
+   "domain": "name.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 401,
+   "domain": "tiktokv.us",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 402,
+   "domain": "bloomberg.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 403,
+   "domain": "cookiedatabase.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 404,
+   "domain": "twimg.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 405,
+   "domain": "samsungcloudsolution.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 406,
+   "domain": "amazontrust.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 407,
+   "domain": "opendns.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 408,
+   "domain": "githubusercontent.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 409,
+   "domain": "nasa.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 410,
+   "domain": "washingtonpost.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 411,
+   "domain": "nexthink.cloud",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 412,
+   "domain": "alicdn.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 413,
+   "domain": "claude.ai",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 414,
+   "domain": "spotifycdn.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 415,
+   "domain": "adobe.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 416,
+   "domain": "ibyteimg.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 417,
+   "domain": "plesk.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 418,
+   "domain": "scdn.co",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 419,
+   "domain": "yandex.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 420,
+   "domain": "gcdn.co",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 421,
+   "domain": "capcutapi.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 422,
+   "domain": "calendly.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 423,
+   "domain": "substack.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 424,
+   "domain": "firetvcaptiveportal.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 425,
+   "domain": "duckduckgo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 426,
+   "domain": "163.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 427,
+   "domain": "adobedc.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 428,
+   "domain": "taobao.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 429,
+   "domain": "aol.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 430,
+   "domain": "temu.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 431,
+   "domain": "line.me",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 432,
+   "domain": "steamcommunity.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 433,
+   "domain": "nmrodam.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 434,
+   "domain": "tencent-cloud.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 435,
+   "domain": "unsplash.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 436,
+   "domain": "indeed.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 437,
+   "domain": "tiktokcdn-eu.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 438,
+   "domain": "telekom.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 439,
+   "domain": "expireddomains.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 440,
+   "domain": "kwai-pro.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 441,
+   "domain": "aliexpress.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 442,
+   "domain": "beian.gov.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 443,
+   "domain": "tiktokv.eu",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 444,
+   "domain": "netcraze.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 445,
+   "domain": "ripn.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 446,
+   "domain": "dailymotion.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 447,
+   "domain": "visualstudio.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 448,
+   "domain": "heytapdl.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 449,
+   "domain": "myqcloud.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 450,
+   "domain": "vercel-dns-017.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 451,
+   "domain": "tiktokpangle.us",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 452,
+   "domain": "run.app",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 453,
+   "domain": "statsigapi.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 454,
+   "domain": "arxiv.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 455,
+   "domain": "intel.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 456,
+   "domain": "eye4.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 457,
+   "domain": "dyndns.org",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 458,
+   "domain": "mcafee.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 459,
+   "domain": "bunnyinfra.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 460,
+   "domain": "mzstatic.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 461,
+   "domain": "yahoo.co.jp",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 462,
+   "domain": "g.page",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 463,
+   "domain": "appsflyer.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 464,
+   "domain": "featureassets.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 465,
+   "domain": "pixabay.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 466,
+   "domain": "spaceweb.pro",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 467,
+   "domain": "prodregistryv2.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 468,
+   "domain": "duolingo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 469,
+   "domain": "trendmicro.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 470,
+   "domain": "azure-dns.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 471,
+   "domain": "speedtest.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 472,
+   "domain": "drom.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 473,
+   "domain": "dropcatch.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 474,
+   "domain": "braze.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 475,
+   "domain": "lijit.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 476,
+   "domain": "sberbank.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 477,
+   "domain": "bx-msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 478,
+   "domain": "shein.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 479,
+   "domain": "gandi-ns.fr",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 480,
+   "domain": "dual-s-msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 481,
+   "domain": "walmart.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 482,
+   "domain": "teamviewer.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 483,
+   "domain": "bluehost.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 484,
+   "domain": "facebook.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 485,
+   "domain": "ddnss.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 486,
+   "domain": "goodreads.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 487,
+   "domain": "kwai.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 488,
+   "domain": "huawei.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 489,
+   "domain": "vkuser.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 490,
+   "domain": "cnbc.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 491,
+   "domain": "nr-data.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 492,
+   "domain": "ietf.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 493,
+   "domain": "force.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 494,
+   "domain": "wp.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 495,
+   "domain": "businessinsider.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 496,
+   "domain": "netangels.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 497,
+   "domain": "pushy.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 498,
+   "domain": "amazon.co.jp",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 499,
+   "domain": "sina.com.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 500,
+   "domain": "scribd.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 501,
+   "domain": "eventbrite.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 502,
+   "domain": "markmonitor.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 503,
+   "domain": "openstreetmap.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 504,
+   "domain": "footprintdns.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 505,
+   "domain": "quora.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 506,
+   "domain": "foxnews.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 507,
+   "domain": "tplinkcloud.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 508,
+   "domain": "hostgator.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 509,
+   "domain": "statista.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 510,
+   "domain": "oraclecloud.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 511,
+   "domain": "kaspersky-labs.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 512,
+   "domain": "list-manage.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 513,
+   "domain": "wbx2.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 514,
+   "domain": "mangosip.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 515,
+   "domain": "squarespacedns.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 516,
+   "domain": "addtoany.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 517,
+   "domain": "playstation.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 518,
+   "domain": "share.google",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 519,
+   "domain": "indiatimes.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 520,
+   "domain": "npr.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 521,
+   "domain": "blogger.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 522,
+   "domain": "openx.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 523,
+   "domain": "google.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 524,
+   "domain": "klaviyo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 525,
+   "domain": "amzn.to",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 526,
+   "domain": "shop.app",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 527,
+   "domain": "taboola.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 528,
+   "domain": "docker.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 529,
+   "domain": "adsafeprotected.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 530,
+   "domain": "ui-dns.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 531,
+   "domain": "behance.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 532,
+   "domain": "inmobi.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 533,
+   "domain": "usgovcloudapi.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 534,
+   "domain": "mega.co.nz",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 535,
+   "domain": "tandfonline.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 536,
+   "domain": "bdydns.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 537,
+   "domain": "capcut.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 538,
+   "domain": "amagi.tv",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 539,
+   "domain": "fandom.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 540,
+   "domain": "selectel.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 541,
+   "domain": "mysql.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 542,
+   "domain": "rocket-cdn.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 543,
+   "domain": "dnspod.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 544,
+   "domain": "miit.gov.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 545,
+   "domain": "sc-gw.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 546,
+   "domain": "ipv4only.arpa",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 547,
+   "domain": "mozilla.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 548,
+   "domain": "ft.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 549,
+   "domain": "firefox.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 550,
+   "domain": "stackoverflow.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 551,
+   "domain": "oup.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 552,
+   "domain": "adobedtm.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 553,
+   "domain": "google.com.hk",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 554,
+   "domain": "fast.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 555,
+   "domain": "nease.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 556,
+   "domain": "svc.ms",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 557,
+   "domain": "icloud-content.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 558,
+   "domain": "juicyscore.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 559,
+   "domain": "spov-msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 560,
+   "domain": "cornell.edu",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 561,
+   "domain": "slideshare.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 562,
+   "domain": "noaa.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 563,
+   "domain": "e2ro.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 564,
+   "domain": "eset.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 565,
+   "domain": "discord.media",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 566,
+   "domain": "threads.com",
+   "status": "skipped",
+   "reason": "login-walled"
+  },
+  {
+   "rank": 567,
+   "domain": "3lift.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 568,
+   "domain": "exp-tas.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 569,
+   "domain": "wired.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 570,
+   "domain": "atlassian.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 571,
+   "domain": "sohu.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 572,
+   "domain": "qlivecdn.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 573,
+   "domain": "media.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 574,
+   "domain": "byteglb.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 575,
+   "domain": "immedia-semi.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 576,
+   "domain": "ca.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 577,
+   "domain": "deviantart.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 578,
+   "domain": "time.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 579,
+   "domain": "comcast.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 580,
+   "domain": "sophos.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 581,
+   "domain": "dailymail.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 582,
+   "domain": "herokudns.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 583,
+   "domain": "360yield.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 584,
+   "domain": "samsungqbe.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 585,
+   "domain": "goskope.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 586,
+   "domain": "uol.com.br",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 587,
+   "domain": "conviva.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 588,
+   "domain": "adsrvr.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 589,
+   "domain": "rakuten.co.jp",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 590,
+   "domain": "tripadvisor.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 591,
+   "domain": "squarespace.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 592,
+   "domain": "wix.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 593,
+   "domain": "live.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 594,
+   "domain": "mediatek.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 595,
+   "domain": "dreamhost.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 596,
+   "domain": "vercel.app",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 597,
+   "domain": "ieee.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 598,
+   "domain": "chinamobile.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 599,
+   "domain": "ks-cdn.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 600,
+   "domain": "maricopa.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 601,
+   "domain": "timeweb.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 602,
+   "domain": "target.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 603,
+   "domain": "supercell.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 604,
+   "domain": "aboutads.info",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 605,
+   "domain": "mdpi.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 606,
+   "domain": "rlcdn.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 607,
+   "domain": "cloudns.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 608,
+   "domain": "adriver.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 609,
+   "domain": "digitalocean.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 610,
+   "domain": "crpt.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 611,
+   "domain": "jquery.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 612,
+   "domain": "samsungapps.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 613,
+   "domain": "unesco.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 614,
+   "domain": "flurry.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 615,
+   "domain": "vidaahub.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 616,
+   "domain": "hotjar.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 617,
+   "domain": "whecloud.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 618,
+   "domain": "sagepub.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 619,
+   "domain": "techcrunch.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 620,
+   "domain": "intercom.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 621,
+   "domain": "wildberries.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 622,
+   "domain": "trueconf.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 623,
+   "domain": "ezvizlife.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 624,
+   "domain": "usatoday.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 625,
+   "domain": "optimizely.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 626,
+   "domain": "telegraph.co.uk",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 627,
+   "domain": "xiaomi.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 628,
+   "domain": "vercel-dns-3.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 629,
+   "domain": "dyingbirds.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 630,
+   "domain": "onetrust.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 631,
+   "domain": "ikea.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 632,
+   "domain": "telephony.goog",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 633,
+   "domain": "amazon.fr",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 634,
+   "domain": "usercontent.goog",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 635,
+   "domain": "nintendo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 636,
+   "domain": "bamgrid.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 637,
+   "domain": "stackadapt.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 638,
+   "domain": "accuweather.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 639,
+   "domain": "berkeley.edu",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 640,
+   "domain": "free.fr",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 641,
+   "domain": "merriam-webster.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 642,
+   "domain": "sentinelone.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 643,
+   "domain": "doubleverify.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 644,
+   "domain": "msidentity.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 645,
+   "domain": "avito.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 646,
+   "domain": "amazon.ca",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 647,
+   "domain": "edgecdn.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 648,
+   "domain": "iso.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 649,
+   "domain": "bytedns1.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 650,
+   "domain": "ring.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 651,
+   "domain": "smaato.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 652,
+   "domain": "ups.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 653,
+   "domain": "jotform.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 654,
+   "domain": "gtm-a2b2.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 655,
+   "domain": "service.gov.uk",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 656,
+   "domain": "box.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 657,
+   "domain": "verisign.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 658,
+   "domain": "share-dns.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 659,
+   "domain": "translate.goog",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 660,
+   "domain": "meta.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 661,
+   "domain": "loc.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 662,
+   "domain": "t-msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 663,
+   "domain": "hicloud.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 664,
+   "domain": "imrworldwide.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 665,
+   "domain": "newrelic.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 666,
+   "domain": "tencent.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 667,
+   "domain": "dashnxdomain.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 668,
+   "domain": "oneme.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 669,
+   "domain": "hstgr.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 670,
+   "domain": "ivi.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 671,
+   "domain": "easebar.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 672,
+   "domain": "nike.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 673,
+   "domain": "telefonica.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 674,
+   "domain": "zpath.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 675,
+   "domain": "mobile.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 676,
+   "domain": "amazon.in",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 677,
+   "domain": "elpais.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 678,
+   "domain": "bidswitch.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 679,
+   "domain": "ampproject.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 680,
+   "domain": "wcdnga.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 681,
+   "domain": "redhat.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 682,
+   "domain": "inner-active.mobi",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 683,
+   "domain": "primevideo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 684,
+   "domain": "britannica.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 685,
+   "domain": "sknt.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 686,
+   "domain": "cambridge.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 687,
+   "domain": "surveymonkey.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 688,
+   "domain": "uber.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 689,
+   "domain": "xhamster.com",
+   "status": "skipped",
+   "reason": "adult"
+  },
+  {
+   "rank": 690,
+   "domain": "supabase.co",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 691,
+   "domain": "vecdnlb.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 692,
+   "domain": "spiegel.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 693,
+   "domain": "kick.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 694,
+   "domain": "cbsnews.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 695,
+   "domain": "lemonde.fr",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 696,
+   "domain": "stripchat.com",
+   "status": "skipped",
+   "reason": "adult"
+  },
+  {
+   "rank": 697,
+   "domain": "gosuslugi.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 698,
+   "domain": "yelp.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 699,
+   "domain": "bandcamp.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 700,
+   "domain": "yahoodns.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 701,
+   "domain": "fda.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 702,
+   "domain": "deepl.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 703,
+   "domain": "fb.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 704,
+   "domain": "rfc-editor.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 705,
+   "domain": "typekit.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 706,
+   "domain": "dnse0.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 707,
+   "domain": "cdn20.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 708,
+   "domain": "hugedomains.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 709,
+   "domain": "beget.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 710,
+   "domain": "resolver.arpa",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 711,
+   "domain": "anydesk.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 712,
+   "domain": "alipaydns.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 713,
+   "domain": "fontawesome.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 714,
+   "domain": "bugsnag.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 715,
+   "domain": "certcenter.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 716,
+   "domain": "reverse.it",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 717,
+   "domain": "globalsign.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 718,
+   "domain": "itch.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 719,
+   "domain": "shopeemobile.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 720,
+   "domain": "gumgum.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 721,
+   "domain": "outbrain.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 722,
+   "domain": "amazon.es",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 723,
+   "domain": "binance.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 724,
+   "domain": "netflix.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 725,
+   "domain": "tubi.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 726,
+   "domain": "quantserve.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 727,
+   "domain": "jamfcloud.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 728,
+   "domain": "pvp.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 729,
+   "domain": "cookielaw.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 730,
+   "domain": "ya.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 731,
+   "domain": "asus.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 732,
+   "domain": "pinimg.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 733,
+   "domain": "dailymail.co.uk",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 734,
+   "domain": "bidr.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 735,
+   "domain": "palmplaystore.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 736,
+   "domain": "amazon.it",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 737,
+   "domain": "rings.solutions",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 738,
+   "domain": "craigslist.org",
+   "url": "https://www.craigslist.org/area/seoul",
+   "status": "included"
+  },
+  {
+   "rank": 739,
+   "domain": "nintendo.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 740,
+   "domain": "independent.co.uk",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 741,
+   "domain": "mediafire.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 742,
+   "domain": "bitrix24.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 743,
+   "domain": "netexpert.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 744,
+   "domain": "creativecdn.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 745,
+   "domain": "360.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 746,
+   "domain": "googlezip.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 747,
+   "domain": "sharethrough.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 748,
+   "domain": "ovh.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 749,
+   "domain": "agkn.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 750,
+   "domain": "python.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 751,
+   "domain": "dv.tech",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 752,
+   "domain": "cursor.sh",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 753,
+   "domain": "shopee.co.id",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 754,
+   "domain": "zoho.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 755,
+   "domain": "cnet.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 756,
+   "domain": "hihonorcloud.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 757,
+   "domain": "bild.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 758,
+   "domain": "statuspage.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 759,
+   "domain": "wattpad.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 760,
+   "domain": "homedepot.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 761,
+   "domain": "dbankcloud.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 762,
+   "domain": "nel.goog",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 763,
+   "domain": "shalltry.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 764,
+   "domain": "cdnhwc1.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 765,
+   "domain": "ovscdns.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 766,
+   "domain": "1rx.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 767,
+   "domain": "safebrowsing.apple",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 768,
+   "domain": "sedo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 769,
+   "domain": "livejournal.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 770,
+   "domain": "g.co",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 771,
+   "domain": "nikkei.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 772,
+   "domain": "mailchimp.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 773,
+   "domain": "linode.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 774,
+   "domain": "apnews.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 775,
+   "domain": "google.co.uk",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 776,
+   "domain": "auth0.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 777,
+   "domain": "wpguardian.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 778,
+   "domain": "marriott.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 779,
+   "domain": "rustore.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 780,
+   "domain": "service-now.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 781,
+   "domain": "bestbuy.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 782,
+   "domain": "herokuapp.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 783,
+   "domain": "samsungacr.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 784,
+   "domain": "viber.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 785,
+   "domain": "welt.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 786,
+   "domain": "2gis.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 787,
+   "domain": "wpguardian.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 788,
+   "domain": "criteo.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 789,
+   "domain": "incapdns.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 790,
+   "domain": "mckinsey.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 791,
+   "domain": "t-s1-msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 792,
+   "domain": "shopee.com.br",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 793,
+   "domain": "eeroup.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 794,
+   "domain": "zillow.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 795,
+   "domain": "singtelchina.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 796,
+   "domain": "crwdcntrl.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 797,
+   "domain": "imgur.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 798,
+   "domain": "twc.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 799,
+   "domain": "netlify.app",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 800,
+   "domain": "cloudinary.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 801,
+   "domain": "arcgis.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 802,
+   "domain": "steamstatic.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 803,
+   "domain": "enacdn.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 804,
+   "domain": "lenovo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 805,
+   "domain": "ad-tech.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 806,
+   "domain": "agora.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 807,
+   "domain": "life360.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 808,
+   "domain": "everesttech.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 809,
+   "domain": "wp.pl",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 810,
+   "domain": "moloco.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 811,
+   "domain": "prnewswire.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 812,
+   "domain": "discordapp.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 813,
+   "domain": "samsungosp.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 814,
+   "domain": "fbsbx.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 815,
+   "domain": "ameblo.jp",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 816,
+   "domain": "recaptcha.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 817,
+   "domain": "rakuten.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 818,
+   "domain": "liadm.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 819,
+   "domain": "wswebcdn.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 820,
+   "domain": "uk.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 821,
+   "domain": "33across.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 822,
+   "domain": "sc-cdn.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 823,
+   "domain": "onlyfans.com",
+   "status": "skipped",
+   "reason": "adult"
+  },
+  {
+   "rank": 824,
+   "domain": "focus.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 825,
+   "domain": "adjust.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 826,
+   "domain": "erome.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 827,
+   "domain": "disneyplus.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 828,
+   "domain": "digitaloceanspaces.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 829,
+   "domain": "akamaitech.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 830,
+   "domain": "azure-devices.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 831,
+   "domain": "people.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 832,
+   "domain": "mlb.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 833,
+   "domain": "px-cloud.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 834,
+   "domain": "a-mo.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 835,
+   "domain": "fiverr.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 836,
+   "domain": "appspot.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 837,
+   "domain": "salesforceliveagent.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 838,
+   "domain": "mixpanel.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 839,
+   "domain": "ebay.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 840,
+   "domain": "ted.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 841,
+   "domain": "teads.tv",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 842,
+   "domain": "cloudsink.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 843,
+   "domain": "ddns.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 844,
+   "domain": "yieldmo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 845,
+   "domain": "pendo.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 846,
+   "domain": "privacy-mgmt.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 847,
+   "domain": "gpcloudservice.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 848,
+   "domain": "perplexity.ai",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 849,
+   "domain": "kleinanzeigen.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 850,
+   "domain": "usps.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 851,
+   "domain": "ahacdn.me",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 852,
+   "domain": "cdnhwc2.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 853,
+   "domain": "usda.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 854,
+   "domain": "vivo.com.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 855,
+   "domain": "flipkart.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 856,
+   "domain": "seznam.cz",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 857,
+   "domain": "adform.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 858,
+   "domain": "chess.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 859,
+   "domain": "deloitte.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 860,
+   "domain": "vtwenty.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 861,
+   "domain": "google.com.br",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 862,
+   "domain": "theverge.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 863,
+   "domain": "discogs.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 864,
+   "domain": "airbnb.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 865,
+   "domain": "attn.tv",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 866,
+   "domain": "academia.edu",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 867,
+   "domain": "myspace.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 868,
+   "domain": "allegro.pl",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 869,
+   "domain": "www.gov.br",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 870,
+   "domain": "imgsmail.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 871,
+   "domain": "frontiersin.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 872,
+   "domain": "spamhaus.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 873,
+   "domain": "wb.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 874,
+   "domain": "turn.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 875,
+   "domain": "parklogic.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 876,
+   "domain": "deepseek.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 877,
+   "domain": "my.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 878,
+   "domain": "me.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 879,
+   "domain": "unpkg.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 880,
+   "domain": "bytefcdn.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 881,
+   "domain": "agoda.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 882,
+   "domain": "contentsquare.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 883,
+   "domain": "adgrx.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 884,
+   "domain": "instructure.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 885,
+   "domain": "pexels.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 886,
+   "domain": "biblegateway.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 887,
+   "domain": "xvideos.com",
+   "status": "skipped",
+   "reason": "adult"
+  },
+  {
+   "rank": 888,
+   "domain": "amazon.com.br",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 889,
+   "domain": "zoom.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 890,
+   "domain": "ebay.co.uk",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 891,
+   "domain": "max.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 892,
+   "domain": "spectrum.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 893,
+   "domain": "daum.net",
+   "url": "https://www.daum.net/",
+   "status": "included"
+  },
+  {
+   "rank": 894,
+   "domain": "readthedocs.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 895,
+   "domain": "ssl-images-amazon.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 896,
+   "domain": "onetag-sys.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 897,
+   "domain": "poki.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 898,
+   "domain": "unrulymedia.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 899,
+   "domain": "otto.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 900,
+   "domain": "nbcnews.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 901,
+   "domain": "worldbank.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 902,
+   "domain": "akamaitechnologies.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 903,
+   "domain": "dnse2.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 904,
+   "domain": "threema.ch",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 905,
+   "domain": "bankofamerica.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 906,
+   "domain": "porkbun.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 907,
+   "domain": "vivoglobal.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 908,
+   "domain": "smilewanted.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 909,
+   "domain": "nstld.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 910,
+   "domain": "epa.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 911,
+   "domain": "ozone.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 912,
+   "domain": "visa.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 913,
+   "domain": "company-target.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 914,
+   "domain": "classlink.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 915,
+   "domain": "ngenix.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 916,
+   "domain": "mercadolivre.com.br",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 917,
+   "domain": "appcenter.ms",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 918,
+   "domain": "liftoff.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 919,
+   "domain": "hbr.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 920,
+   "domain": "fwmrm.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 921,
+   "domain": "pornhub.com",
+   "status": "skipped",
+   "reason": "adult"
+  },
+  {
+   "rank": 922,
+   "domain": "figma.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 923,
+   "domain": "lg.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 924,
+   "domain": "pikabu.ru",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 925,
+   "domain": "princeton.edu",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 926,
+   "domain": "manutouch.com.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 927,
+   "domain": "wyzecam.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 928,
+   "domain": "tailscale.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 929,
+   "domain": "latimes.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 930,
+   "domain": "allaboutcookies.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 931,
+   "domain": "disqus.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 932,
+   "domain": "msftauth.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 933,
+   "domain": "unruly.co",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 934,
+   "domain": "paramountplus.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 935,
+   "domain": "networkadvertising.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 936,
+   "domain": "kunluncan.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 937,
+   "domain": "qualtrics.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 938,
+   "domain": "no-ip.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 939,
+   "domain": "bund.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 940,
+   "domain": "nexusmods.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 941,
+   "domain": "seedtag.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 942,
+   "domain": "amazonalexa.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 943,
+   "domain": "coupang.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 944,
+   "domain": "volcgslb.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 945,
+   "domain": "patreon.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 946,
+   "domain": "cpmstar.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 947,
+   "domain": "note.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 948,
+   "domain": "flashtalking.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 949,
+   "domain": "repubblica.it",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 950,
+   "domain": "mayoclinic.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 951,
+   "domain": "cootlogix.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 952,
+   "domain": "state.gov",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 953,
+   "domain": "genius.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 954,
+   "domain": "youku.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 955,
+   "domain": "character.ai",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 956,
+   "domain": "tiktokw.us",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 957,
+   "domain": "pbs.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 958,
+   "domain": "eu-1-id5-sync.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 959,
+   "domain": "onet.pl",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 960,
+   "domain": "leiniao.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 961,
+   "domain": "corriere.it",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 962,
+   "domain": "huffpost.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 963,
+   "domain": "docker.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 964,
+   "domain": "chaturbate.com",
+   "status": "skipped",
+   "reason": "adult"
+  },
+  {
+   "rank": 965,
+   "domain": "amazon.com.au",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 966,
+   "domain": "ancestry.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 967,
+   "domain": "eporner.com",
+   "status": "skipped",
+   "reason": "adult"
+  },
+  {
+   "rank": 968,
+   "domain": "go-mpulse.net",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 969,
+   "domain": "odoo.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 970,
+   "domain": "jetbrains.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 971,
+   "domain": "curseforge.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 972,
+   "domain": "mercadolibre.com.ar",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 973,
+   "domain": "change.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 974,
+   "domain": "lowes.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 975,
+   "domain": "app-ads-services.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 976,
+   "domain": "hm.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 977,
+   "domain": "twilio.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 978,
+   "domain": "yellowblue.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 979,
+   "domain": "washington.edu",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 980,
+   "domain": "webempresa.eu",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 981,
+   "domain": "xhamster46.desi",
+   "status": "skipped",
+   "reason": "adult"
+  },
+  {
+   "rank": 982,
+   "domain": "ctecdn.cn",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 983,
+   "domain": "caixa.gov.br",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 984,
+   "domain": "buydomains.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 985,
+   "domain": "mailchi.mp",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 986,
+   "domain": "xnxx.com",
+   "status": "skipped",
+   "reason": "adult"
+  },
+  {
+   "rank": 987,
+   "domain": "n-tv.de",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 988,
+   "domain": "opera-api.com",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 989,
+   "domain": "clever.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 990,
+   "domain": "amemv.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 991,
+   "domain": "a-msedge.net",
+   "status": "skipped",
+   "reason": "infrastructure domain, no public page"
+  },
+  {
+   "rank": 992,
+   "domain": "btloader.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 993,
+   "domain": "jd.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 994,
+   "domain": "sofascore.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 995,
+   "domain": "4dex.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 996,
+   "domain": "flightradar24.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 997,
+   "domain": "0xrpc.io",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 998,
+   "domain": "playfabapi.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 999,
+   "domain": "inkuai.com",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": 1000,
+   "domain": "ecosia.org",
+   "status": "skipped",
+   "reason": "beyond the corpus size"
+  },
+  {
+   "rank": null,
+   "domain": "developer.mozilla.org",
+   "url": "https://developer.mozilla.org/en-US/",
+   "status": "included"
+  },
+  {
+   "rank": null,
+   "domain": "en.wikipedia.org",
+   "url": "https://en.wikipedia.org/wiki/Main_Page",
+   "status": "included"
+  },
+  {
+   "rank": null,
+   "domain": "gov.uk",
+   "status": "skipped",
+   "reason": "same site as another entry (www.gov.uk)"
+  },
+  {
+   "rank": null,
+   "domain": "namu.wiki",
+   "url": "https://namu.wiki/w/%EB%82%98%EB%AC%B4%EC%9C%84%ED%82%A4:%EB%8C%80%EB%AC%B8",
+   "status": "included"
+  },
+  {
+   "rank": null,
+   "domain": "news.ycombinator.com",
+   "url": "https://news.ycombinator.com/",
+   "status": "included"
+  },
+  {
+   "rank": null,
+   "domain": "usa.gov",
+   "url": "https://www.usa.gov/",
+   "status": "included"
+  },
+  {
+   "rank": null,
+   "domain": "w3schools.com",
+   "url": "https://www.w3schools.com/",
+   "status": "included"
+  }
+ ]
+}
