@@ -1325,7 +1325,12 @@ struct Styler<'a> {
     ctx: Ctx,
     bloom: [u8; 4096],
     ancestors: Vec<NodeId>,
+    /// The atoms of `PAINT_ATTRS` in this document, where it has them.
+    paint_attrs: [Option<Atom>; 5],
 }
+
+/// SVG presentation attributes whose `var()` the cascade resolves, as WebKit does.
+const PAINT_ATTRS: [&str; 5] = ["fill", "stroke", "stop-color", "flood-color", "lighting-color"];
 
 /// An element's own declarations: the normal and `!important` ones of its
 /// `style` attribute, and whether they use custom properties.
@@ -1347,6 +1352,32 @@ impl<'a> Styler<'a> {
             ctx: Ctx { root_fs: 16.0, vw, vh },
             bloom: [0u8; 4096],
             ancestors: Vec::new(),
+            paint_attrs: PAINT_ATTRS.map(|a| dom.atoms.get(a)),
+        }
+    }
+
+    /// Presentation attributes of element `i` such as `fill="var(--x)"`, with their
+    /// custom properties substituted, ahead of the paint its style rules set: they
+    /// count as the lowest author declarations. Without them the picture would get
+    /// the text `var(--x)`, which no SVG renderer knows, and paint black.
+    fn paint_hints(&self, i: NodeId, st: &mut Style) {
+        let dom = self.dom;
+        let (s, c) = dom.nodes[i as usize].attrs;
+        let mut hints = String::new();
+        for a in &dom.attrs[s as usize..(s + c) as usize] {
+            let Some(k) = self.paint_attrs.iter().position(|p| *p == Some(a.name)) else { continue };
+            let (vs, vl) = a.value;
+            let v = &dom.text[vs as usize..(vs + vl) as usize];
+            if !v.contains("var(") {
+                continue;
+            }
+            if let Some(v) = subst(v, st.vars.as_deref(), 0) {
+                hints.push_str(&format!("{}:{};", PAINT_ATTRS[k], v.trim()));
+            }
+        }
+        if !hints.is_empty() {
+            hints.push_str(st.rare().svg_paint.as_deref().unwrap_or(""));
+            st.rare_mut().svg_paint = Some(hints.into());
         }
     }
 
@@ -1397,6 +1428,9 @@ impl<'a> Styler<'a> {
             svg_size_hints(dom, i, &mut st, parent, &self.ctx);
         }
         self.cascade(&mut st, parent, &matched, inl);
+        if self.paint_attrs.iter().any(Option::is_some) {
+            self.paint_hints(i, &mut st);
+        }
         if matches!(node.tag, atom::INPUT | atom::BUTTON | atom::SELECT | atom::TEXTAREA) {
             st.native = native_look(self.sheet, &matched, inl);
         }
@@ -2432,6 +2466,13 @@ mod tests {
         let mut page = Page::from_html(html, None);
         let styles = compute_styles(&page.dom, &page.sheet, 800.0, 600.0, u32::MAX);
         query(&mut page.dom, 0, sel, false).into_iter().map(|n| styles[n as usize].clone()).collect()
+    }
+
+    #[test]
+    fn presentation_attributes_resolve_custom_properties_below_style_rules() {
+        let html = r#"<style>svg{--c:#123456} .set{fill:green}</style><svg><rect fill="var(--c)" stroke="var(--none, red)"/><rect class="set" fill="var(--c)"/><rect fill="blue"/></svg>"#;
+        let paint: Vec<Option<String>> = styles_of(html, "rect").iter().map(|s| s.rare().svg_paint.as_deref().map(String::from)).collect();
+        assert_eq!(paint, [Some("fill:#123456;stroke:red;".into()), Some("fill:#123456;fill:green;".into()), None]);
     }
 
     fn widths(styles: &[Style]) -> Vec<Len> {
