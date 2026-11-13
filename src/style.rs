@@ -89,6 +89,9 @@ pub struct Style {
     pub clear: u8,
     /// The box establishes a block formatting context of its own.
     pub flow_root: bool,
+    /// A form control the platform draws: no author rule set its background or
+    /// border, and its `appearance` is not `none`.
+    pub native: bool,
     /// What few elements have, kept out of line: a style is built, copied and
     /// dropped for every node in every pass, so each byte here costs every page.
     rare: RareRef,
@@ -288,6 +291,7 @@ const INITIAL: Style = Style {
     float: 0,
     clear: 0,
     flow_root: false,
+    native: false,
     rare: RareRef(None),
 };
 
@@ -658,7 +662,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::GridPlace(k, ref p) => Rc::make_mut(st.rare_mut().place.get_or_insert_with(Default::default))[k as usize] = p.clone(),
         Decl::JustifyItems(v) => st.justify_items = v,
         Decl::JustifySelf(v) => st.justify_self = v,
-        Decl::FontSize(_) | Decl::Var(..) | Decl::Deferred(..) => {}
+        Decl::FontSize(_) | Decl::Var(..) | Decl::Deferred(..) | Decl::Appearance(_) => {}
     }
 }
 
@@ -1216,6 +1220,32 @@ fn each<'s>(sheet: &'s Sheet, matched: &[(u64, u32)], inl: &'s (Vec<Decl>, Vec<D
     inl.1.iter().for_each(&mut f);
 }
 
+/// Whether a form control whose rules are `matched` keeps the look the platform gives
+/// it, as in WebKit: it does until an author rule sets its background or border, or
+/// its `appearance` is `none`.
+fn native_look(sheet: &Sheet, matched: &[(u64, u32)], inl: &Inline) -> bool {
+    let styles_box = |d: &Decl| match d {
+        Decl::Background(_) | Decl::Gradient(_) | Decl::BgImage(_) | Decl::BorderWidth(..) | Decl::BorderStyle(..) | Decl::BorderColor(..) | Decl::AllUnset => true,
+        Decl::Deferred(name, _) => name.starts_with("background") || (name.starts_with("border") && !name.contains("radius")),
+        Decl::Inherit(name) => name.starts_with("background") || (name.starts_with("border") && !name.contains("radius")),
+        _ => false,
+    };
+    let authored = matched.iter().filter(|&&(key, _)| key >> 60 != 0).flat_map(|&(_, r)| {
+        let rule = &sheet.rules[r as usize];
+        rule.decls.iter().chain(&rule.important)
+    });
+    if authored.chain(&inl.0).chain(&inl.1).any(styles_box) {
+        return false;
+    }
+    let mut appearance = true;
+    each(sheet, matched, inl, |d| {
+        if let Decl::Appearance(a) = d {
+            appearance = *a;
+        }
+    });
+    appearance
+}
+
 /// Everything a `Deferred` stylesheet declaration's expansion depends on: the
 /// declaration, the custom properties it reads, the `em` size it resolves
 /// against (`font-size` only) and the root font size. The viewport is fixed
@@ -1329,6 +1359,9 @@ impl<'a> Styler<'a> {
         let mut st = Style::inherit(parent);
         self.cascade(&mut st, parent, &matched, inl);
         let node = &dom.nodes[i as usize];
+        if matches!(node.tag, atom::INPUT | atom::BUTTON | atom::SELECT | atom::TEXTAREA) {
+            st.native = native_look(self.sheet, &matched, inl);
+        }
         finish(&mut st, parent, node.parent == 0, matches!(node.tag, atom::INPUT | atom::SELECT | atom::TEXTAREA | atom::BUTTON) || dom.shows_image(i));
         if !pseudo.is_empty() {
             let (before, after) = (self.generate(i, &st, &pseudo, BEFORE), self.generate(i, &st, &pseudo, AFTER));
@@ -2366,6 +2399,15 @@ mod tests {
         for (sel, want) in cases {
             assert_eq!(ids(&mut page, sel), want, "{sel}");
         }
+    }
+
+    #[test]
+    fn a_form_control_keeps_its_native_look_until_the_author_styles_its_box() {
+        let html = "<style>.b{border:0} .g{background:var(--c, red)} .n{-webkit-appearance:none} .r{border-radius:4px;color:red}</style>\
+                    <button></button><button class=b></button><button class=g></button><button class=n></button><button class=r></button>\
+                    <button style='background-color:red'></button>";
+        assert_eq!(styles_of(html, "button").iter().map(|s| s.native).collect::<Vec<_>>(), [true, false, false, false, true, false]);
+        assert!(!styles_of("<div></div>", "div")[0].native);
     }
 
     #[test]

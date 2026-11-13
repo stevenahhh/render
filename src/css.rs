@@ -338,6 +338,8 @@ pub enum Decl {
     ClipText(bool),
     /// `None` is `inherit`.
     Color(Option<Color>),
+    /// `appearance`: false for `none`, which draws a form control from its CSS alone.
+    Appearance(bool),
     FontSize(FontSize),
     Weight(FontWeight),
     Italic(bool),
@@ -1904,6 +1906,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             "revert" | "revert-layer" => Some(D::AllRevert),
             _ => None,
         }),
+        "appearance" | "-webkit-appearance" => push(Some(D::Appearance(v != "none"))),
         "visibility" => push(match v {
             "visible" | "initial" => Some(D::Visible(Some(true))),
             "hidden" | "collapse" => Some(D::Visible(Some(false))),

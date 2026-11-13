@@ -68,6 +68,34 @@ pub(super) fn rendered_legend(dom: &Dom, st: &[Style], n: NodeId) -> NodeId {
     }
 }
 
+/// What the platform draws in place of the CSS background and border of a native
+/// control `n` styled `s`: WebKit's thin-edged text fields, grey rounded push buttons
+/// and lists, blue submit buttons and filled checked boxes. None draws the CSS.
+pub(super) fn native_deco(dom: &Dom, n: NodeId, s: &Style) -> Option<BoxDeco> {
+    let is = |t: &str| dom.attr(n, atom::TYPE).is_some_and(|ty| ty.trim().eq_ignore_ascii_case(t));
+    let blue = Color(0xFF00_7AFF);
+    let (bg, edge, radius) = match control(dom, n) {
+        Some(Control::Field | Control::Area) => (s.bg, Some(Color(0xFFC0_C0C0)), Len::Px(2.0)),
+        Some(Control::Button) if is("submit") => (blue, None, Len::Px(5.0)),
+        None if dom.nodes[n as usize].tag == atom::BUTTON => (Color(0xFFEB_EBEB), None, Len::Px(5.0)),
+        Some(Control::Button | Control::Select) => (Color(0xFFEB_EBEB), None, Len::Px(5.0)),
+        Some(Control::Widget) if is("checkbox") || is("radio") => {
+            let checked = dom.atoms.get("checked").is_some_and(|a| dom.attr(n, a).is_some());
+            (if checked { blue } else { s.bg }, Some(if checked { blue } else { Color(0xFF80_8080) }), s.radius[0])
+        }
+        _ => return None,
+    };
+    let o = s.opacity;
+    Some(BoxDeco {
+        bg: bg.with_opacity(o),
+        bw: [if edge.is_some() { 1.0 } else { 0.0 }; 4],
+        bc: [edge.unwrap_or(Color::TRANSPARENT).with_opacity(o); 4],
+        radius: [radius; 4],
+        grad: None,
+        shadow: None,
+    })
+}
+
 /// A positive integer attribute such as `size`, or `default` without a valid one.
 fn count(dom: &Dom, n: NodeId, name: u32, default: f32) -> f32 {
     dom.attr(n, name).and_then(|v| v.trim().parse::<u32>().ok()).filter(|&v| v > 0).map_or(default, |v| v as f32)
@@ -210,6 +238,8 @@ impl Engine<'_> {
         let placeholder = Color(0xFFA9_A9A9);
         let mut owned = String::new();
         let (text, color) = match c {
+            // WebKit draws the label of a blue submit button in white.
+            Control::Button if s.native && dom.attr(n, atom::TYPE).is_some_and(|t| t.trim().eq_ignore_ascii_case("submit")) => (label(dom, n), Color::WHITE),
             Control::Button => (label(dom, n), s.color),
             Control::Select => {
                 let (texts, shown) = options(dom, n);

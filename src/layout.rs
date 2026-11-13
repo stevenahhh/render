@@ -16,7 +16,7 @@ use std::rc::Rc;
 mod control;
 mod float;
 mod grid;
-use control::{control, rendered_legend, sized_by_content};
+use control::{control, native_deco, rendered_legend, sized_by_content};
 use float::FloatBox;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -929,7 +929,10 @@ impl<'a> Engine<'a> {
             }
             report.unwrap_or(frame)
         } else if s.visible && s.has_deco() {
-            self.push_box(n, s, x, y, w, 0.0)
+            match s.native.then(|| native_deco(self.dom, n, s)).flatten() {
+                Some(deco) => self.push_deco(n, x, y, w, 0.0, deco),
+                None => self.push_box(n, s, x, y, w, 0.0),
+            }
         } else if self.out.record_boxes {
             self.out.items.push(Item { x, y, w, h: 0.0, kind: Kind::Area, node: n, data: 0 });
             self.mark() - 1
