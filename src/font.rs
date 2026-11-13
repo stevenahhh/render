@@ -505,10 +505,22 @@ impl Fonts {
     pub fn segments(&mut self, primary: u8, s: &str, size: f32, spacing: f32, out: &mut Vec<Seg>) {
         self.prime(primary);
         let f = self.faces[primary as usize].as_ref().unwrap();
-        if f.ascii_full && s.is_ascii() {
-            let w: f32 = s.bytes().map(|c| f.ascii[c as usize].1).sum();
-            out.push(Seg { face: primary, start: 0, end: s.len() as u32, w: w * size + spacing * s.len() as f32 });
-            return;
+        if f.ascii_full {
+            // One pass: the same left-to-right sum as before, stopping at the first
+            // byte outside ASCII.
+            let mut w = 0.0f32;
+            let mut ascii = true;
+            for &c in s.as_bytes() {
+                if c >= 0x80 {
+                    ascii = false;
+                    break;
+                }
+                w += f.ascii[c as usize].1;
+            }
+            if ascii {
+                out.push(Seg { face: primary, start: 0, end: s.len() as u32, w: w * size + spacing * s.len() as f32 });
+                return;
+            }
         }
         let (mut cur, mut start, mut w) = (primary, 0, 0.0);
         for (i, c) in s.char_indices() {
@@ -656,6 +668,20 @@ mod tests {
     fn pick(faces: &[FontFace], weight: u16, italic: bool) -> (u16, bool) {
         let f = best_face(faces.iter(), weight, italic).unwrap();
         (f.weight.0, f.italic)
+    }
+
+    #[test]
+    fn ascii_segments_measure_as_the_whole_word_and_others_per_character() {
+        let mut fonts = Fonts::new();
+        let mut segs = Vec::new();
+        fonts.segments(0, "Layout, measured.", 16.0, 0.5, &mut segs);
+        assert_eq!(segs.len(), 1);
+        assert_eq!(segs[0].w.to_bits(), fonts.measure(0, "Layout, measured.", 16.0, 0.5).to_bits());
+        segs.clear();
+        fonts.segments(0, "caf\u{e9}s", 16.0, 0.0, &mut segs);
+        let per_char: f32 = "caf\u{e9}s".chars().map(|c| fonts.lookup(0, c).2 * 16.0).sum();
+        assert_eq!(segs.iter().map(|s| s.w).sum::<f32>(), per_char);
+        assert_eq!(segs.last().unwrap().end, "caf\u{e9}s".len() as u32);
     }
 
     #[test]
