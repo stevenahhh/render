@@ -3,6 +3,7 @@
 use crate::dom::{Atom, Interner};
 pub use crate::media::{media_matches, Media};
 
+pub mod drops;
 mod grid;
 pub use grid::{Areas, Breadth, GridPos, LineName, Track, TrackList};
 use crate::FxMap;
@@ -1375,6 +1376,9 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
     };
     // A CSS-wide keyword resets a property that is not inherited to its initial value.
     if matches!(v, "initial" | "unset" | "revert" | "revert-layer") {
+        if v.starts_with("revert") {
+            drops::note("keyword-as-initial", v);
+        }
         if let Some(&(_, initial)) = INITIAL.iter().find(|(n, _)| *n == name) {
             return parse_decl(name, initial, out);
         }
@@ -1840,7 +1844,11 @@ pub fn parse_declarations(body: &str) -> (Vec<Decl>, Vec<Decl>, bool) {
             out.push(Decl::Deferred(lname.into(), val.into()));
             dynamic = true;
         } else {
+            let before = out.len();
             parse_decl(&lname, val, out);
+            if out.len() == before {
+                drops::note("decl", &lname);
+            }
         }
     }
     (normal, imp, dynamic)
@@ -2153,7 +2161,10 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                     match name.as_str() {
                         "before" => c.elem = BEFORE,
                         "after" => c.elem = AFTER,
-                        _ => c.pseudos.push(Pseudo::Never),
+                        _ => {
+                            drops::note("pseudo-element", &name);
+                            c.pseudos.push(Pseudo::Never)
+                        }
                     }
                     if *i < b.len() && b[*i] == b'(' {
                         *i = block_end(b, *i)? + 1;
@@ -2204,7 +2215,10 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                     "empty" => Pseudo::Empty,
                     "defined" => Pseudo::Defined,
                     "modal" => Pseudo::Modal,
-                    _ => Pseudo::Never,
+                    _ => {
+                        drops::note("pseudo-class", &name);
+                        Pseudo::Never
+                    }
                 });
             }
             ch if ch.is_ascii_alphabetic() || matches!(ch, b'_' | b'-' | b'\\') || ch >= 0x80 => {
@@ -2497,6 +2511,7 @@ impl Sheet {
                     *i = skip_block(b, open);
                     self.fonts.extend(font_face(&s[open..(*i - 1).max(open)]));
                 } else {
+                    drops::note("at-rule", prelude.split(|c: char| c.is_ascii_whitespace() || c == '(').next().unwrap_or(prelude));
                     *i = skip_block(b, *i);
                 }
                 continue;

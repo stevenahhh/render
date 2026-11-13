@@ -145,6 +145,7 @@ fn screenshot(a: &Args, out: &Path) -> std::io::Result<()> {
     let scroll = a.scroll.clamp(0.0, (page.layout.height - a.height).max(0.0));
     paint(&page.layout, &mut fonts, &mut page.images, &mut target, scroll, a.scale);
     scrollbar(&mut target, scroll, page.layout.height, a.scale);
+    render::css::drops::report();
     write_bmp(out, &buf, w, h)
 }
 
@@ -157,16 +158,32 @@ fn boxes(a: &Args, selectors: &Path) -> std::io::Result<()> {
     let mut page = Page::load(&a.path)?;
     page.record_boxes = true;
     page.settle(&mut fonts, a.width, a.height, SETTLE);
+    let extra = std::env::var_os("RENDER_TEXT_RUNS").is_some_and(|v| v == "1");
     let mut out = String::new();
     for (i, sel) in list.lines().enumerate() {
-        match page.describe(sel) {
+        let described = match page.describe(sel) {
+            Some((None, css)) if extra => Some((page.image_rect(sel), css)),
+            d => d,
+        };
+        match described {
             Some((Some([x, y, w, h]), css)) => out += &format!("{i} {x:.1} {y:.1} {w:.1} {h:.1} | {css}\n"),
             Some((None, css)) => out += &format!("{i} - | {css}\n"),
             None => out += &format!("{i} ?\n"),
         }
     }
     out += &format!("height {:.1}\n", page.layout.height);
+    // With RENDER_TEXT_RUNS=1, images stand in for missing boxes above, and every text
+    // fragment laid out follows: `text x y w h | words`.
+    if extra {
+        let l = &page.layout;
+        for it in l.items.iter().filter(|i| i.kind == render::layout::Kind::Text) {
+            let run = &l.texts[it.data as usize];
+            let text = l.text.get(run.start as usize..(run.start + run.len) as usize).unwrap_or_default();
+            out += &format!("text {:.1} {:.1} {:.1} {:.1} | {}\n", it.x, it.y, it.w, it.h, text.replace('\n', " "));
+        }
+    }
     print!("{out}");
+    render::css::drops::report();
     Ok(())
 }
 

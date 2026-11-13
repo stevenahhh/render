@@ -726,6 +726,13 @@ impl Page {
         Some((rect, self.styles.get(n as usize).map(|s| s.css()).unwrap_or_default()))
     }
 
+    /// Where the first element matching a selector draws its picture, for elements such
+    /// as `<img>` that have no box item of their own.
+    pub fn image_rect(&mut self, selector: &str) -> Option<[f32; 4]> {
+        let n = *crate::style::query(&mut self.dom, 0, selector, true).first()?;
+        self.layout.items.iter().find(|i| i.node == n && i.kind == Kind::Image).map(|i| [i.x, i.y, i.w, i.h])
+    }
+
     /// Describes the computed box of every element matching a selector.
     pub fn inspect(&mut self, selector: &str) -> Vec<String> {
         let found = crate::style::query(&mut self.dom, 0, selector, false);
