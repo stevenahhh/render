@@ -376,6 +376,8 @@ struct Inl {
     queued: Vec<NodeId>,
     /// How far `vertical-align` of the open inline boxes raises their content.
     shift: f32,
+    /// The current line holds a box aligned to its top or bottom.
+    edges: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -998,8 +1000,9 @@ impl<'a> Engine<'a> {
         if !saved_first.is_nan() {
             self.first_bl = saved_first;
         }
+        let translated = s.rare().translate != [Len::Px(0.0); 2];
         // A transformed box is the containing block of the positioned boxes in it.
-        if s.position != Position::Static || s.rare().translate != [Len::Px(0.0); 2] {
+        if s.position != Position::Static || translated {
             let keep = (self.last_bl, self.first_bl);
             self.layout_abs_children(abs_mark, x + bl, y + bt, w - bl - br, h - bt - bb);
             (self.last_bl, self.first_bl) = keep;
@@ -1017,7 +1020,7 @@ impl<'a> Engine<'a> {
             let end = self.mark();
             self.shift(first_item, end, dx, dy);
         }
-        if s.rare().translate != [Len::Px(0.0); 2] {
+        if translated {
             let end = self.mark();
             self.shift(first_item, end, rs(s.rare().translate[0], w), rs(s.rare().translate[1], h));
         }
@@ -1198,6 +1201,7 @@ impl<'a> Engine<'a> {
             lines: 0,
             kept: (NONE, y, cx + cw),
             shift: 0.0,
+            edges: false,
             ..il
         };
         il.queued.clear();
@@ -1260,19 +1264,16 @@ impl<'a> Engine<'a> {
                 o.item = NONE;
             }
         }
-        let (mut above, mut below, mut edges) = (il.above, il.below, false);
+        let (mut above, mut below) = (il.above, il.below);
         for f in &il.frags {
-            if f.edge == 0 {
-                above = above.max(f.above);
-                below = below.max(f.below);
-            } else {
-                edges = true;
-            }
+            above = above.max(f.above);
+            below = below.max(f.below);
         }
-        if edges {
-            // Boxes aligned to the top or bottom of the line make it tall enough to hold them.
+        if il.edges {
+            // Boxes aligned to the top or bottom of the line, whose height is their
+            // `top`, make it tall enough to hold them.
             for f in il.frags.iter().filter(|f| f.edge != 0) {
-                let h = f.above + f.below;
+                let h = f.top;
                 if above + below < h {
                     if f.edge == 1 { below = h - above } else { above = h - below }
                 }
@@ -1286,7 +1287,7 @@ impl<'a> Engine<'a> {
                 let dy = match f.edge {
                     0 => above - f.top,
                     1 => 0.0,
-                    _ => above + below - f.above - f.below,
+                    _ => above + below - f.top,
                 };
                 for it in range {
                     it.x += dx;
@@ -1313,6 +1314,7 @@ impl<'a> Engine<'a> {
         il.content = false;
         il.last_text = NONE;
         il.frags.clear();
+        il.edges = false;
         if !il.queued.is_empty() {
             self.place_queued(il);
         }
@@ -1378,7 +1380,7 @@ impl<'a> Engine<'a> {
                 }
                 let face = face_of(self.fonts, s);
                 let (asc, desc, _) = self.fonts.metrics(face);
-                let shift = self.span_shift(n, asc, desc);
+                let shift = if s.rare().valign == VAlign::Baseline { 0.0 } else { self.span_shift(n, asc, desc) };
                 il.shift += shift;
                 il.x += sd.ml;
                 il.open.push(Open {
@@ -1427,6 +1429,7 @@ impl<'a> Engine<'a> {
     /// How far `vertical-align` raises the content of the inline box `n` (with font
     /// ascent and descent `asc` and `desc`, in em) above its parent's baseline. The
     /// sub and super offsets are WebKit's; `top` and `bottom` raise nothing here.
+    #[cold]
     fn span_shift(&mut self, n: NodeId, asc: f32, desc: f32) -> f32 {
         let s = &self.st[n as usize];
         let valign = s.rare().valign;
@@ -1484,7 +1487,6 @@ impl<'a> Engine<'a> {
             _ if r.baseline.is_nan() || s.overflow_hidden => outer_h,
             _ => sd.mt + r.baseline,
         };
-        let (pasc, pdesc, _) = self.fonts.metrics(face);
         let pfs = ps.font_size;
         let (above, edge) = match s.rare().valign {
             VAlign::Baseline => (base + il.shift, 0),
@@ -1492,8 +1494,8 @@ impl<'a> Engine<'a> {
             VAlign::Bottom => (outer_h, 2),
             // The box's middle at half the parent's x-height (taken as 0.5em) above its baseline.
             VAlign::Middle => ((outer_h + pfs * 0.5) / 2.0 + il.shift, 0),
-            VAlign::TextTop => (pasc * pfs + il.shift, 0),
-            VAlign::TextBottom => (outer_h - pdesc * pfs + il.shift, 0),
+            VAlign::TextTop => (self.fonts.metrics(face).0 * pfs + il.shift, 0),
+            VAlign::TextBottom => (outer_h - self.fonts.metrics(face).1 * pfs + il.shift, 0),
             VAlign::Sub => (base - (pfs / 5.0 + 1.0) + il.shift, 0),
             VAlign::Super => (base + pfs / 3.0 + 1.0 + il.shift, 0),
             VAlign::Len(l) => {
@@ -1503,7 +1505,15 @@ impl<'a> Engine<'a> {
                 (base + rs(l, a + b) + il.shift, 0)
             }
         };
-        il.frags.push(LFrag { first, end: self.mark(), above, below: outer_h - above, top: above, kind: F_ATOMIC, edge });
+        // A box at the line's top or bottom adds no extent here: `finish_line` fits the
+        // line to it, with its height in `top`.
+        let frag = if edge == 0 {
+            LFrag { first, end: self.mark(), above, below: outer_h - above, top: above, kind: F_ATOMIC, edge }
+        } else {
+            il.edges = true;
+            LFrag { first, end: self.mark(), above: 0.0, below: 0.0, top: outer_h, kind: F_ATOMIC, edge }
+        };
+        il.frags.push(frag);
         il.x += space_w + outer_w;
         il.content = true;
         il.last_text = NONE;
