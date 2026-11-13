@@ -363,7 +363,7 @@ impl Engine<'_> {
                     continue;
                 }
                 if is_abs(cs) {
-                    self.abs.push((c, cx, y));
+                    self.defer_abs(c, cx, y);
                     continue;
                 }
             }

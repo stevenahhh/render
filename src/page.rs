@@ -1681,6 +1681,16 @@ mod tests {
     }
 
     #[test]
+    fn positioned_boxes_of_one_z_index_paint_in_tree_order() {
+        let css = "body{margin:0} div{position:relative;height:10px} #a{position:absolute;width:10px;background:red} #b{background:blue}";
+        let (mut page, _) = after_script(css, "<div id=p><div id=a></div><div id=b></div></div>", "$('a').title='x';");
+        let a = query(&mut page.dom, 0, "#a", false)[0];
+        let b = query(&mut page.dom, 0, "#b", false)[0];
+        let at = |n| page.layout.items.iter().position(|it| it.node == n);
+        assert!(at(a).unwrap() < at(b).unwrap(), "{:?} {:?}", at(a), at(b));
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";

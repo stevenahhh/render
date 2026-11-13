@@ -455,13 +455,20 @@ struct Engine<'a> {
     pics: FxMap<NodeId, Option<(u32, f32, f32)>>,
     /// Replaced elements whose image is still downloading.
     waiting: FxMap<NodeId, ()>,
-    /// Positioned boxes not yet ordered by a stacking context: (first item, end, z-index).
-    zranges: Vec<(u32, u32, i32)>,
+    /// Positioned boxes not yet ordered by a stacking context: (first item, end,
+    /// z-index, tree order).
+    zranges: Vec<(u32, u32, i32, u32)>,
     vw: f32,
     vh: f32,
     out: Layout,
-    /// Out-of-flow boxes waiting for their containing block: (node, static x, static y).
-    abs: Vec<(NodeId, f32, f32)>,
+    /// Out-of-flow boxes waiting for their containing block: (node, static x,
+    /// static y, tree order).
+    abs: Vec<(NodeId, f32, f32, u32)>,
+    /// Counts the boxes met, in tree order: positioned boxes of the same z-index
+    /// are painted in this order.
+    seq: u32,
+    /// The tree order of the out-of-flow box being laid out, or `NONE`.
+    abs_seq: u32,
     /// Memoized max-content widths (margin box), NaN until computed.
     intr: Vec<f32>,
     /// Memoized min-content widths (margin box), NaN until computed.
@@ -496,6 +503,8 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
         vh,
         out: reuse,
         abs: Vec::new(),
+        seq: 0,
+        abs_seq: NONE,
         intr: vec![NAN; dom.nodes.len()],
         intr_min: vec![NAN; dom.nodes.len()],
         widest: [NAN; 256],
@@ -738,7 +747,7 @@ impl<'a> Engine<'a> {
                     continue;
                 }
                 if is_abs(cs) {
-                    self.abs.push((c, cx, cur + pend));
+                    self.defer_abs(c, cx, cur + pend);
                     c = node.next;
                     continue;
                 }
@@ -852,6 +861,12 @@ impl<'a> Engine<'a> {
         let vextra = sd.pt + sd.pb + bt + bb;
         let tag = dom_tag(self.dom, n);
         let ord = self.next_ord;
+        let seq = if self.abs_seq == NONE {
+            self.seq += 1;
+            self.seq
+        } else {
+            std::mem::replace(&mut self.abs_seq, NONE)
+        };
 
         let first_item = self.mark();
         let item = if s.visible && s.has_deco() {
@@ -958,7 +973,7 @@ impl<'a> Engine<'a> {
         }
         if s.position != Position::Static || s.z_ctx {
             let end = self.mark();
-            self.zranges.push((first_item, end, s.z));
+            self.zranges.push((first_item, end, s.z, seq));
         }
         Res { h, mb: if bfc { sd.mb } else { collapse(sd.mb, mb_out) }, item, baseline }
     }
@@ -1031,12 +1046,18 @@ impl<'a> Engine<'a> {
         self.push_deco(n, cx - size * 0.55 - d, baseline - size * 0.34 - d / 2.0, d, d, deco);
     }
 
+    /// Keeps an out-of-flow box for its containing block, with its static position.
+    fn defer_abs(&mut self, n: NodeId, x: f32, y: f32) {
+        self.seq += 1;
+        self.abs.push((n, x, y, self.seq));
+    }
+
     fn layout_abs_children(&mut self, mark: usize, px: f32, py: f32, pw: f32, ph: f32) {
         if self.abs.len() <= mark {
             return;
         }
         let pending: Vec<_> = self.abs.drain(mark..).collect();
-        for (c, sx, sy) in pending {
+        for (c, sx, sy, seq) in pending {
             let st = self.st;
             let s = &st[c as usize];
             // A fixed box is placed against the viewport, not its positioned ancestor.
@@ -1074,6 +1095,7 @@ impl<'a> Engine<'a> {
                 (None, None) => sy + sd.mt,
             };
             let first = self.mark();
+            self.abs_seq = seq;
             let res = self.layout_box(c, x, y0, w, pw, ph, forced_h, true);
             if let (None, Some(b)) = (t, b) {
                 let end = self.mark();
@@ -1271,7 +1293,7 @@ impl<'a> Engine<'a> {
         let s = &st[n as usize];
         match s.display {
             Display::None => {}
-            _ if is_abs(s) => self.abs.push((n, il.cx + il.x, il.y)),
+            _ if is_abs(s) => self.defer_abs(n, il.cx + il.x, il.y),
             _ if s.float != 0 => self.inline_float(il, n),
             Display::Inline => {
                 if node.tag == atom::BR {
@@ -1635,7 +1657,7 @@ impl<'a> Engine<'a> {
             } else {
                 let cs = &st[c as usize];
                 if is_abs(cs) && cs.display != Display::None {
-                    self.abs.push((c, cx, y));
+                    self.defer_abs(c, cx, y);
                 } else if cs.display != Display::None {
                     it.text = false;
                     it.sd = sides(cs, cw);
@@ -1960,17 +1982,19 @@ impl<'a> Engine<'a> {
         if self.zranges.len() <= zmark {
             return;
         }
-        let mut ranges: Vec<(u32, u32, i32)> = self.zranges.drain(zmark..).collect();
+        let mut ranges: Vec<(u32, u32, i32, u32)> = self.zranges.drain(zmark..).collect();
         ranges.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
         let hi = self.mark();
-        let span = |r: &(u32, u32, i32)| (r.0.max(lo) - lo) as usize..(r.1.min(hi).max(lo) - lo) as usize;
+        let span = |r: &(u32, u32, i32, u32)| (r.0.max(lo) - lo) as usize..(r.1.min(hi).max(lo) - lo) as usize;
         let items = &mut self.out.items[lo as usize..hi as usize];
         let mut owner = vec![u32::MAX; items.len()];
         for (k, r) in ranges.iter().enumerate() {
             owner[span(r)].fill(k as u32);
         }
         let mut order: Vec<u32> = (0..ranges.len() as u32).collect();
-        order.sort_by_key(|&k| (ranges[k as usize].2, k));
+        // Out-of-flow boxes are laid out after the content that follows them,
+        // so tree order, not item order, breaks ties of z-index.
+        order.sort_by_key(|&k| (ranges[k as usize].2, ranges[k as usize].3));
         let mut sorted: Vec<Item> = Vec::with_capacity(items.len());
         let emit = |k: u32, sorted: &mut Vec<Item>| {
             let r = span(&ranges[k as usize]);
