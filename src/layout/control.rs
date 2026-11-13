@@ -2,7 +2,7 @@
 //! place of children, and the size WebKit gives one whose `width` or `height` is auto,
 //! from its font and its `size`, `cols` and `rows` attributes.
 
-use super::{face_of, line_extent, BoxDeco, Engine, Item, Kind};
+use super::{face_of, line_extent, rs, BoxDeco, Engine, Item, Kind};
 use crate::css::{Color, Len, TextAlign};
 use crate::dom::{atom, Dom, NodeId, NONE};
 use crate::style::Style;
@@ -109,14 +109,35 @@ impl Engine<'_> {
         let (above, below) = line_extent(s, asc, desc, gap);
         let lh = above + below;
         let h = match c {
-            Control::Widget => return 0.0,
+            Control::Widget => 0.0,
             Control::Area => lh * count(dom, n, atom::ROWS, 2.0),
             _ => lh,
         };
         let box_h = if inner_h.is_nan() { h } else { inner_h };
         let top = if c == Control::Area { cy } else { cy + (box_h - lh) / 2.0 };
-        self.last_bl = top + above;
-        let placeholder = Color(0xFF75_7575);
+        match c {
+            // WebKit puts a checkbox's baseline 2px above its bottom border edge, a
+            // slider's on that edge and a colour well's 3px above it; a file picker's
+            // is that of its button's label.
+            Control::Widget => {
+                let bottom = cy + box_h + rs(s.padding[2], 0.0) + s.bw[2];
+                let is = |t: &str| dom.attr(n, atom::TYPE).is_some_and(|ty| ty.trim().eq_ignore_ascii_case(t));
+                if is("checkbox") || is("radio") {
+                    self.last_bl = bottom - 2.0;
+                } else if is("range") {
+                    self.last_bl = bottom;
+                } else if is("color") {
+                    self.last_bl = bottom - 3.0;
+                } else if is("file") {
+                    self.last_bl = top + above;
+                }
+                return 0.0;
+            }
+            // A `<textarea>` sits on its bottom margin edge, as an inline-block that clips.
+            Control::Area => {}
+            _ => self.last_bl = top + above,
+        }
+        let placeholder = Color(0xFFA9_A9A9);
         let mut owned = String::new();
         let (text, color) = match c {
             Control::Button => (label(dom, n), s.color),

@@ -82,20 +82,26 @@ td, th { display: block; flex: 1 1 0; padding: 1px }
 th { text-align: center }
 img { display: inline-block; color: #666; font-size: 12px; overflow: hidden }
 [popover]:not(:popover-open) { display: none }
-input, button, select, textarea { display: inline-block; box-sizing: border-box;
-  font-family: sans-serif; font-size: 13.33px; font-weight: normal; font-style: normal;
-  color: #000; border: 1px solid #767676; border-radius: 3px; line-height: normal;
-  text-align: left; text-transform: none; letter-spacing: normal; cursor: default }
-input, select, textarea { background: #fff; padding: 2px 4px }
-button, input[type=submit], input[type=button], input[type=reset] { background: #efefef;
-  padding: 2px 7px; width: auto; text-align: center; white-space: nowrap }
-input[type=checkbox], input[type=radio] { width: 13px; height: 13px; padding: 0; margin: 3px }
+input, button, select, textarea { display: inline-block; margin: 0; font: 11px system-ui;
+  color: #000; letter-spacing: normal; text-transform: none; text-align: start; cursor: auto }
+input, textarea { background-color: #fff; padding: 0.25em 0.5em; border: 2px solid #c0c0c0 }
+textarea { border-width: 1px; white-space: pre-wrap }
+input[type=search] { box-sizing: border-box }
+button, input[type=submit], input[type=button], input[type=reset] { box-sizing: border-box;
+  padding: 0 6px 1px; border: 2px solid #c0c0c0; background-color: #c0c0c0;
+  color: rgba(0, 0, 0, 0.847); text-align: center; cursor: default }
+input[type=submit], input[type=button], input[type=reset], select { white-space: pre }
+select { box-sizing: border-box; padding: 2px 23px 3px 8px; border: 1px solid rgba(0, 0, 0, 0.847);
+  border-radius: 5px; background-color: #fff; color: rgba(0, 0, 0, 0.847); cursor: default }
+input[type=checkbox], input[type=radio] { box-sizing: border-box; width: 12px; height: 12px;
+  margin: 3px 2px; padding: 0; border: 1px solid #808080; border-radius: 3px }
 input[type=radio] { border-radius: 50% }
 input[type=range] { width: 129px; height: 16px; margin: 2px; padding: 0; border: 0; background: none }
 input[type=color] { width: 44px; height: 23px; padding: 1px; box-sizing: border-box }
 input[type=file] { width: 238px; height: 18px; padding: 0; border: 0; background: none }
 input[type=hidden] { display: none }
-textarea { white-space: pre; font-family: monospace }
+fieldset { margin: 0 2px; padding: 0.35em 0.75em 0.625em; border: 2px solid #c0c0c0 }
+legend { padding: 0 2px }
 ";
 
 /// A script of the page, waiting for its turn.
@@ -1635,6 +1641,23 @@ mod tests {
         assert_eq!(rect("#p")[2], 512.0);
         let (l, q) = (rect("#l"), rect("#q"));
         assert_eq!(q[1] - l[1], 10.0, "the field's text is on the line's baseline");
+    }
+
+    #[test]
+    fn checkboxes_sliders_and_text_areas_sit_on_the_baseline_where_webkit_puts_them() {
+        let css = "body{margin:0} div{font:20px/60px sans-serif} .m{display:inline-block;width:1px;height:0}";
+        let mark = "x<span class=m></span>";
+        let body = format!("<div id=a>{mark}<input type=checkbox id=c></div><div id=b>{mark}<input type=range id=r></div><div id=d>{mark}<textarea id=t></textarea></div>");
+        let (mut page, _) = after_script(css, &body, "$('c').title='x';");
+        let mut rect = |sel: &str| page.describe(sel).and_then(|d| d.0).unwrap();
+        let baseline = |m: [f32; 4]| m[1] + m[3];
+        for (div, control, above) in [("#a", "#c", 10.0), ("#b", "#r", 16.0)] {
+            let (m, c) = (rect(&format!("{div} .m")), rect(control));
+            assert_eq!((c[2], c[3]), if control == "#c" { (12.0, 12.0) } else { (129.0, 16.0) });
+            assert_eq!(baseline(m) - c[1], above, "{control}");
+        }
+        let (m, t) = (rect("#d .m"), rect("#t"));
+        assert_eq!(baseline(m), t[1] + t[3]);
     }
 
     #[test]
