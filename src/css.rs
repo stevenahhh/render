@@ -404,6 +404,8 @@ pub enum Decl {
     VAlign(VAlign),
     /// `aspect-ratio` as width over height; 0 for `auto`.
     AspectRatio(f32),
+    /// `margin-trim` in the block axis: `TRIM_START` and `TRIM_END` bits.
+    MarginTrim(u8),
     /// SVG fill; `None` is currentColor.
     Fill(Option<Color>),
     /// Custom property definition.
@@ -1160,6 +1162,25 @@ fn size(v: &str) -> Option<Len> {
     }
 }
 
+pub const TRIM_START: u8 = 1;
+pub const TRIM_END: u8 = 2;
+
+/// The block-axis sides `margin-trim` trims; the inline-axis keywords trim
+/// nothing a block container lays out.
+fn margin_trim(v: &str) -> Option<u8> {
+    let mut bits = 0;
+    for t in v.split_ascii_whitespace() {
+        bits |= match t {
+            "none" | "inline" | "inline-start" | "inline-end" => 0,
+            "block" => TRIM_START | TRIM_END,
+            "block-start" => TRIM_START,
+            "block-end" => TRIM_END,
+            _ => return None,
+        };
+    }
+    Some(bits)
+}
+
 /// `aspect-ratio`: `auto`, a number or `w / h`, with or without `auto` beside it;
 /// 0 for `auto` alone.
 fn aspect_ratio(v: &str) -> Option<f32> {
@@ -1385,6 +1406,7 @@ const INITIAL: &[(&str, &str)] = &[
     ("flex-wrap", "nowrap"),
     ("order", "0"),
     ("aspect-ratio", "auto"),
+    ("margin-trim", "none"),
     ("align-self", "auto"),
     ("justify-self", "auto"),
     ("overflow", "visible"),
@@ -1591,6 +1613,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         | "grid-column-start" | "grid-column-end" | "justify-items" | "justify-self" | "place-items" | "place-self" => grid::parse_grid(name, v, out),
         "order" => push(v.parse().ok().map(D::Order)),
         "aspect-ratio" => push(aspect_ratio(v).map(D::AspectRatio)),
+        "margin-trim" => push(margin_trim(v).map(D::MarginTrim)),
         "vertical-align" => push(
             match v {
                 "baseline" => Some(VAlign::Baseline),

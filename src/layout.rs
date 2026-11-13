@@ -665,7 +665,8 @@ impl<'a> Engine<'a> {
             && s.padding[0] == Len::Px(0.0)
             && s.bw[0] == 0.0
             && !s.overflow_hidden;
-        if !plain {
+        // Trimmed, the margins of its first children no longer reach its own.
+        if !plain || s.rare().margin_trim & TRIM_START != 0 {
             return m;
         }
         let mut c = self.dom.nodes[n as usize].first_child;
@@ -742,6 +743,7 @@ impl<'a> Engine<'a> {
         let dom = self.dom;
         let st = self.st;
         let pre = matches!(st[n as usize].white_space, WhiteSpace::Pre | WhiteSpace::PreWrap);
+        let trim = st[n as usize].rare().margin_trim;
         let (mut cur, mut pend, mut first) = (y, 0.0f32, true);
         let mut ord = match dom.attr(n, atom::START) {
             Some(v) if dom.nodes[n as usize].tag == atom::OL => v.trim().parse().unwrap_or(1),
@@ -794,9 +796,12 @@ impl<'a> Engine<'a> {
                 c = e;
                 continue;
             }
-            let mt = self.collapsed_top(c);
-            // The parent's top margin already holds those of an empty first child.
-            let into_parent = first && top_coll && self.empty_through(c);
+            // `margin-trim` drops the margins adjoining the container's start (CSS Box 4).
+            let trim_start = first && trim & TRIM_START != 0;
+            let mt = if trim_start { 0.0 } else { self.collapsed_top(c) };
+            // The parent's top margin already holds those of an empty first child,
+            // and a trimmed one has none.
+            let into_parent = first && (top_coll || trim_start) && self.empty_through(c);
             let adjoining = collapse(pend, mt);
             let mut gap = if first && top_coll { 0.0 } else { adjoining };
             let clear = st[c as usize].clear;
@@ -824,6 +829,9 @@ impl<'a> Engine<'a> {
             cur += gap + r.h;
             pend = r.mb;
             first = false;
+        }
+        if trim & TRIM_END != 0 {
+            pend = 0.0;
         }
         if bottom_coll {
             (cur - y, pend)

@@ -1777,6 +1777,16 @@ mod tests {
     }
 
     #[test]
+    fn margin_trim_drops_the_margins_at_a_block_containers_edges() {
+        let css = "body{margin:0} b{display:block} .c{margin-trim:block;margin:10px 0} .i{height:20px;margin:30px 0} .e{margin:50px 0}";
+        let body = "<div class=c id=c><b class=e></b><b class=i id=i1></b><b class=i id=i2></b><b class=e></b></div><b class=i id=after style=margin-top:0></b>";
+        let (mut page, _) = after_script(css, body, "$('c').title='x';");
+        let got = rects(&mut page, &["c", "i1", "i2", "after"]);
+        let w = 1024.0;
+        assert_eq!(got, [[0.0, 10.0, w, 70.0], [0.0, 10.0, w, 20.0], [0.0, 60.0, w, 20.0], [0.0, 90.0, w, 20.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";
