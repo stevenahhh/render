@@ -71,6 +71,11 @@ check('visualViewport', function(){
 });
 </script>
 <script>
+check('intl-call', function(){
+  mark('MISC Intl without new nf:'+Intl.NumberFormat('en-US').format(1234)+' dtf:'+(Intl.DateTimeFormat() instanceof Intl.DateTimeFormat)+' collator:'+typeof Intl.Collator().compare);
+});
+</script>
+<script>
 check('idl-accessors', function(){
   var get=function(o,k){var d=Object.getOwnPropertyDescriptor(o,k);return d&&d.get;};
   var nodeType=get(Node.prototype,'nodeType');

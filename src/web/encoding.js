@@ -202,7 +202,14 @@
       maximize() { return this; }
       minimize() { return this; }
     }
-    const api = { NumberFormat, DateTimeFormat, PluralRules, Collator, RelativeTimeFormat, ListFormat, Segmenter, Locale };
+    // ECMA-402 lets the three oldest constructors be called without `new`.
+    const callable = (C) => {
+      const F = { [C.name]: function (...a) { return Reflect.construct(C, a, new.target || F); } }[C.name];
+      F.prototype = C.prototype;
+      Object.defineProperty(C.prototype, 'constructor', { configurable: true, writable: true, value: F });
+      return F;
+    };
+    const api = { NumberFormat: callable(NumberFormat), DateTimeFormat: callable(DateTimeFormat), PluralRules, Collator: callable(Collator), RelativeTimeFormat, ListFormat, Segmenter, Locale };
     for (const C of Object.values(api)) Object.assign(C, supported);
     return { ...api, getCanonicalLocales: locales, supportedValuesOf: () => [] };
   }
