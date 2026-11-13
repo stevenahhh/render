@@ -1538,7 +1538,7 @@ impl Site {
         if response.status >= 400 {
             return Err(format!("{url}: HTTP {}", response.status));
         }
-        let html = String::from_utf8_lossy(&response.body).into_owned();
+        let html = crate::encoding::decode_document(&response.body, response.header("content-type"), false);
         let first_byte = first_byte.unwrap_or(received);
         let essence = response.header("content-type").and_then(|t| t.split(';').next()).map(|t| t.trim().to_ascii_lowercase());
         let xml = matches!(essence.as_deref(), Some("application/xhtml+xml" | "application/xml" | "text/xml"));

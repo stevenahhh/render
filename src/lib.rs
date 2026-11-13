@@ -5,6 +5,7 @@ pub mod computed;
 pub mod cookie;
 pub mod css;
 pub mod dom;
+pub mod encoding;
 pub mod font;
 pub mod generated;
 pub mod img;

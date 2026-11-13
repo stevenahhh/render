@@ -851,7 +851,7 @@ impl Page {
             return page;
         }
         let bytes = std::fs::read(path)?;
-        Ok(Page::parse(&String::from_utf8_lossy(&bytes), Url::from_path(path), path.parent(), true, None, true))
+        Ok(Page::parse(&crate::encoding::decode_document(&bytes, None, true), Url::from_path(path), path.parent(), true, None, true))
     }
 
     /// The page behind an `http://` or `https://` location, or `None` for a file path.
@@ -990,7 +990,7 @@ impl Page {
             return page;
         }
         let bytes = std::fs::read(path)?;
-        Ok(Page::parse(&String::from_utf8_lossy(&bytes), Url::from_path(path), path.parent(), false, None, true))
+        Ok(Page::parse(&crate::encoding::decode_document(&bytes, None, true), Url::from_path(path), path.parent(), false, None, true))
     }
 
     /// Builds the style sheet again after scripts changed a `<style>` or `<link>`.
