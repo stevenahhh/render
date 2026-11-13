@@ -1329,7 +1329,7 @@ impl<'a> Styler<'a> {
         let mut st = Style::inherit(parent);
         self.cascade(&mut st, parent, &matched, inl);
         let node = &dom.nodes[i as usize];
-        finish(&mut st, parent, node.parent == 0, node.tag == atom::INPUT || dom.shows_image(i));
+        finish(&mut st, parent, node.parent == 0, matches!(node.tag, atom::INPUT | atom::SELECT | atom::TEXTAREA | atom::BUTTON) || dom.shows_image(i));
         if !pseudo.is_empty() {
             let (before, after) = (self.generate(i, &st, &pseudo, BEFORE), self.generate(i, &st, &pseudo, AFTER));
             if before.is_some() || after.is_some() {

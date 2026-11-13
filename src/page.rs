@@ -86,16 +86,16 @@ input, button, select, textarea { display: inline-block; box-sizing: border-box;
   font-family: sans-serif; font-size: 13.33px; font-weight: normal; font-style: normal;
   color: #000; border: 1px solid #767676; border-radius: 3px; line-height: normal;
   text-align: left; text-transform: none; letter-spacing: normal; cursor: default }
-input, select, textarea { background: #fff; padding: 2px 4px; width: 150px }
+input, select, textarea { background: #fff; padding: 2px 4px }
 button, input[type=submit], input[type=button], input[type=reset] { background: #efefef;
   padding: 2px 7px; width: auto; text-align: center; white-space: nowrap }
 input[type=checkbox], input[type=radio] { width: 13px; height: 13px; padding: 0; margin: 3px }
 input[type=radio] { border-radius: 50% }
+input[type=range] { width: 129px; height: 16px; margin: 2px; padding: 0; border: 0; background: none }
+input[type=color] { width: 44px; height: 23px; padding: 1px; box-sizing: border-box }
+input[type=file] { width: 238px; height: 18px; padding: 0; border: 0; background: none }
 input[type=hidden] { display: none }
-textarea { white-space: pre; width: 180px; height: 40px; font-family: monospace }
-select { width: auto }
-option { display: none }
-option:first-child { display: inline }
+textarea { white-space: pre; font-family: monospace }
 ";
 
 /// A script of the page, waiting for its turn.
@@ -1614,6 +1614,29 @@ mod tests {
         assert_eq!(colours(&mut page, root, ".in"), ["00ff00"]);
         assert_eq!(colours(&mut page, 0, "b"), ["ff00ff", "ff00ff"]);
     }
+
+    #[test]
+    fn form_controls_take_their_size_from_size_cols_and_rows_and_sit_on_their_text_baseline() {
+        let css = "body{margin:0} input,textarea,select{font:10px/20px monospace;padding:0;border:0;vertical-align:baseline}\
+                   #f{display:flex;width:300px} #g{flex:1} #l{font:10px/40px monospace}";
+        let body = "<input id=a><input id=b size=5><textarea id=t cols=4 rows=3>x</textarea>\
+                    <select id=s><option>ab</option><option selected>abcdef</option></select>\
+                    <div id=f><input id=g></div><input id=p style='width:50%'><div id=l>x<input id=q></div>";
+        let (mut page, mut fonts) = after_script(css, body, "$('a').title='x';");
+        let face = fonts.face(Some("monospace"), crate::css::Family::Mono, 400, false);
+        let zero = fonts.lookup(face, '0').2 * 10.0;
+        let six = fonts.measure(face, "abcdef", 10.0, 0.0);
+        let mut rect = |sel: &str| page.describe(sel).and_then(|d| d.0).unwrap();
+        assert_eq!(rect("#a")[2..], [(zero * 20.0).ceil(), 20.0]);
+        assert_eq!(rect("#b")[2..], [(zero * 5.0).ceil(), 20.0]);
+        assert_eq!(rect("#t")[2..], [(zero * 4.0).ceil(), 60.0]);
+        assert_eq!(rect("#s")[2..], [six, 20.0]);
+        assert_eq!(rect("#g")[2], 300.0);
+        assert_eq!(rect("#p")[2], 512.0);
+        let (l, q) = (rect("#l"), rect("#q"));
+        assert_eq!(q[1] - l[1], 10.0, "the field's text is on the line's baseline");
+    }
+
     #[test]
     fn generated_boxes_are_laid_out_in_their_element_and_left_out_of_the_document() {
         let css = "body{margin:0;font:16px/20px sans-serif} .m{display:inline-block;width:10px;height:10px}\

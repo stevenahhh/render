@@ -13,8 +13,10 @@ use crate::FxMap;
 use crate::style::Style;
 use std::rc::Rc;
 
+mod control;
 mod float;
 mod grid;
+use control::control;
 use float::FloatBox;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -98,8 +100,13 @@ pub struct Layout {
 
 /// The attributes layout reads. A change of any other attribute, outside an
 /// inline `<svg>` whose markup is drawn whole, leaves the layout as it was.
-pub const READ_ATTRS: [u32; 11] = [
+pub const READ_ATTRS: [u32; 16] = [
     atom::START,
+    atom::SIZE,
+    atom::COLS,
+    atom::ROWS,
+    atom::SELECTED,
+    atom::LABEL,
     atom::ALT,
     atom::VALUE,
     atom::PLACEHOLDER,
@@ -124,7 +131,7 @@ impl Layout {
             let (tag, s) = (dom.nodes[n as usize].tag, &st[n as usize]);
             let marker = s.display == Display::ListItem && s.list_style != ListStyle::None;
             let generated = s.rare().before.is_some() || s.rare().after.is_some();
-            if marker || generated || matches!(tag, atom::INPUT | atom::HTML | atom::BODY) || dom.shows_image(n) {
+            if marker || generated || matches!(tag, atom::HTML | atom::BODY) || control(dom, n).is_some() || dom.shows_image(n) {
                 return false;
             }
             set.insert(n, ());
@@ -959,7 +966,9 @@ impl<'a> Engine<'a> {
         self.last_bl = NAN;
         let saved_first = std::mem::replace(&mut self.first_bl, NAN);
         let outer_bfc = (bfc || bfc_root(s)).then(|| self.enter_bfc());
-        let (mut content_h, mb_out) = if tag == atom::INPUT || self.dom.shows_image(n) {
+        let (mut content_h, mb_out) = if let Some(c) = control(self.dom, n) {
+            (self.control_content(n, s, c, [cx, cy, cw, inner_h]), 0.0)
+        } else if self.dom.shows_image(n) {
             (self.replaced(n, s, cx, cy, cw, inner_h, tag), 0.0)
         } else if s.grid && s.rare().subgrid == 0 {
             (self.layout_grid(n, cx, cw, cy, inner_h), 0.0)
@@ -1038,46 +1047,32 @@ impl<'a> Engine<'a> {
         Res { h, mb: if bfc { sd.mb } else { collapse(sd.mb, mb_out) }, item, baseline }
     }
 
-    /// Content of `<img>` (alt text placeholder) and `<input>` (its value).
+    /// Content of `<img>`: its picture, or its alt text in place of one.
     #[allow(clippy::too_many_arguments)]
     fn replaced(&mut self, n: NodeId, s: &Style, cx: f32, cy: f32, cw: f32, inner_h: f32, tag: u32) -> f32 {
         let dom = self.dom;
-        if tag != atom::INPUT {
-            if let Some((id, _, _)) = self.picture(n) {
-                let h = if inner_h.is_nan() { 0.0 } else { inner_h };
-                if s.visible && s.opacity > 0.0 {
-                    self.push_picture(n, cx, cy, cw, h, PicRef { id, alpha: s.opacity, tile: None });
-                }
-                return h;
+        if let Some((id, _, _)) = self.picture(n) {
+            let h = if inner_h.is_nan() { 0.0 } else { inner_h };
+            if s.visible && s.opacity > 0.0 {
+                self.push_picture(n, cx, cy, cw, h, PicRef { id, alpha: s.opacity, tile: None });
             }
-            if matches!(tag, atom::SVG | atom::VIDEO) {
-                return 0.0;
-            }
-            if self.waiting.contains_key(&n) {
-                // An empty box of the size its attributes give, until the image arrives.
-                return if inner_h.is_nan() { 0.0 } else { inner_h };
-            }
+            return h;
+        }
+        if matches!(tag, atom::SVG | atom::VIDEO) {
+            return 0.0;
+        }
+        if self.waiting.contains_key(&n) {
+            // An empty box of the size its attributes give, until the image arrives.
+            return if inner_h.is_nan() { 0.0 } else { inner_h };
         }
         let face = face_of(self.fonts, s);
         let (asc, desc, gap) = self.fonts.metrics(face);
         let (above, below) = line_extent(s, asc, desc, gap);
-        let (text, color) = if tag == atom::IMG {
-            (dom.attr(n, atom::ALT).unwrap_or(""), s.color)
-        } else {
-            match dom.attr(n, atom::VALUE) {
-                Some(v) if !v.is_empty() => (v, s.color),
-                _ => (dom.attr(n, atom::PLACEHOLDER).unwrap_or(""), Color(0xFF75_7575)),
-            }
-        };
-        let boxy = matches!(dom.attr(n, atom::TYPE), Some("checkbox" | "radio"));
-        if !text.is_empty() && s.visible && !boxy {
-            self.emit_text(n, text, cx, cy + above, s, color.with_opacity(s.opacity));
+        let text = dom.attr(n, atom::ALT).unwrap_or("");
+        if !text.is_empty() && s.visible {
+            self.emit_text(n, text, cx, cy + above, s, s.color.with_opacity(s.opacity));
         }
-        if boxy {
-            0.0
-        } else {
-            above + below
-        }
+        above + below
     }
 
     fn marker(&mut self, n: NodeId, s: &Style, cx: f32, cy: f32, ord: u32) {
@@ -2203,15 +2198,15 @@ impl<'a> Engine<'a> {
                 Len::Px(h) => h * iw / ih,
                 _ => iw,
             }
-        } else if tag == atom::IMG || tag == atom::INPUT {
-            let attr = if tag == atom::IMG { atom::ALT } else { atom::VALUE };
-            let text = dom.attr(n, attr).unwrap_or("");
+        } else if let Some(c) = control(dom, n) {
+            self.control_width(n, s, c)
+        } else if tag == atom::IMG {
             match dom.attr(n, atom::WIDTH).and_then(|v| v.trim().parse::<f32>().ok()) {
-                Some(w) if tag == atom::IMG => (w - extra).max(0.0),
+                Some(w) => (w - extra).max(0.0),
                 _ if self.waiting.contains_key(&n) => 0.0,
                 _ => {
                     let face = face_of(self.fonts, s);
-                    self.fonts.measure(face, text, s.font_size, 0.0).max(if tag == atom::IMG { 16.0 } else { 0.0 })
+                    self.fonts.measure(face, dom.attr(n, atom::ALT).unwrap_or(""), s.font_size, 0.0).max(16.0)
                 }
             }
         } else if s.grid && s.rare().subgrid == 0 {

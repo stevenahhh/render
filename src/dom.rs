@@ -62,6 +62,7 @@ atoms! {
     PICTURE = "picture", NOSCRIPT = "noscript", SVG = "svg", VIDEO = "video", POSTER = "poster",
     COMMENT = "#comment", FRAGMENT = "#document-fragment", TEMPLATE = "template", SHADOW = "#shadow-root",
     SLOT = "slot", IFRAME = "iframe", XMP = "xmp", NOEMBED = "noembed", NOFRAMES = "noframes",
+    SIZE = "size", COLS = "cols", ROWS = "rows", SELECTED = "selected", LABEL = "label",
 }
 
 pub struct Interner {
