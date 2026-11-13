@@ -707,11 +707,13 @@ fn copy_prop(st: &mut Style, src: &Style, name: &str) -> bool {
         }
         "box-shadow" => put_rare(st, |r| &mut r.shadow, sr.shadow.clone()),
         "color" => st.color = src.color,
+        // The font size is settled in the cascade's font pass, before every other
+        // declaration: copying it here would undo a later `font-size`.
         "font" => {
-            (st.font_size, st.weight, st.italic, st.family) = (src.font_size, src.weight, src.italic, src.family);
+            (st.weight, st.italic, st.family) = (src.weight, src.italic, src.family);
             (st.families, st.line_height) = (src.families.clone(), src.line_height);
         }
-        "font-size" => st.font_size = src.font_size,
+        "font-size" => {}
         "font-weight" => st.weight = src.weight,
         "font-style" => st.italic = src.italic,
         "font-family" => (st.family, st.families) = (src.family, src.families.clone()),
@@ -797,10 +799,11 @@ fn revert(st: &mut Style, d: &Decl, ua: &Style) {
         Decl::Revert(name) => {
             copy_prop(st, ua, name);
         }
+        // The font size was settled in the font pass, `all` included; custom properties stay.
         _ => {
-            let vars = st.vars.take();
+            let (vars, font_size) = (st.vars.take(), st.font_size);
             *st = ua.clone();
-            st.vars = vars;
+            (st.vars, st.font_size) = (vars, font_size);
         }
     }
 }
@@ -2399,6 +2402,15 @@ mod tests {
         assert_eq!(s.iter().map(|s| s.font_size).collect::<Vec<_>>(), [20.0, 20.0, 40.0]);
         assert_eq!(s.iter().map(|s| s.display).collect::<Vec<_>>(), [Display::Inline, Display::Inline, Display::Block]);
         assert_eq!(s.iter().map(|s| s.color.0 & 0xff_ffff).collect::<Vec<_>>(), [0x00ff00, 0xff0000, 0x00ff00]);
+    }
+
+    #[test]
+    fn inherit_and_revert_of_the_font_keep_a_font_size_set_after_them() {
+        let html = "<style>div{font-size:10px} p{font:inherit} p.big{font-size:40px} p.v{--s:50px;font-size:var(--s)} b{all:revert} b.s{font-size:30px}</style>\
+                    <div><p></p><p class=big></p><p class=v></p><b class=s></b></div>";
+        let s = styles_of(html, "p");
+        assert_eq!(s.iter().map(|s| s.font_size).collect::<Vec<_>>(), [10.0, 40.0, 50.0]);
+        assert_eq!(styles_of(html, "b")[0].font_size, 30.0);
     }
 
     #[test]
