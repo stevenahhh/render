@@ -1,4 +1,5 @@
-//! Image loading: JPEG/PNG files, AVIF files on macOS, and SVG (files or inline markup).
+//! Image loading: JPEG/PNG/WebP files, the first frame of GIF files, AVIF files on
+//! macOS, and SVG (files or inline markup).
 //!
 //! Layout only needs intrinsic sizes, which come from file headers. Pixels
 //! are decoded when an image is first painted and cached at the size drawn.
@@ -479,6 +480,25 @@ fn rasterize(tree: &usvg::Tree, w: u32, h: u32) -> Option<Picture> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webp_and_the_first_frame_of_a_gif_are_decoded() {
+        use image::codecs::{gif::GifEncoder, webp::WebPEncoder};
+        use image::{Delay, Frame, Rgba, RgbaImage};
+        let dir = std::env::temp_dir().join(format!("render-img-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let red = RgbaImage::from_pixel(3, 2, Rgba([255, 0, 0, 255]));
+        let webp = dir.join("a.webp");
+        red.write_with_encoder(WebPEncoder::new_lossless(std::fs::File::create(&webp).unwrap())).unwrap();
+        let gif = dir.join("a.gif");
+        let frames = [[0, 0, 255, 255], [0, 255, 0, 255]].map(|c| Frame::from_parts(RgbaImage::from_pixel(4, 5, Rgba(c)), 0, 0, Delay::from_numer_denom_ms(100, 1)));
+        GifEncoder::new(std::fs::File::create(&gif).unwrap()).encode_frames(frames).unwrap();
+        assert_eq!(dimensions(&webp), Some((3, 2)));
+        assert_eq!(decode(&webp, 3, 2).unwrap().px, [0xFFFF_0000; 6]);
+        assert_eq!(dimensions(&gif), Some((4, 5)));
+        assert_eq!(decode(&gif, 4, 5).unwrap().px, [0xFF00_00FF; 20]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn enlarging_in_bands_gives_the_pixels_of_a_whole_image_resize() {
