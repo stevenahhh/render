@@ -2405,6 +2405,12 @@ mod tests {
     }
 
     #[test]
+    fn display_inherit_takes_a_parents_display_contents() {
+        let html = "<style>.f{display:flex} .c{display:contents} i{display:inherit}</style><div class=f><span class=c><i></i></span></div>";
+        assert!(styles_of(html, "i")[0].contents, "the child of a display: contents box in a flex container has no box of its own either");
+    }
+
+    #[test]
     fn noscript_stays_hidden_whatever_the_page_says_since_scripting_is_on() {
         let html = "<style>noscript, .n{display:block}</style><p>a</p><noscript class=n><p>x</p></noscript>";
         assert_eq!(styles_of(html, "noscript")[0].display, Display::None);

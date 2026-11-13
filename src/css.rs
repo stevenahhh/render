@@ -1447,6 +1447,8 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
     if matches!(v, "inherit" | "initial" | "unset" | "revert" | "revert-layer") && crate::style::copies(name) {
         let inherited = crate::style::inherited(name);
         match v {
+            // `display` is resolved against the parent in `finish`, which knows its `contents` and grids.
+            "inherit" if name == "display" => {}
             "inherit" => return out.push(D::Inherit(name.into())),
             "unset" if inherited => return out.push(D::Inherit(name.into())),
             "revert" | "revert-layer" => return out.push(D::Revert(name.into())),
