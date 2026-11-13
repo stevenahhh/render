@@ -175,3 +175,4 @@ css-wide-grid.html	GW initial one column second-left:0 width:400
 navigate.html	NAV arrived at navigate-target.html
 misc-globals.html	MISC undisplayed style display:block margin:12px height:7px var:12px
 misc-globals.html	MISC getTotalLength 5.00 60.00 51.42 6.28 34.14 34.14 15.71 20.00 20.00
+misc-globals.html	MISC wrapped lazy method roots:true calls:2

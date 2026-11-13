@@ -123,5 +123,15 @@ check('getTotalLength', function(){
   mark('MISC getTotalLength '+out.join(' '));
 });
 </script>
+<script>
+check('wrapped-lazy', function(){
+  var saved=Element.prototype.attachShadow, calls=0;
+  document.createElement('div').setHTMLUnsafe('<b></b>');
+  Element.prototype.attachShadow=function(o){ calls++; return saved.call(this,o); };
+  var a=document.createElement('div').attachShadow({mode:'open'}), b=document.createElement('p').attachShadow({mode:'open'});
+  mark('MISC wrapped lazy method roots:'+(a instanceof ShadowRoot && b instanceof ShadowRoot)+' calls:'+calls);
+  Element.prototype.attachShadow=saved;
+});
+</script>
 </body>
 </html>

@@ -25,10 +25,25 @@
   // Parts of the platform in web/*.js. A part defines its globals as plain
   // properties, replacing the accessors that loaded it.
   const loaded = new Set();
+  // Methods a part defines on prototypes, each with the stub that stood for it.
+  const stubs = new Map();
   const need = (part) => {
     if (loaded.has(part)) return;
     loaded.add(part);
+    // A page may have replaced a stub with its own wrapper, which calls the stub it
+    // saved: the part's method goes to the stub, the page's wrapper stays in place.
+    const own = (stubs.get(part) || []).map((s) => {
+      const d = Object.getOwnPropertyDescriptor(s.proto, s.k);
+      return d && d.value === s.stub ? null : { d };
+    });
     (0, geval)(__chunk(part))($);
+    (stubs.get(part) || []).forEach((s, i) => {
+      const real = Object.getOwnPropertyDescriptor(s.proto, s.k);
+      s.real = real && real.value !== s.stub ? real.value : null;
+      if (!own[i]) return;
+      if (own[i].d) Object.defineProperty(s.proto, s.k, own[i].d);
+      else delete s.proto[s.k];
+    });
   };
   // Every interface the platform adds names itself through @@toStringTag, as WebIDL
   // has it: `Object.prototype.toString` gives `[object NodeList]`, not `[object Object]`.
@@ -52,7 +67,13 @@
     }
   };
   const lazyMethods = (proto, part, names) => {
-    for (const k of names) def(proto, { [k]: function (...a) { need(part); return this[k](...a); } });
+    if (!stubs.has(part)) stubs.set(part, []);
+    for (const k of names) {
+      const s = { proto, k, stub: null, real: null };
+      s.stub = { [k](...a) { need(part); return s.real.apply(this, a); } }[k];
+      stubs.get(part).push(s);
+      def(proto, { [k]: s.stub });
+    }
   };
   // Shadow roots the parser declared need the shadow part before scripts first see them.
   const shadowPart = () => { need('shadow'); return true; };
