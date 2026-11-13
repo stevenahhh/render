@@ -1890,6 +1890,14 @@ mod tests {
     }
 
     #[test]
+    fn an_inline_block_svg_without_a_width_fits_the_room_it_has() {
+        let css = "body{margin:0} .box{width:24px;height:24px} svg{display:inline-block}";
+        let body = "<div class=box><svg id=s viewBox='0 0 960 960'></svg></div>";
+        let (mut page, _) = after_script(css, body, "$('s').id='s';");
+        assert_eq!(rects(&mut page, &["s"])[0][2], 24.0);
+    }
+
+    #[test]
     fn margins_collapse_through_empty_blocks() {
         let css = "body{margin:0} .a{height:10px} .e{margin:20px 0}";
         let body = "<div class=a id=a></div><div class=e></div><div class=e><div class=e></div></div><div class=a id=b></div>\

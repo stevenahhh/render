@@ -2545,8 +2545,10 @@ impl<'a> Engine<'a> {
     /// min-content width, which is only measured then.
     fn shrink_to_fit(&mut self, n: NodeId, avail: f32, sd: &Sides) -> f32 {
         let most = self.intrinsic(n) - sd.ml - sd.mr;
-        if most <= avail {
-            return most;
+        // Shrink-to-fit is for non-replaced boxes: a replaced one only takes the
+        // smaller of its natural width and the room it has.
+        if most <= avail || self.dom.shows_image(n) {
+            return most.min(avail);
         }
         avail.max(self.min_content(n) - sd.ml - sd.mr)
     }
