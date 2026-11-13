@@ -599,6 +599,17 @@ impl Dom {
 
     /// Serializes a node (`outer`) or only its children back to HTML.
     pub fn serialize(&self, n: NodeId, outer: bool, out: &mut String) {
+        let mut p = self.nodes[n as usize].parent;
+        while p != NONE && self.nodes[p as usize].tag != atom::SVG && self.atoms.name(self.nodes[p as usize].tag) != "foreignobject" {
+            p = self.nodes[p as usize].parent;
+        }
+        let svg = p != NONE && self.nodes[p as usize].tag == atom::SVG;
+        self.serialize_in(n, outer, svg, out);
+    }
+
+    /// `serialize` with `svg` true inside an `<svg>`, where the names the parser
+    /// lowercased take back their SVG case (`clipPath`, `viewBox`).
+    fn serialize_in(&self, n: NodeId, outer: bool, svg: bool, out: &mut String) {
         let node = &self.nodes[n as usize];
         if let Some(&(s, l)) = self.comments.get(&n) {
             out.push_str("<!--");
@@ -618,7 +629,9 @@ impl Dom {
             }
             return;
         }
+        let svg = svg || node.tag == atom::SVG;
         let name = self.atoms.name(node.tag);
+        let name = if svg { svg_case(name, &SVG_TAGS) } else { name };
         let outer = outer && !matches!(node.tag, atom::FRAGMENT | atom::DOCUMENT);
         if outer {
             out.push('<');
@@ -626,7 +639,8 @@ impl Dom {
             let (s, c) = node.attrs;
             for a in &self.attrs[s as usize..(s + c) as usize] {
                 out.push(' ');
-                out.push_str(self.atoms.name(a.name));
+                let attr = self.atoms.name(a.name);
+                out.push_str(if svg { svg_case(attr, &SVG_ATTRS) } else { attr });
                 out.push_str("=\"");
                 let (vs, vl) = a.value;
                 out.push_str(&self.text[vs as usize..(vs + vl) as usize].replace('&', "&amp;").replace('"', "&quot;"));
@@ -641,8 +655,10 @@ impl Dom {
             Some(&content) => self.nodes[content as usize].first_child,
             None => node.first_child,
         };
+        // The content of a <foreignObject> is HTML again.
+        let svg = svg && name != "foreignObject";
         while c != NONE {
-            self.serialize(c, true, out);
+            self.serialize_in(c, true, svg, out);
             c = self.nodes[c as usize].next;
         }
         if outer {
@@ -664,6 +680,39 @@ impl Dom {
             c = self.nodes[c as usize].next;
         }
     }
+}
+
+/// SVG element names with capitals, which the HTML parser lowercases.
+const SVG_TAGS: [&str; 37] = [
+    "altGlyph", "altGlyphDef", "altGlyphItem", "animateColor", "animateMotion", "animateTransform", "clipPath",
+    "feBlend", "feColorMatrix", "feComponentTransfer", "feComposite", "feConvolveMatrix", "feDiffuseLighting",
+    "feDisplacementMap", "feDistantLight", "feDropShadow", "feFlood", "feFuncA", "feFuncB", "feFuncG", "feFuncR",
+    "feGaussianBlur", "feImage", "feMerge", "feMergeNode", "feMorphology", "feOffset", "fePointLight",
+    "feSpecularLighting", "feSpotLight", "feTile", "feTurbulence", "foreignObject", "glyphRef", "linearGradient",
+    "radialGradient", "textPath",
+];
+
+/// SVG attribute names with capitals, which the HTML parser lowercases.
+const SVG_ATTRS: [&str; 58] = [
+    "attributeName", "attributeType", "baseFrequency", "baseProfile", "calcMode", "clipPathUnits", "diffuseConstant",
+    "edgeMode", "filterUnits", "glyphRef", "gradientTransform", "gradientUnits", "kernelMatrix", "kernelUnitLength",
+    "keyPoints", "keySplines", "keyTimes", "lengthAdjust", "limitingConeAngle", "markerHeight", "markerUnits",
+    "markerWidth", "maskContentUnits", "maskUnits", "numOctaves", "pathLength", "patternContentUnits",
+    "patternTransform", "patternUnits", "pointsAtX", "pointsAtY", "pointsAtZ", "preserveAlpha", "preserveAspectRatio",
+    "primitiveUnits", "refX", "refY", "repeatCount", "repeatDur", "requiredExtensions", "requiredFeatures",
+    "specularConstant", "specularExponent", "spreadMethod", "startOffset", "stdDeviation", "stitchTiles",
+    "surfaceScale", "systemLanguage", "tableValues", "targetX", "targetY", "textLength", "viewBox", "viewTarget",
+    "xChannelSelector", "yChannelSelector", "zoomAndPan",
+];
+
+/// The SVG spelling of a lowercased name from `table`, or the name itself.
+fn svg_case<'a>(name: &'a str, table: &[&'static str]) -> &'a str {
+    if !name.bytes().any(|b| b.is_ascii_uppercase()) {
+        if let Some(t) = table.iter().find(|t| t.eq_ignore_ascii_case(name)) {
+            return t;
+        }
+    }
+    name
 }
 
 /// How `Dom::parse_into` reads its markup.
@@ -1208,6 +1257,38 @@ mod tests {
     }
 
     #[test]
+    fn noscript_and_iframe_hold_raw_text_and_noscript_stays_in_head() {
+        let dom = parse_html("<head><noscript><img src=p.gif></noscript><link rel=stylesheet href=a.css></head>\
+            <body><noscript><iframe src=x></iframe></noscript><iframe>a<b>c</b>&amp;</iframe><p>after</p></body>");
+        let head = first(&dom, atom::HEAD);
+        let (noscript, link) = (first(&dom, atom::NOSCRIPT), first(&dom, atom::LINK));
+        assert_eq!((dom.nodes[noscript as usize].parent, dom.nodes[link as usize].parent), (head, head));
+        assert!(!(0..dom.nodes.len()).any(|n| dom.nodes[n].tag == atom::IMG), "no element inside noscript");
+        let iframe = first(&dom, atom::IFRAME);
+        let mut html = String::new();
+        dom.serialize(iframe, true, &mut html);
+        assert_eq!(html, "<iframe>a<b>c</b>&amp;</iframe>");
+        let mut inner = String::new();
+        dom.serialize(first(&dom, atom::BODY), false, &mut inner);
+        assert_eq!(inner, "<noscript><iframe src=x></iframe></noscript><iframe>a<b>c</b>&amp;</iframe><p>after</p>");
+    }
+
+    #[test]
+    fn svg_serializes_with_its_case_sensitive_names() {
+        let dom = parse_html("<body><svg viewBox='0 0 1 1'><defs><clipPath id=c clipPathUnits=objectBoundingBox></clipPath>\
+            <filter id=f><feGaussianBlur stdDeviation=2></feGaussianBlur></filter></defs>\
+            <foreignObject><div viewBox=x></div></foreignObject></svg><div viewbox=y></div></body>");
+        let mut html = String::new();
+        dom.serialize(first(&dom, atom::BODY), false, &mut html);
+        assert_eq!(html, "<svg viewBox=\"0 0 1 1\"><defs><clipPath id=\"c\" clipPathUnits=\"objectBoundingBox\"></clipPath>\
+            <filter id=\"f\"><feGaussianBlur stdDeviation=\"2\"></feGaussianBlur></filter></defs>\
+            <foreignObject><div viewbox=\"x\"></div></foreignObject></svg><div viewbox=\"y\"></div>");
+        let mut inner = String::new();
+        dom.serialize(first(&dom, atom::DIV), true, &mut inner);
+        assert_eq!(inner, "<div viewbox=\"x\"></div>", "HTML inside foreignObject keeps lowercase names");
+    }
+
+    #[test]
     fn processing_instructions_and_bogus_declarations_become_comments() {
         let dom = parse_html("<!DOCTYPE html><body><div><?lit$123$>a<!x y>b</div></body>");
         let div = first(&dom, atom::DIV);
@@ -1265,23 +1346,6 @@ mod tests {
         dom.serialize(doc, false, &mut whole);
         assert_eq!(whole, "<html><head><title>t</title></head><body><p></p></body></html>");
         assert_eq!(dom.shadows.len(), 4);
-    }
-
-    #[test]
-    fn noscript_and_iframe_hold_raw_text_and_noscript_stays_in_head() {
-        let dom = parse_html("<head><noscript><img src=p.gif></noscript><link rel=stylesheet href=a.css></head>\
-            <body><noscript><iframe src=x></iframe></noscript><iframe>a<b>c</b>&amp;</iframe><p>after</p></body>");
-        let head = first(&dom, atom::HEAD);
-        let (noscript, link) = (first(&dom, atom::NOSCRIPT), first(&dom, atom::LINK));
-        assert_eq!((dom.nodes[noscript as usize].parent, dom.nodes[link as usize].parent), (head, head));
-        assert!(!(0..dom.nodes.len()).any(|n| dom.nodes[n].tag == atom::IMG), "no element inside noscript");
-        let iframe = first(&dom, atom::IFRAME);
-        let mut html = String::new();
-        dom.serialize(iframe, true, &mut html);
-        assert_eq!(html, "<iframe>a<b>c</b>&amp;</iframe>");
-        let mut inner = String::new();
-        dom.serialize(first(&dom, atom::BODY), false, &mut inner);
-        assert_eq!(inner, "<noscript><iframe src=x></iframe></noscript><iframe>a<b>c</b>&amp;</iframe><p>after</p>");
     }
 
     #[test]

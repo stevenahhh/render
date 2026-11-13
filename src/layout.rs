@@ -2079,8 +2079,7 @@ fn first_candidate(srcset: &str) -> Option<&str> {
     srcset.split(',').next()?.split_ascii_whitespace().next()
 }
 
-/// Makes serialized inline SVG parseable on its own: the HTML parser
-/// lowercased case-sensitive SVG names, and fill comes from CSS.
+/// Makes serialized inline SVG parseable on its own: fill and color come from CSS.
 fn svg_markup(mut m: String, fill: Color, color: Color) -> String {
     let hex = |c: Color| if c.a() == 0 { "none".to_string() } else { format!("#{:06x}", c.0 & 0x00FF_FFFF) };
     let head = &m[..m.find('>').unwrap_or(0)];
@@ -2098,20 +2097,6 @@ fn svg_markup(mut m: String, fill: Color, color: Color) -> String {
         add += " xmlns:xlink=\"http://www.w3.org/1999/xlink\"";
     }
     m.insert_str(4.min(m.len()), &add);
-    const NAMES: [(&str, &str); 7] = [
-        ("viewbox=", "viewBox="),
-        ("preserveaspectratio=", "preserveAspectRatio="),
-        ("lineargradient", "linearGradient"),
-        ("radialgradient", "radialGradient"),
-        ("clippath", "clipPath"),
-        ("gradientunits=", "gradientUnits="),
-        ("gradienttransform=", "gradientTransform="),
-    ];
-    for (from, to) in NAMES {
-        if m.contains(from) {
-            m = m.replace(from, to);
-        }
-    }
     m
 }
 
