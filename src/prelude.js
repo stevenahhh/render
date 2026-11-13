@@ -407,6 +407,8 @@
     }
   }
   class HTMLCollection extends NodeList {
+    get length() { return this._sync(); }
+    item(i) { this._sync(); return this[i >>> 0] || null; }
     namedItem(name) {
       const n = this._sync();
       for (let i = 0; i < n; i++) if (this[i].id === name || this[i].getAttribute('name') === name) return this[i];
@@ -436,11 +438,15 @@
   const ELEMS = Symbol('elements');
 
   const DOC = 9, FRAGMENT = 11;
+  const KIND = Symbol('nodeType'), NAME = Symbol('nodeName');
   // Nodes made by a document other than the page's, until they join a tree.
   const OWNER = Symbol('owner');
 
   class Node extends EventTarget {
     constructor() { super(); illegal(); }
+    // One accessor on Node.prototype, as in WebIDL, that each kind of node answers.
+    get nodeType() { return this[KIND]; }
+    get nodeName() { return this[NAME]; }
     get parentNode() { return wrap(__link(this[ID], 0)); }
     get parentElement() { const p = this.parentNode; return p && p.nodeType === 1 ? p : null; }
     get firstChild() { return wrap(__link(this[ID], 1)); }
@@ -828,8 +834,7 @@
   mixin(CharacterData, ChildNode);
   class Text extends CharacterData {
     constructor(data = '') { return wrap(__create(null, String(data))); }
-    get nodeType() { return 3; }
-    get nodeName() { return '#text'; }
+    get [NAME]() { return '#text'; }
     get wholeText() { return this.data; }
     get assignedSlot() { return slotOf(this); }
     splitText(offset) {
@@ -842,15 +847,13 @@
   }
   class Comment extends CharacterData {
     constructor(data = '') { return wrap(__comment(String(data))); }
-    get nodeType() { return 8; }
-    get nodeName() { return '#comment'; }
+    get [NAME]() { return '#comment'; }
   }
   class CDATASection extends Text { constructor() { super(); illegal(); } }
   class ProcessingInstruction extends CharacterData { constructor() { super(); illegal(); } }
   class DocumentType extends Node {
     constructor() { super(); illegal(); }
-    get nodeType() { return 10; }
-    get nodeName() { return this.name; }
+    get [NAME]() { return this.name; }
   }
   mixin(DocumentType, ChildNode);
   protos.set('#text', Text.prototype);
@@ -862,9 +865,8 @@
 
   class Element extends Node {
     constructor() { super(); illegal(); }
-    get nodeType() { return 1; }
     get tagName() { const t = this[TAG]; return this instanceof SVGElement ? t : t.toUpperCase(); }
-    get nodeName() { return this.tagName; }
+    get [NAME]() { return this.tagName; }
     get localName() { return this[TAG]; }
     get namespaceURI() { return this instanceof SVGElement ? SVG_NS : HTML_NS; }
     get prefix() { return null; }
@@ -988,12 +990,13 @@
 
   class Attr extends Node {
     constructor() { super(); illegal(); }
-    get nodeType() { return 2; }
-    get nodeName() { return this.name; }
+    get [NAME]() { return this.name; }
     get localName() { return this.name; }
     get namespaceURI() { return null; }
     get prefix() { return null; }
     get specified() { return true; }
+    get name() { return this._name; }
+    get ownerElement() { return this._owner; }
     get value() { return this.ownerElement ? (this.ownerElement.getAttribute(this.name) ?? '') : this._value; }
     set value(v) { if (this.ownerElement) this.ownerElement.setAttribute(this.name, v); else this._value = String(v); }
     get nodeValue() { return this.value; }
@@ -1003,7 +1006,7 @@
   }
   const newAttr = (el, name, value) => {
     const a = Object.create(Attr.prototype);
-    def(a, { name, ownerElement: el, _value: value });
+    def(a, { _name: name, _owner: el, _value: value });
     return a;
   };
   class NamedNodeMap {
@@ -1469,14 +1472,13 @@
 
   class DocumentFragment extends Node {
     constructor() { return wrap(__create('#document-fragment', '')); }
-    get nodeType() { return 11; }
-    get nodeName() { return '#document-fragment'; }
+    get [NAME]() { return '#document-fragment'; }
     getElementById(id) { return wrap(__by_id(this[ID], String(id))); }
   }
   mixin(DocumentFragment, ParentNode);
   class ShadowRoot extends DocumentFragment {
     constructor() { super(); illegal(); }
-    get nodeName() { return '#document-fragment'; }
+    get [NAME]() { return '#document-fragment'; }
     // A root the parser declared gets these when first asked.
     get host() { need('shadow'); return $.rootOf(wrap(__host(this[ID]))).host; }
     get mode() { need('shadow'); return $.rootOf(wrap(__host(this[ID]))).mode; }
@@ -1496,8 +1498,7 @@
 
   class Document extends Node {
     constructor() { return newDocument(false); }
-    get nodeType() { return 9; }
-    get nodeName() { return '#document'; }
+    get [NAME]() { return '#document'; }
     get documentElement() { const k = __kids(this[ID], true); return k.length ? wrap(k[0]) : null; }
     get head() { return childByTag(this.documentElement, 'head'); }
     get body() { const h = this.documentElement; return childByTag(h, 'body') || childByTag(h, 'frameset'); }
@@ -1614,6 +1615,8 @@
     adoptedStyleSheets: [function () { need('cssom'); return this.adoptedStyleSheets; }, function (v) { need('cssom'); this.adoptedStyleSheets = v; }],
   });
   protos.set('#document', Document.prototype);
+  // What `nodeType` reports for each kind of node, as data the accessor reads without a call.
+  for (const [C, kind] of [[Element, 1], [Attr, 2], [Text, 3], [Comment, 8], [Document, 9], [DocumentType, 10], [DocumentFragment, 11]]) Object.defineProperty(C.prototype, KIND, { value: kind });
   def(Document, { parseHTMLUnsafe(v) { need('shadow'); return Document.parseHTMLUnsafe(v); } });
 
   // A document without a window, as `createHTMLDocument` makes.
@@ -2038,11 +2041,13 @@
 
   const marks = [];
   const timeOrigin = Date.now() - __now();
-  const performance = Object.assign(new EventTarget(), {
-    now: () => __now(),
-    timeOrigin,
-    timing: { navigationStart: timeOrigin, fetchStart: timeOrigin, responseStart: timeOrigin, responseEnd: timeOrigin, domLoading: timeOrigin, domInteractive: timeOrigin, domContentLoadedEventStart: timeOrigin, domContentLoadedEventEnd: timeOrigin, domComplete: timeOrigin, loadEventStart: timeOrigin, loadEventEnd: timeOrigin },
-    navigation: { type: 0, redirectCount: 0 },
+  // Members of Performance.prototype, as in WebIDL.
+  class Performance extends EventTarget { constructor() { super(); illegal(); } }
+  const timing = { navigationStart: timeOrigin, fetchStart: timeOrigin, responseStart: timeOrigin, responseEnd: timeOrigin, domLoading: timeOrigin, domInteractive: timeOrigin, domContentLoadedEventStart: timeOrigin, domContentLoadedEventEnd: timeOrigin, domComplete: timeOrigin, loadEventStart: timeOrigin, loadEventEnd: timeOrigin };
+  const navigation = { type: 0, redirectCount: 0 };
+  getters(Performance.prototype, { timeOrigin: () => timeOrigin, timing: () => timing, navigation: () => navigation });
+  def(Performance.prototype, {
+    now() { return __now(); },
     mark(name, o) { const m = { name: String(name), entryType: 'mark', startTime: o && o.startTime !== undefined ? o.startTime : __now(), duration: 0, detail: o ? o.detail : null }; marks.push(m); return m; },
     measure(name, a, b) {
       const at = (x) => (typeof x === 'string' ? (marks.filter((m) => m.name === x).pop() || { startTime: 0 }).startTime : x);
@@ -2060,6 +2065,7 @@
     setResourceTimingBufferSize: noop,
     toJSON() { return { timeOrigin }; },
   });
+  const performance = Object.create(Performance.prototype);
 
   // The page's own `crypto` dice; seeded when `Math.random` is, so one-shot output repeats.
   let cryptoSeed = 0x2545F491;
@@ -2156,7 +2162,9 @@
   });
 
   // Sites branch on the engine name; like every browser, claim to be a known one.
-  const navigator = {
+  // The attributes are accessors of Navigator.prototype, as in WebIDL.
+  class Navigator { constructor() { illegal(); } }
+  const navigatorMembers = {
     userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15 render/0.1',
     appVersion: '5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
     appName: 'Netscape',
@@ -2183,6 +2191,12 @@
     registerProtocolHandler: noop,
     getGamepads: () => [],
   };
+  for (const k of Object.keys(navigatorMembers)) {
+    const v = navigatorMembers[k];
+    if (typeof v === 'function') def(Navigator.prototype, { [k]: v });
+    else Object.defineProperty(Navigator.prototype, k, { configurable: true, enumerable: true, get: () => v });
+  }
+  const navigator = Object.create(Navigator.prototype);
 
   const timers = {
     setTimeout: (fn, ms, ...args) => addTimer(fn, ms, false, args),
@@ -2196,6 +2210,7 @@
     queueMicrotask: (fn) => __microtask(fn),
   };
 
+  let windowOrigin = 'null';
   const postMessage = (data, origin, transfer) => {
     if (data !== null && typeof data === 'object') { need('encoding'); data = g.structuredClone(data, { transfer }); }
     addTimer(() => fire(g, 'message', { data, origin: location.origin, source: g }, events.MessageEvent), 0, false, []);
@@ -2238,10 +2253,7 @@
   for (const t of ['readystatechange', 'visibilitychange']) Object.defineProperty(Document.prototype, 'on' + t, handlerProp(t, noHost));
 
   def(g, {
-    window: g, self: g, top: g, parent: g, frames: g, globalThis: g, opener: null, frameElement: null, closed: false, length: 0, name: '', status: '', origin: 'null', isSecureContext: true, crossOriginIsolated: false,
-    document, location, history, navigator, screen, performance, crypto, trustedTypes, CSS, console,
-    localStorage: newStorage(), sessionStorage: newStorage(),
-    devicePixelRatio: 1,
+    globalThis: g, Navigator, Performance, trustedTypes, CSS, console,
     Window, EventTarget, Node, CharacterData, Text, Comment, CDATASection, ProcessingInstruction, DocumentType, Element, Attr, NamedNodeMap, NodeList, HTMLCollection, DOMTokenList,
     Document, HTMLDocument: Document, XMLDocument: Document, DocumentFragment, ShadowRoot, DOMException, AbortController, AbortSignal, URL, URLSearchParams, webkitURL: URL, Location, History, Storage,
     DOMRect, DOMRectReadOnly, SVGAnimatedString, DOMPoint, DOMPointReadOnly: DOMPoint, DOMMatrix, DOMMatrixReadOnly: DOMMatrix, WebKitCSSMatrix: DOMMatrix, MediaQueryList, MediaError, FontFace,
@@ -2256,6 +2268,39 @@
     scrollTo: noop, scroll: noop, scrollBy: noop, alert: log('alert: '), confirm: () => false, prompt: () => null, open: () => null, close: noop, focus: noop, blur: noop, print: noop, stop: noop,
     getSelection: () => document.getSelection(),
     reportError: (e) => reportError(e),
+  });
+  // The attributes of Window are accessors of the window itself, the global object. Four
+  // cannot be replaced; [Replaceable] ones become a plain property when a script assigns.
+  let windowName = '', windowStatus = '', opener = null;
+  const localStorage = newStorage(), sessionStorage = newStorage();
+  const fixed = (get, set) => ({ configurable: false, enumerable: true, get, set });
+  const attribute = (get, set) => ({ configurable: true, enumerable: true, get, set });
+  const replaceable = (k, get) => attribute(get, function (v) { Object.defineProperty(g, k, { configurable: true, enumerable: true, writable: true, value: v }); });
+  Object.defineProperties(g, {
+    window: fixed(() => g),
+    document: fixed(() => document),
+    location: fixed(() => location, (v) => { location.href = v; }),
+    top: fixed(() => g),
+    self: replaceable('self', () => g),
+    parent: replaceable('parent', () => g),
+    frames: replaceable('frames', () => g),
+    length: replaceable('length', () => 0),
+    origin: replaceable('origin', () => windowOrigin),
+    screen: replaceable('screen', () => screen),
+    performance: replaceable('performance', () => performance),
+    devicePixelRatio: replaceable('devicePixelRatio', () => 1),
+    opener: attribute(() => opener, (v) => { opener = v; }),
+    name: attribute(() => windowName, (v) => { windowName = String(v); }),
+    status: attribute(() => windowStatus, (v) => { windowStatus = String(v); }),
+    closed: attribute(() => false),
+    frameElement: attribute(() => null),
+    isSecureContext: attribute(() => true),
+    crossOriginIsolated: attribute(() => false),
+    history: attribute(() => history),
+    navigator: attribute(() => navigator),
+    crypto: attribute(() => crypto),
+    localStorage: attribute(() => localStorage),
+    sessionStorage: attribute(() => sessionStorage),
   });
   def(g, timers);
   def(g, events);
@@ -2284,7 +2329,7 @@
       docURL = url;
       entries[0].url = url;
       const p = __url(url, null);
-      if (p) def(g, { origin: p[10] });
+      if (p) windowOrigin = p[10];
     },
     tick,
     frames() { framesFromHost = true; },

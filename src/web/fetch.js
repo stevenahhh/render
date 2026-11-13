@@ -62,6 +62,15 @@
     if (pending.delete(id)) __abort_fetch(id);
   };
 
+  // Attributes are accessors of the interface's prototype, as in WebIDL, reading `_<name>`;
+  // `setters` maps the writable ones to the conversion their setter applies.
+  const attributes = (C, names, setters = {}) => {
+    for (const k of names) {
+      const slot = '_' + k, set = setters[k];
+      Object.defineProperty(C.prototype, k, { configurable: true, enumerable: true, get() { return this[slot]; }, set: set && function (v) { this[slot] = set(v, this[slot]); } });
+    }
+  };
+
   class Blob {
     constructor(parts = [], options = {}) {
       const chunks = [];
@@ -267,46 +276,49 @@
       const from = input instanceof Request ? input : null;
       const url = from ? from.url : resolveURL(String(input));
       if (url === null) throw new TypeError("Failed to construct 'Request': Failed to parse URL from " + input);
-      this.url = url;
-      this.method = String(init.method || (from ? from.method : 'GET')).toUpperCase();
-      this.headers = new Headers(init.headers || (from ? from.headers : undefined));
+      this._url = url;
+      this._method = String(init.method || (from ? from.method : 'GET')).toUpperCase();
+      this._headers = new Headers(init.headers || (from ? from.headers : undefined));
       const [bytes, type] = init.body !== undefined ? bodyOf(init.body) : [from ? from._bytes : null, null];
       if (bytes && (this.method === 'GET' || this.method === 'HEAD')) throw new TypeError("Failed to construct 'Request': Request with GET/HEAD method cannot have body.");
       if (type && !this.headers.has('content-type')) this.headers.set('content-type', type);
       this._bytes = bytes;
       this._used = false;
-      this.signal = init.signal || (from ? from.signal : new g.AbortController().signal);
-      for (const k of ['mode', 'credentials', 'cache', 'redirect', 'referrer', 'referrerPolicy', 'integrity', 'keepalive', 'priority']) this[k] = init[k] ?? (from ? from[k] : { mode: 'cors', credentials: 'same-origin', cache: 'default', redirect: 'follow', referrer: 'about:client', referrerPolicy: '', integrity: '', keepalive: false, priority: 'auto' }[k]);
-      this.destination = '';
+      this._signal = init.signal || (from ? from.signal : new g.AbortController().signal);
+      for (const k of REQUEST_OPTIONS) this['_' + k] = init[k] ?? (from ? from[k] : { mode: 'cors', credentials: 'same-origin', cache: 'default', redirect: 'follow', referrer: 'about:client', referrerPolicy: '', integrity: '', keepalive: false, priority: 'auto' }[k]);
+      this._destination = '';
     }
     clone() { return new Request(this); }
   }
+  const REQUEST_OPTIONS = ['mode', 'credentials', 'cache', 'redirect', 'referrer', 'referrerPolicy', 'integrity', 'keepalive', 'priority'];
+  attributes(Request, ['url', 'method', 'headers', 'signal', 'destination', ...REQUEST_OPTIONS]);
 
   class Response extends Body {
     constructor(body = null, init = {}) {
       super();
       const [bytes, type] = bodyOf(body);
-      this.status = init.status ?? 200;
-      this.statusText = init.statusText ?? '';
-      this.headers = new Headers(init.headers);
+      this._status = init.status ?? 200;
+      this._statusText = init.statusText ?? '';
+      this._headers = new Headers(init.headers);
       if (type && !this.headers.has('content-type')) this.headers.set('content-type', type);
       this._bytes = bytes;
       this._used = false;
-      this.url = '';
-      this.redirected = false;
-      this.type = 'default';
+      this._url = '';
+      this._redirected = false;
+      this._type = 'default';
     }
     get ok() { return this.status >= 200 && this.status < 300; }
     clone() {
       if (this._used) throw new TypeError("Failed to execute 'clone' on 'Response': Response body is already used");
       const r = new Response(null, this);
-      Object.assign(r, { _bytes: this._bytes, url: this.url, redirected: this.redirected, type: this.type });
+      Object.assign(r, { _bytes: this._bytes, _url: this.url, _redirected: this.redirected, _type: this.type });
       return r;
     }
-    static error() { const r = new Response(null, { status: 0 }); r.type = 'error'; return r; }
+    static error() { const r = new Response(null, { status: 0 }); r._type = 'error'; return r; }
     static redirect(url, status = 302) { return new Response(null, { status, headers: { location: resolveURL(String(url)) } }); }
     static json(data, init = {}) { const r = new Response(JSON.stringify(data), init); r.headers.set('content-type', 'application/json'); return r; }
   }
+  attributes(Response, ['status', 'statusText', 'headers', 'url', 'redirected', 'type']);
 
   const fetch = (input, init) => new Promise((resolve, reject) => {
     let req;
@@ -336,9 +348,9 @@
       const res = new Response(null, { status: r[0], statusText: r[1] });
       for (let i = 0; i < r[3].length; i += 2) res.headers.append(r[3][i], r[3][i + 1]);
       res._bytes = req.method === 'HEAD' ? null : r[4];
-      res.url = r[2];
-      res.redirected = r[2] !== req.url;
-      res.type = 'basic';
+      res._url = r[2];
+      res._redirected = r[2] !== req.url;
+      res._type = 'basic';
       resolve(res);
     });
     if (signal) signal.addEventListener('abort', () => {
@@ -380,14 +392,14 @@
   class XMLHttpRequest extends XMLHttpRequestEventTarget {
     constructor() {
       super();
-      this.readyState = 0;
-      this.status = 0;
-      this.statusText = '';
-      this.responseURL = '';
-      this.responseType = '';
-      this.timeout = 0;
-      this.withCredentials = false;
-      this.upload = new XMLHttpRequestUpload();
+      this._readyState = 0;
+      this._status = 0;
+      this._statusText = '';
+      this._responseURL = '';
+      this._responseType = '';
+      this._timeout = 0;
+      this._withCredentials = false;
+      this._upload = new XMLHttpRequestUpload();
       for (const k of ['onreadystatechange', 'onloadstart', 'onprogress', 'onload', 'onloadend', 'onerror', 'onabort', 'ontimeout']) this[k] = null;
       this._headers = [];
       this._got = [];
@@ -396,14 +408,14 @@
       this._mime = null;
     }
     _state(s) {
-      this.readyState = s;
+      this._readyState = s;
       fire(this, 'readystatechange');
     }
     open(method, url, async = true) {
       const u = resolveURL(String(url));
       if (u === null) throw domError('SyntaxError', "Failed to execute 'open' on 'XMLHttpRequest': Invalid URL");
       this.abort();
-      Object.assign(this, { _method: String(method).toUpperCase(), _url: u, _async: async !== false, _headers: [], _got: [], _body: null, status: 0, statusText: '', responseURL: '', _sent: false });
+      Object.assign(this, { _method: String(method).toUpperCase(), _url: u, _async: async !== false, _headers: [], _got: [], _body: null, _status: 0, _statusText: '', _responseURL: '', _sent: false });
       this._state(1);
     }
     setRequestHeader(k, v) {
@@ -448,7 +460,7 @@
     _done(r) {
       this._id = 0;
       if (typeof r === 'string') return this._fail('error');
-      [this.status, this.statusText, this.responseURL, this._got, this._bytes] = r;
+      [this._status, this._statusText, this._responseURL, this._got, this._bytes] = r;
       this._state(2);
       this._state(3);
       const n = this._bytes.length;
@@ -458,7 +470,7 @@
       fire(this, 'loadend', { lengthComputable: true, loaded: n, total: n }, g.ProgressEvent);
     }
     _fail(type) {
-      this.status = 0;
+      this._status = 0;
       this._bytes = null;
       this._state(4);
       fire(this, type, {}, g.ProgressEvent);
@@ -472,7 +484,7 @@
           this._fail('abort');
         }
       }
-      this.readyState = 0;
+      this._readyState = 0;
     }
     get responseText() {
       if (this.responseType !== '' && this.responseType !== 'text') throw domError('InvalidStateError', "Failed to read the 'responseText' property from 'XMLHttpRequest': The value is only accessible if the object's 'responseType' is '' or 'text'.");
@@ -492,6 +504,12 @@
   }
   Object.assign(XMLHttpRequest, STATES);
   Object.assign(XMLHttpRequest.prototype, STATES);
+  const RESPONSE_TYPES = ['', 'arraybuffer', 'blob', 'document', 'json', 'text'];
+  attributes(XMLHttpRequest, ['readyState', 'status', 'statusText', 'responseURL', 'responseType', 'timeout', 'withCredentials', 'upload'], {
+    responseType: (v, old) => (RESPONSE_TYPES.includes(String(v)) ? String(v) : old),
+    timeout: (v) => Number(v) >>> 0,
+    withCredentials: (v) => !!v,
+  });
 
   def(g, { fetch, Headers, Request, Response, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload, FormData, Blob, File, FileReader, ReadableStream });
 })

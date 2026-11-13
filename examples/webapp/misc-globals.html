@@ -64,5 +64,23 @@ check('recursion', function(){
   mark('MISC recursion depth:'+depth(1000));
 });
 </script>
+<script>
+check('idl-accessors', function(){
+  var get=function(o,k){var d=Object.getOwnPropertyDescriptor(o,k);return d&&d.get;};
+  var nodeType=get(Node.prototype,'nodeType');
+  var doc=Object.getOwnPropertyDescriptor(window,'document');
+  var xhr=new XMLHttpRequest();
+  xhr.responseType='json'; xhr.responseType='bogus';
+  var a=document.createElement('p'); a.setAttribute('k','v'); a.innerHTML='<i></i><b></b>';
+  mark('MISC idl accessors nodeType:'+nodeType.call(document.body)+'/'+nodeType.call(document.createTextNode('t'))+
+    ' navigator:'+(navigator instanceof Navigator&&get(Navigator.prototype,'userAgent').call(navigator)===navigator.userAgent)+
+    ' document:'+(doc.get.call(window)===document&&!doc.configurable)+' closed:'+get(window,'closed').call(window)+
+    ' performance:'+(performance instanceof Performance&&typeof Performance.prototype.getEntriesByType)+
+    ' collection:'+get(HTMLCollection.prototype,'length').call(a.children)+
+    ' attr:'+get(Attr.prototype,'ownerElement').call(a.attributes[0]).tagName+
+    ' xhr:'+get(XMLHttpRequest.prototype,'readyState').call(xhr)+'/'+xhr.responseType+
+    ' request:'+get(Request.prototype,'url').call(new Request('x.json')).endsWith('/x.json'));
+});
+</script>
 </body>
 </html>
