@@ -1691,6 +1691,14 @@ mod tests {
     }
 
     #[test]
+    fn auto_margins_center_absolutely_positioned_boxes() {
+        let css = "body{margin:0} #c{position:relative;width:100px;height:100px} i{position:absolute;top:0;right:0;bottom:0;left:0}\
+                   #m{margin:auto;width:20px;height:30px} #n{margin:auto 0 auto auto;width:20px;height:10px}";
+        let (mut page, _) = after_script(css, "<div id=c><i id=m></i><i id=n></i></div>", "$('m').title='x';");
+        assert_eq!(rects(&mut page, &["m", "n"]), [[40.0, 35.0, 20.0, 30.0], [80.0, 45.0, 20.0, 10.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";

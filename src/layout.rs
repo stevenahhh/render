@@ -1081,6 +1081,8 @@ impl<'a> Engine<'a> {
             });
             let x = match (l, r) {
                 (Some(l), Some(r)) if fixed.is_some() && sd.auto_l && sd.auto_r => px + l + (pw - l - r - w).max(0.0) / 2.0,
+                // One auto margin takes up the space left over (CSS 2.1 10.3.7).
+                (Some(_), Some(r)) if fixed.is_some() && sd.auto_l => px + pw - r - sd.mr - w,
                 (Some(l), _) => px + l + sd.ml,
                 (None, Some(r)) => px + pw - r - sd.mr - w,
                 (None, None) => sx + sd.ml,
@@ -1100,6 +1102,14 @@ impl<'a> Engine<'a> {
             if let (None, Some(b)) = (t, b) {
                 let end = self.mark();
                 self.shift(first, end, 0.0, py + ph - b - sd.mb - res.h - y0);
+            }
+            let (auto_t, auto_b) = (s.margin[0] == Len::Auto, s.margin[2] == Len::Auto);
+            if let (Some(t), Some(b), true) = (t, b, auto_t || auto_b) {
+                // Auto margins share the space left over, equally when both are auto (CSS 2.1 10.6.4).
+                let free = ph - t - b - res.h - sd.mt - sd.mb;
+                let dy = if auto_t && auto_b { free / 2.0 } else if auto_t { free } else { 0.0 };
+                let end = self.mark();
+                self.shift(first, end, 0.0, dy);
             }
         }
     }
