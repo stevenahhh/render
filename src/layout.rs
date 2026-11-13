@@ -524,7 +524,8 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
         bfc: 0,
     };
     let (h, _) = e.layout_children(0, 0.0, vw, 0.0, vh, false, false);
-    e.layout_abs_children(0, 0.0, 0.0, vw, h.max(vh));
+    // The initial containing block has the viewport's size (CSS 2.1 10.1).
+    e.layout_abs_children(0, 0.0, 0.0, vw, vh);
     e.flush_z(0, 0);
     let mut out = e.out;
     out.height = out.items.iter().filter(|i| matches!(i.kind, Kind::Box | Kind::Text | Kind::Image)).fold(h, |m, i| m.max(i.y + i.h));

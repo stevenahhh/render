@@ -1738,6 +1738,13 @@ mod tests {
     }
 
     #[test]
+    fn the_initial_containing_block_is_the_size_of_the_viewport() {
+        let css = "body{margin:0} #tall{height:2000px} #b{position:absolute;bottom:0;width:10px;height:10px} #p{position:absolute;top:0;height:50%;width:10px}";
+        let (mut page, _) = after_script(css, "<div id=tall></div><i id=b></i><i id=p></i>", "$('b').title='x';");
+        assert_eq!(rects(&mut page, &["b", "p"]), [[0.0, 758.0, 10.0, 10.0], [0.0, 0.0, 10.0, 384.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";
