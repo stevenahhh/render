@@ -1570,7 +1570,8 @@ impl<'a> Engine<'a> {
         il.x += space_w + outer_w;
         il.content = true;
         il.last_text = NONE;
-        il.brk = false;
+        // A line can break after an atomic inline, as before one, without a space.
+        il.brk = true;
     }
 
     fn inline_text(&mut self, il: &mut Inl, n: NodeId) {

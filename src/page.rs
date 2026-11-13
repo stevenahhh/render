@@ -1589,6 +1589,18 @@ mod tests {
     }
 
     #[test]
+    fn a_line_breaks_after_an_atomic_inline_without_a_space() {
+        // WebKit puts the text on a second line, after a box that fills the first.
+        for atomic in ["<span style='display:inline-block;width:95px;height:10px'></span>", "<svg width=95 height=10></svg>"] {
+            let html = format!("<body style='margin:0;font:16px/20px sans-serif'><div style='width:100px'>{atomic}<b>bbb</b></div>");
+            let mut page = Page::from_html(&html, None);
+            page.update(&mut Fonts::new(), 1024.0, 768.0);
+            let text = page.layout.items.iter().find(|i| i.kind == crate::layout::Kind::Text).unwrap();
+            assert!(text.x < 1.0 && text.y >= 20.0, "{atomic}: text at {}, {}", text.x, text.y);
+        }
+    }
+
+    #[test]
     fn colour_changes_repaint_the_laid_out_boxes() {
         let css = "div{border:1px solid #000} .on{background:#f00;color:#0f0;opacity:.5}";
         let toggle = "$('a').classList.toggle('on');";
