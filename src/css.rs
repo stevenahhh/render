@@ -1,6 +1,6 @@
 //! CSS values, declaration parsing, selectors and the rule index.
 
-use crate::dom::{Atom, Interner};
+use crate::dom::{atom, Atom, Interner};
 pub use crate::media::{media_matches, Media};
 
 pub mod drops;
@@ -1997,8 +1997,27 @@ pub enum Pseudo {
     Defined,
     /// `:modal`: a dialog `showModal()` opened.
     Modal,
+    OnlyOfType,
+    NthLastOfType(i32, i32),
+    /// A form control state its attributes give, with the attribute it reads.
+    State(State, Atom),
+    /// `:lang()`: the language of the element or its nearest ancestor with one.
+    Lang(Box<str>),
     /// Unsupported pseudo-class or pseudo-element: never matches.
     Never,
+}
+
+/// What `:disabled`, `:checked` and the like test on a form control.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum State {
+    Disabled,
+    Enabled,
+    Checked,
+    ReadOnly,
+    ReadWrite,
+    PlaceholderShown,
+    Required,
+    Optional,
 }
 
 #[derive(Default, Debug)]
@@ -2307,6 +2326,21 @@ fn parse_compound(s: &str, i: &mut usize, atoms: &mut Interner, hover: &mut bool
                     "empty" => Pseudo::Empty,
                     "defined" => Pseudo::Defined,
                     "modal" => Pseudo::Modal,
+                    "only-of-type" => Pseudo::OnlyOfType,
+                    "nth-last-of-type" => parse_nth(arg).map_or(Pseudo::Never, |(a, b)| Pseudo::NthLastOfType(a, b)),
+                    "disabled" => Pseudo::State(State::Disabled, atoms.intern("disabled")),
+                    "enabled" => Pseudo::State(State::Enabled, atoms.intern("disabled")),
+                    "checked" => Pseudo::State(State::Checked, atoms.intern("checked")),
+                    "read-only" => Pseudo::State(State::ReadOnly, atoms.intern("readonly")),
+                    "read-write" => Pseudo::State(State::ReadWrite, atoms.intern("readonly")),
+                    "placeholder-shown" => Pseudo::State(State::PlaceholderShown, atom::VALUE),
+                    "required" => Pseudo::State(State::Required, atoms.intern("required")),
+                    "optional" => Pseudo::State(State::Optional, atoms.intern("required")),
+                    "lang" => Pseudo::Lang(arg.trim().trim_matches(|c| c == '"' || c == '\'').to_ascii_lowercase().into()),
+                    // States of interaction and navigation that a still page is never in.
+                    "focus" | "focus-visible" | "focus-within" | "active" | "visited" | "target" | "target-within" | "popover-open"
+                    | "autofill" | "-webkit-autofill" | "user-invalid" | "user-valid" | "fullscreen" | "picture-in-picture" | "playing"
+                    | "paused" | "seeking" | "buffering" | "stalled" | "muted" | "volume-locked" => Pseudo::Never,
                     _ => {
                         drops::note("pseudo-class", &name);
                         Pseudo::Never

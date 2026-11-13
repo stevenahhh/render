@@ -903,6 +903,35 @@ struct Sib {
     type_count: u32,
 }
 
+/// Whether form control `n` is in state `s`, as its attributes give it.
+fn form_state(dom: &Dom, n: NodeId, s: State) -> bool {
+    let tag = dom.nodes[n as usize].tag;
+    let name = dom.atoms.name(tag);
+    let has = |attr: &str| dom.atoms.get(attr).is_some_and(|a| dom.attr(n, a).is_some());
+    let control = matches!(name, "button" | "input" | "select" | "textarea" | "optgroup" | "option" | "fieldset");
+    let text_field = name == "textarea"
+        || name == "input"
+            && matches!(
+                dom.attr(n, atom::TYPE).unwrap_or("text").to_ascii_lowercase().as_str(),
+                "text" | "search" | "url" | "tel" | "email" | "password" | "number" | "date" | "month" | "week" | "time" | "datetime-local" | ""
+            );
+    match s {
+        State::Disabled => control && has("disabled"),
+        State::Enabled => control && !has("disabled"),
+        State::Checked => (name == "input" && has("checked")) || (name == "option" && has("selected")),
+        State::ReadWrite => (text_field && !has("readonly") && !has("disabled")) || has("contenteditable"),
+        State::ReadOnly => !((text_field && !has("readonly") && !has("disabled")) || has("contenteditable")),
+        State::PlaceholderShown => {
+            text_field
+                && dom.attr(n, atom::PLACEHOLDER).is_some_and(|p| !p.is_empty())
+                && dom.attr(n, atom::VALUE).is_none_or(str::is_empty)
+                && (name != "textarea" || dom.nodes[n as usize].first_child == NONE)
+        }
+        State::Required => matches!(name, "input" | "select" | "textarea") && has("required"),
+        State::Optional => matches!(name, "input" | "select" | "textarea") && !has("required"),
+    }
+}
+
 fn nth(a: i32, b: i32, i: i32) -> bool {
     if a == 0 {
         return i == b;
@@ -978,6 +1007,21 @@ impl<'a> Matcher<'a> {
             Pseudo::Empty => node.first_child == NONE,
             Pseudo::Defined => !self.dom.atoms.name(node.tag).contains('-') || self.dom.defined.contains(&node.tag),
             Pseudo::Modal => self.dom.modal.contains(&n),
+            Pseudo::OnlyOfType => self.sib(n).type_count == 1,
+            Pseudo::NthLastOfType(a, b) => nth(*a, *b, (self.sib(n).type_count - self.sib(n).type_pos + 1) as i32),
+            Pseudo::State(s, _) => form_state(self.dom, n, *s),
+            Pseudo::Lang(want) => {
+                let lang = self.dom.atoms.get("lang");
+                let mut a = n;
+                while a != NONE && a != 0 {
+                    if let Some(l) = lang.and_then(|l| self.dom.attr(a, l)) {
+                        let l = l.trim();
+                        return l.eq_ignore_ascii_case(want) || l.len() > want.len() && l.as_bytes()[want.len()] == b'-' && l[..want.len()].eq_ignore_ascii_case(want);
+                    }
+                    a = self.dom.nodes[a as usize].parent;
+                }
+                false
+            }
             Pseudo::Never => false,
         }
     }
@@ -1903,11 +1947,19 @@ fn each_feature(c: &Compound, f: &mut impl FnMut(Feature)) {
             | Pseudo::NthLastChild(..)
             | Pseudo::FirstOfType
             | Pseudo::LastOfType
-            | Pseudo::NthOfType(..) => f(Feature::Position),
+            | Pseudo::NthOfType(..)
+            | Pseudo::OnlyOfType
+            | Pseudo::NthLastOfType(..) => f(Feature::Position),
+            Pseudo::State(s, attr) => {
+                f(Feature::Attr(*attr));
+                if *s == State::Checked {
+                    f(Feature::Attr(atom::TYPE));
+                }
+            }
             Pseudo::Empty => f(Feature::Empty),
             Pseudo::Link => f(Feature::Attr(atom::HREF)),
             // A definition, or a dialog becoming modal, restyles everything.
-            Pseudo::Has(_) | Pseudo::Not(_) | Pseudo::Is(_) | Pseudo::Root | Pseudo::Defined | Pseudo::Modal | Pseudo::Never => {}
+            Pseudo::Has(_) | Pseudo::Not(_) | Pseudo::Is(_) | Pseudo::Root | Pseudo::Defined | Pseudo::Modal | Pseudo::Lang(_) | Pseudo::Never => {}
         }
     }
 }
@@ -2359,6 +2411,19 @@ mod tests {
         assert_eq!((divs[0].height, divs[0].width, divs[1].width), (Len::Px(3.0), Len::Auto, Len::Px(4.0)));
         assert_eq!(divs[0].color.0 & 0xff_ffff, 0xff0000, "declarations after nested rules belong to the parent");
         assert_eq!(styles_of(html, "b")[0].width, Len::Px(5.0));
+    }
+
+    #[test]
+    fn form_states_language_and_type_positions_match_as_their_attributes_say() {
+        let html = "<style>input{width:1px} :disabled{width:2px} input:checked{width:3px} input:placeholder-shown{width:4px} input:read-only{height:5px}\
+                    :lang(en){height:6px} b:only-of-type{width:7px} b:nth-last-of-type(2){width:8px} a, a:focus{width:9px}</style>\
+                    <div lang=en-US><input disabled><input type=checkbox checked><input placeholder=x><input placeholder=x value=y readonly></div>\
+                    <p><b></b></p><p><b></b><b></b><i></i></p><a></a>";
+        let inputs = styles_of(html, "input");
+        assert_eq!(widths(&inputs), [Len::Px(2.0), Len::Px(3.0), Len::Px(4.0), Len::Px(1.0)]);
+        assert_eq!(inputs.iter().map(|s| s.height).collect::<Vec<_>>(), [Len::Px(5.0), Len::Px(5.0), Len::Px(6.0), Len::Px(5.0)]);
+        assert_eq!(widths(&styles_of(html, "b")), [Len::Px(7.0), Len::Px(8.0), Len::Auto]);
+        assert_eq!(styles_of(html, "a")[0].width, Len::Px(9.0), "a state no still page is in keeps the rest of the list");
     }
 
     #[test]
