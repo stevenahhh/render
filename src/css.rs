@@ -2838,10 +2838,23 @@ impl Sheet {
     /// Adds the rules of a stylesheet. `base` is where it was loaded from, which
     /// its relative `url()`s resolve against; empty when that is the page itself.
     pub fn add(&mut self, css: &str, atoms: &mut Interner, level: u8, base: &str) {
+        self.add_in(css, atoms, level, base, "");
+    }
+
+    /// Adds a style sheet whose rules apply only while the media query list
+    /// `media` matches: the `media` attribute of its `<style>` or `<link>`
+    /// (`print`, `screen and (...)`, ...). An empty list always matches.
+    pub fn add_in(&mut self, css: &str, atoms: &mut Interner, level: u8, base: &str, media: &str) {
         let css = strip_comments(css);
         let css = rebase_urls(&css, base);
+        let media = if media.trim().is_empty() {
+            u32::MAX
+        } else {
+            self.media.push(Media::parse(media));
+            self.media.len() as u32 - 1
+        };
         let mut i = 0;
-        self.rules_in(&css, &mut i, u32::MAX, level, atoms, false);
+        self.rules_in(&css, &mut i, media, level, atoms, false);
     }
 
     fn rules_in(&mut self, s: &str, i: &mut usize, media: u32, level: u8, atoms: &mut Interner, nested: bool) {

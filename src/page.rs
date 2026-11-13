@@ -224,7 +224,8 @@ fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bo
             atom::STYLE => {
                 let mut css = String::new();
                 dom.text_content(n, &mut css);
-                sheet.add(&css, &mut dom.atoms, 1, "");
+                let media = dom.attr(n, atom::MEDIA).unwrap_or("").to_string();
+                sheet.add_in(&css, &mut dom.atoms, 1, "", &media);
             }
             atom::LINK => {
                 let is_css = dom.attr(n, atom::REL).is_some_and(is_stylesheet);
@@ -245,7 +246,8 @@ fn style_sheet(dom: &mut Dom, base: Option<&Path>, site: Option<&Site>, wait: bo
                         Some(site) => href.and_then(|h| site.url.join(h)).map(|u| u.to_string()).unwrap_or_default(),
                         None => href.unwrap_or_default().to_string(),
                     };
-                    sheet.add(&css, &mut dom.atoms, 1, &at);
+                    let media = dom.attr(n, atom::MEDIA).unwrap_or("").to_string();
+                    sheet.add_in(&css, &mut dom.atoms, 1, &at, &media);
                 }
             }
             _ => {}
@@ -617,8 +619,8 @@ impl Page {
         }
     }
 
-    /// Notes a change to what the style sheet is built from: the text of the
-    /// document's `<style>` elements and the `rel` and `href` of its links.
+    /// Notes a change to what the style sheet is built from: the text and `media`
+    /// of the document's `<style>` elements and the `rel`, `href` and `media` of its links.
     fn sheet_changed(&mut self) {
         self.sheet_dirty = true;
         self.restyle_all = true;
@@ -632,7 +634,8 @@ impl Page {
         if !self.dom.connected(n) {
             return;
         }
-        if self.dom.nodes[n as usize].tag == atom::LINK && matches!(name, atom::REL | atom::HREF) {
+        let tag = self.dom.nodes[n as usize].tag;
+        if (tag == atom::LINK && matches!(name, atom::REL | atom::HREF | atom::MEDIA)) || (tag == atom::STYLE && name == atom::MEDIA) {
             let was_sheet = name == atom::REL && old.is_some_and(is_stylesheet);
             if was_sheet || self.dom.kind_of(n) == HAS_SHEET {
                 self.sheet_changed();
@@ -2068,6 +2071,19 @@ mod tests {
         let (mut page, _) = after_script(css, body, "$('c1').title='x';");
         let got = rects(&mut page, &["m1", "c2", "f2", "b3", "c3", "b4", "f5", "m5"]);
         assert_eq!(got, [[100.0, 0.0, 10.0, 10.0], [100.0, 10.0, 400.0, 40.0], [380.0, 10.0, 120.0, 40.0], [0.0, 100.0, 400.0, 5.0], [0.0, 50.0, 400.0, 55.0], [100.0, 105.0, 300.0, 5.0], [350.0, 155.0, 50.0, 30.0], [10.0, 155.0, 10.0, 10.0]]);
+    }
+
+    #[test]
+    fn a_style_sheet_applies_only_while_its_media_attribute_matches() {
+        let css = "p{margin:0;height:1px}";
+        let body = "<style media=print>#a{width:11px}</style><style media='only screen'>#b{width:22px}</style>\
+                    <style media='not print'>#c{width:33px}</style><style media='screen and (max-width: 100px)'>#d{width:44px}</style>\
+                    <style media='print, (min-width: 1000px)'>#e{width:55px}</style><style media=print>@media (min-width:1px){#f{width:66px}}</style>\
+                    <style media=print id=s>#g{width:77px}</style>\
+                    <p id=a></p><p id=b></p><p id=c></p><p id=d></p><p id=e></p><p id=f></p><p id=g></p>";
+        let (mut page, _) = after_script(css, body, ";;$('s').setAttribute('media','all');");
+        let w: Vec<f32> = rects(&mut page, &["a", "b", "c", "d", "e", "f", "g"]).iter().map(|r| r[2]).collect();
+        assert_eq!(w, [1008.0, 22.0, 33.0, 1008.0, 55.0, 1008.0, 77.0], "print sheets apply to no screen; a script switching media to all applies the sheet");
     }
 
     #[test]
