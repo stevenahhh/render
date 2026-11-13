@@ -539,9 +539,21 @@ impl Fonts {
     pub fn measure(&mut self, primary: u8, s: &str, size: f32, spacing: f32) -> f32 {
         self.prime(primary);
         let f = self.faces[primary as usize].as_ref().unwrap();
-        if f.ascii_full && s.is_ascii() {
-            let w: f32 = s.bytes().map(|c| f.ascii[c as usize].1).sum();
-            return w * size + spacing * s.len() as f32;
+        if f.ascii_full {
+            // One pass, as in `segments`: the same left-to-right sum, stopping at the
+            // first byte outside ASCII.
+            let mut w = 0.0f32;
+            let mut ascii = true;
+            for &c in s.as_bytes() {
+                if c >= 0x80 {
+                    ascii = false;
+                    break;
+                }
+                w += f.ascii[c as usize].1;
+            }
+            if ascii {
+                return w * size + spacing * s.len() as f32;
+            }
         }
         s.chars().map(|c| self.lookup(primary, c).2 * size + spacing).sum()
     }
@@ -682,6 +694,7 @@ mod tests {
         let per_char: f32 = "caf\u{e9}s".chars().map(|c| fonts.lookup(0, c).2 * 16.0).sum();
         assert_eq!(segs.iter().map(|s| s.w).sum::<f32>(), per_char);
         assert_eq!(segs.last().unwrap().end, "caf\u{e9}s".len() as u32);
+        assert_eq!(fonts.measure(0, "caf\u{e9}s", 16.0, 0.0), per_char);
     }
 
     #[test]
