@@ -402,6 +402,8 @@ pub enum Decl {
     /// `order` of a flex or grid item.
     Order(i32),
     VAlign(VAlign),
+    /// `aspect-ratio` as width over height; 0 for `auto`.
+    AspectRatio(f32),
     /// SVG fill; `None` is currentColor.
     Fill(Option<Color>),
     /// Custom property definition.
@@ -1158,6 +1160,22 @@ fn size(v: &str) -> Option<Len> {
     }
 }
 
+/// `aspect-ratio`: `auto`, a number or `w / h`, with or without `auto` beside it;
+/// 0 for `auto` alone.
+fn aspect_ratio(v: &str) -> Option<f32> {
+    let ratio: String = v.split_ascii_whitespace().filter(|t| *t != "auto").collect();
+    if ratio.is_empty() {
+        return Some(0.0);
+    }
+    let mut parts = ratio.split('/');
+    let w = num(parts.next()?)?;
+    let h = match parts.next() {
+        Some(h) => num(h)?,
+        None => 1.0,
+    };
+    (w > 0.0 && h > 0.0 && parts.next().is_none()).then(|| w / h)
+}
+
 fn border_width(t: &str) -> Option<Len> {
     match t {
         "thin" => Some(Len::Px(1.0)),
@@ -1366,6 +1384,7 @@ const INITIAL: &[(&str, &str)] = &[
     ("flex-direction", "row"),
     ("flex-wrap", "nowrap"),
     ("order", "0"),
+    ("aspect-ratio", "auto"),
     ("align-self", "auto"),
     ("justify-self", "auto"),
     ("overflow", "visible"),
@@ -1571,6 +1590,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "grid-template-areas" | "grid-template" | "grid" | "grid-auto-rows" | "grid-auto-columns" | "grid-column" | "grid-row-end"
         | "grid-column-start" | "grid-column-end" | "justify-items" | "justify-self" | "place-items" | "place-self" => grid::parse_grid(name, v, out),
         "order" => push(v.parse().ok().map(D::Order)),
+        "aspect-ratio" => push(aspect_ratio(v).map(D::AspectRatio)),
         "vertical-align" => push(
             match v {
                 "baseline" => Some(VAlign::Baseline),

@@ -136,6 +136,8 @@ pub struct Rare {
     pub valign: crate::css::VAlign,
     /// `width` as an intrinsic size keyword; `width` itself is then `auto`.
     pub width_kw: crate::css::WidthKeyword,
+    /// `aspect-ratio`, width over height; 0 for `auto`.
+    pub ratio: f32,
     /// `-webkit-line-clamp`, which counts only for a `-webkit-box`.
     pub line_clamp: u16,
     /// A grid's track lists for rows (0) and columns (1), its areas, the sizes of
@@ -174,6 +176,7 @@ const NO_RARE: Rare = Rare {
     order: 0,
     valign: crate::css::VAlign::Baseline,
     width_kw: crate::css::WidthKeyword::None,
+    ratio: 0.0,
     line_clamp: 0,
     tracks: [None, None],
     areas: None,
@@ -539,6 +542,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::Position(v) => st.position = v,
         Decl::Width(l) => st.width = r(l),
         Decl::WidthKeyword(k) => put_rare(st, |r| &mut r.width_kw, k),
+        Decl::AspectRatio(v) => put_rare(st, |r| &mut r.ratio, v),
         Decl::Height(l) => st.height = r(l),
         Decl::MinWidth(l) => put_rare(st, |r| &mut r.min_w, r(l)),
         Decl::MaxWidth(l) => put_rare(st, |r| &mut r.max_w, r(l)),

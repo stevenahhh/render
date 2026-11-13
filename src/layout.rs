@@ -709,6 +709,7 @@ impl<'a> Engine<'a> {
             && s.bw[2] == 0.0
             && (s.height == Len::Auto || s.height == zero)
             && (s.rare().min_h == Len::Auto || s.rare().min_h == zero)
+            && s.rare().ratio == 0.0
     }
 
     /// True for a block that `collapses_through` and holds no in-flow content:
@@ -913,14 +914,26 @@ impl<'a> Engine<'a> {
 
         let hx = if s.border_box { 0.0 } else { vextra };
         let mut spec_h = forced_h;
+        let mut ratio_h = NAN;
         if spec_h.is_nan() {
             if let Some(v) = definite(s.height, ch) {
                 spec_h = v + hx;
             } else if let Some((iw, ih)) = self.natural(n) {
                 spec_h = cw * ih / iw + vextra;
+            } else if s.rare().ratio > 0.0 {
+                // `aspect-ratio` gives the height from the width, for the box its
+                // `box-sizing` names. Content may make a box that does not clip taller,
+                // as its automatic minimum height allows (CSS Sizing 4, 5.1 and 5.2).
+                let h = if s.border_box { w / s.rare().ratio } else { cw / s.rare().ratio + vextra };
+                if s.overflow_hidden {
+                    spec_h = h;
+                } else {
+                    ratio_h = h;
+                }
             }
         }
         let min_h = definite(s.rare().min_h, ch).map_or(NAN, |v| v + hx);
+        let min_h = if ratio_h.is_nan() { min_h } else { ratio_h.max(if min_h.is_nan() { 0.0 } else { min_h }) };
         let max_h = definite(s.rare().max_h, ch).map_or(NAN, |v| v + hx);
         if !spec_h.is_nan() {
             spec_h = spec_h.min(if max_h.is_nan() { spec_h } else { max_h }).max(if min_h.is_nan() { 0.0 } else { min_h });

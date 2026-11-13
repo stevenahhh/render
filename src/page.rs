@@ -1765,6 +1765,18 @@ mod tests {
     }
 
     #[test]
+    fn aspect_ratio_gives_boxes_their_height_from_their_width() {
+        let css = "body{margin:0} b{display:block;height:30px}";
+        let body = "<div id=a style='aspect-ratio:2/1;width:100px'></div>\
+                    <div id=b style='aspect-ratio:16 / 9;width:160px;padding:10px'></div>\
+                    <div id=c style='aspect-ratio:1;width:50px;box-sizing:border-box;padding:5px'></div>\
+                    <div id=d style='aspect-ratio:4/1;width:40px'><b></b></div>";
+        let (mut page, _) = after_script(css, body, "$('a').title='x';");
+        let got = rects(&mut page, &["a", "b", "c", "d"]);
+        assert_eq!(got, [[0.0, 0.0, 100.0, 50.0], [0.0, 50.0, 180.0, 110.0], [0.0, 160.0, 50.0, 50.0], [0.0, 210.0, 40.0, 30.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";
