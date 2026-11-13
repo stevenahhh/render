@@ -1792,7 +1792,7 @@
     const url = resolveURL(input, docURL);
     if (url === null) throw domError('SyntaxError', "'" + input + "' is not a valid URL.");
     if (url.split('#')[0] === docURL.split('#')[0] && url.includes('#')) changeURL(url, push, null, true);
-    else __log('navigation to ' + url + ' is not followed');
+    else __navigate(url, !push);
   };
   class Location {
     constructor() { illegal(); }

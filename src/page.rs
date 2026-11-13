@@ -326,6 +326,9 @@ pub struct Page {
     wait: bool,
     /// Directory a local page's relative URLs resolve against.
     base: Option<PathBuf>,
+    /// The document a script asked to go to, and whether it replaces this one in
+    /// the history; see `take_navigation`.
+    pub(crate) navigation: Option<(String, bool)>,
 }
 
 /// The address of a page from the web, as scripts see it.
@@ -407,6 +410,7 @@ impl Page {
             parsed_resources,
             wait,
             base: base.map(Path::to_path_buf),
+            navigation: None,
         };
         if let Some(site) = site {
             if defer {
@@ -460,7 +464,25 @@ impl Page {
             parsed_resources: Vec::new(),
             wait: false,
             base: None,
+            navigation: None,
         }
+    }
+
+    /// Where a script asked to go (`location.href = ...` and the like): a web URL, or
+    /// the path of a local file, and whether the new page replaces this one in the
+    /// history. Navigations elsewhere are reported and dropped.
+    pub fn take_navigation(&mut self) -> Option<(PathBuf, bool)> {
+        let (href, replace) = self.navigation.take()?;
+        let url = Url::parse(&href, None)?;
+        let path = match url.scheme.as_str() {
+            "http" | "https" => PathBuf::from(href),
+            "file" => url.to_path()?,
+            _ => {
+                eprintln!("[js] navigation to {href} is not followed");
+                return None;
+            }
+        };
+        Some((path, replace))
     }
 
     /// Starts downloading the image `src` names in the background, for one-shot output,
@@ -829,6 +851,10 @@ impl Page {
         let mut idle = Duration::ZERO;
         loop {
             self.update(fonts, vw, vh);
+            // A page that navigates away is not waited for: its successor is what shows.
+            if self.navigation.is_some() {
+                break;
+            }
             let next = self.tick(fonts);
             if start.elapsed() > SETTLE_CAP {
                 break;

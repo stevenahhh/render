@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>webapp fixture: navigate target</title>
+<style>body{font-family:Arial,sans-serif;margin:16px} .m{font:13px monospace;margin:2px 0}</style>
+</head>
+<body>
+<div id="out"></div>
+<script>
+function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
+mark('NAV arrived at ' + location.pathname.slice(location.pathname.lastIndexOf('/') + 1));
+</script>
+</body>
+</html>

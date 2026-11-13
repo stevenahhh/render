@@ -125,15 +125,39 @@ fn device_size(a: &Args) -> (usize, usize) {
     ((a.width * a.scale).round() as usize, (a.height * a.scale).round() as usize)
 }
 
+/// Navigations a one-shot run follows from page to page, as a browser follows a
+/// script that sets `location`, before it shows the page it got to.
+const NAVIGATIONS: usize = 5;
+
+/// Loads the page and `prepare`s it (runs its scripts); when they navigate, loads
+/// and prepares the page they go to instead.
+fn load_following(a: &Args, fonts: &mut Fonts, mut prepare: impl FnMut(&mut Page, &mut Fonts)) -> std::io::Result<Page> {
+    let mut page = Page::load(&a.path)?;
+    prepare(&mut page, fonts);
+    for _ in 0..NAVIGATIONS {
+        let Some((next, _)) = page.take_navigation() else { break };
+        match Page::load(&next) {
+            Ok(p) => page = p,
+            Err(e) => {
+                eprintln!("cannot open {}: {e}", next.display());
+                break;
+            }
+        }
+        prepare(&mut page, fonts);
+    }
+    Ok(page)
+}
+
 fn screenshot(a: &Args, out: &Path) -> std::io::Result<()> {
     let mut fonts = Fonts::new();
-    let mut page = Page::load(&a.path)?;
-    page.run_pending(&mut fonts, a.width, a.height);
-    if a.scroll > 0.0 {
-        page.update(&mut fonts, a.width, a.height);
-        page.scroll_to(&mut fonts, a.scroll.clamp(0.0, (page.layout.height - a.height).max(0.0)));
-    }
-    page.settle(&mut fonts, a.width, a.height, SETTLE);
+    let mut page = load_following(a, &mut fonts, |page, fonts| {
+        page.run_pending(fonts, a.width, a.height);
+        if a.scroll > 0.0 {
+            page.update(fonts, a.width, a.height);
+            page.scroll_to(fonts, a.scroll.clamp(0.0, (page.layout.height - a.height).max(0.0)));
+        }
+        page.settle(fonts, a.width, a.height, SETTLE);
+    })?;
     if let Some(sel) = &a.inspect {
         for line in page.inspect(sel) {
             eprintln!("{line}");
@@ -155,9 +179,10 @@ fn screenshot(a: &Args, out: &Path) -> std::io::Result<()> {
 fn boxes(a: &Args, selectors: &Path) -> std::io::Result<()> {
     let list = std::fs::read_to_string(selectors)?;
     let mut fonts = Fonts::new();
-    let mut page = Page::load(&a.path)?;
-    page.record_boxes = true;
-    page.settle(&mut fonts, a.width, a.height, SETTLE);
+    let mut page = load_following(a, &mut fonts, |page, fonts| {
+        page.record_boxes = true;
+        page.settle(fonts, a.width, a.height, SETTLE);
+    })?;
     let extra = std::env::var_os("RENDER_TEXT_RUNS").is_some_and(|v| v == "1");
     let mut out = String::new();
     for (i, sel) in list.lines().enumerate() {
@@ -875,6 +900,10 @@ impl ApplicationHandler for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // A script of the page, in this turn or an earlier one, asked to go elsewhere.
+        if let Some((path, replace)) = self.page.take_navigation() {
+            self.open(path, 0.0, !replace);
+        }
         // Once a frame is on screen, run the held-back scripts one per turn of the
         // loop, so input and repaints are served in between.
         let started = Instant::now();

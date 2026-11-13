@@ -593,6 +593,17 @@ fn prefetch(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> 
     Ok(JsValue::undefined())
 }
 
+/// `__navigate(url, replace)`: a script asked the page to go to another document.
+/// The newest request wins; the host follows it once the scripts have run.
+fn navigate(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let (url, replace) = (str_arg(a, 0, ctx)?, a.get_or_undefined(1).to_boolean());
+    with(|h| {
+        h.page.navigation = Some((url, replace));
+        Some(())
+    });
+    Ok(JsValue::undefined())
+}
+
 /// `__image(src)`: `[width, height]` of the image `src` names, looked up as layout
 /// looks images up; null when it cannot be had, 0 while it is still downloading.
 fn image(_: &JsValue, a: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
@@ -954,6 +965,7 @@ const NATIVES: &[(&str, usize, NativeFunctionPointer)] = &[
     ("__supports", 2, supports),
     ("__now", 0, now),
     ("__prefetch", 1, prefetch),
+    ("__navigate", 2, navigate),
     ("__url", 2, url),
     ("__btoa", 1, btoa),
     ("__atob", 1, atob),
