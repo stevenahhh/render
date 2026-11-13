@@ -1029,9 +1029,16 @@ fn without_line_names(v: &str) -> String {
         .collect()
 }
 
+/// The part `t` of the lowercased value `v` as it was written in `written`: URLs keep
+/// their case. Lowercasing ASCII keeps every byte offset.
+fn as_written<'a>(written: &'a str, v: &str, t: &str) -> &'a str {
+    let at = t.as_ptr() as usize - v.as_ptr() as usize;
+    &written[at..at + t.len()]
+}
+
 /// The address in a `url()` token, without quotes and with its escapes decoded.
 fn css_url(t: &str) -> Option<Cow<'_, str>> {
-    let inner = t.strip_prefix("url(")?.strip_suffix(')')?.trim();
+    let inner = t.get(..4).filter(|p| p.eq_ignore_ascii_case("url(")).and(t.get(4..))?.strip_suffix(')')?.trim();
     Some(unquote(inner)).filter(|u| !u.trim().is_empty())
 }
 
@@ -1477,12 +1484,12 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         return;
     }
     let lower;
-    let v = value.trim();
-    let v = if v.bytes().any(|b| b.is_ascii_uppercase()) {
-        lower = v.to_ascii_lowercase();
+    let written = value.trim();
+    let v = if written.bytes().any(|b| b.is_ascii_uppercase()) {
+        lower = written.to_ascii_lowercase();
         &lower[..]
     } else {
-        v
+        written
     };
     let name = match name {
         "margin-inline-start" => "margin-left",
@@ -1747,7 +1754,7 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
                 if t.starts_with("linear-gradient(") {
                     // Of several layers the last, painted under the others, stands for them all.
                     grad = SplitTop::new(t, b',').filter_map(|l| parse_gradient(l.trim())).last().map(Rc::new);
-                } else if let Some(u) = css_url(t.trim_end_matches(',')) {
+                } else if let Some(u) = css_url(as_written(written, v, t.trim_end_matches(','))) {
                     url = url.or(Some(Rc::from(u.trim())));
                 } else if t == "none" {
                     none = true;
@@ -1781,14 +1788,14 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "background-position" => push(bg_position(&tokens(v).collect::<Vec<_>>()).map(|(x, y)| D::BgPos(x, y))),
         "mask-image" | "-webkit-mask-image" => match v {
             "none" => out.push(D::MaskImage(None)),
-            v => push(css_url(v).map(|u| D::MaskImage(Some(Rc::from(u.trim()))))),
+            v => push(css_url(written).filter(|_| v.starts_with("url(")).map(|u| D::MaskImage(Some(Rc::from(u.trim()))))),
         },
         "mask-size" | "-webkit-mask-size" => push(bg_size(v).map(D::MaskSize)),
         "mask-position" | "-webkit-mask-position" => push(bg_position(&tokens(v).collect::<Vec<_>>()).map(|(x, y)| D::MaskPos(x, y))),
         "mask" | "-webkit-mask" => {
             let (mut url, mut pos, mut size, mut after_slash) = (None, Vec::new(), None, false);
             for t in tokens(v) {
-                if let Some(u) = css_url(t) {
+                if let Some(u) = css_url(as_written(written, v, t)) {
                     url = Some(Rc::from(u.trim()));
                 } else if t != "none" {
                     let (p, s) = t.split_once('/').unwrap_or(if after_slash { ("", t) } else { (t, "") });
@@ -2974,6 +2981,19 @@ impl Sheet {
 mod tests {
     use super::{FontWeight, Sheet};
     use crate::dom::Interner;
+
+    #[test]
+    fn image_urls_keep_the_case_they_were_written_in() {
+        use super::parse_decl;
+        let mut out = Vec::new();
+        parse_decl("background", "URL(/Img/Hero.PNG) Center / Cover NO-REPEAT", &mut out);
+        parse_decl("mask-image", "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 2 2'%3E%3C/svg%3E\")", &mut out);
+        parse_decl("-webkit-mask", "url(/Icons/A.svg) no-repeat center / 20px", &mut out);
+        let all = format!("{out:?}");
+        for url in ["/Img/Hero.PNG", "viewBox='0 0 2 2'", "/Icons/A.svg"] {
+            assert!(all.contains(url), "{url} in {all}");
+        }
+    }
 
     #[test]
     fn font_face_rules_are_collected_with_resolved_sources() {
