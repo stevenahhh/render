@@ -1904,6 +1904,16 @@ mod tests {
     }
 
     #[test]
+    fn table_cells_outside_a_table_row_line_up_in_an_anonymous_row() {
+        let css = "body{margin:0;font:0/0 sans-serif} ul{margin:0;padding:0;list-style:none} li{display:table-cell} .a{width:50px;height:20px} .b{width:70px;height:30px}";
+        let body = "<ul><li id=l1><i style=display:block class=a></i></li>\n<li id=l2><i style=display:block class=b></i></li></ul>\
+                    <div><span style=display:table-cell id=m1>x</span><p id=m2 style=margin:0;height:5px></p></div>";
+        let (mut page, _) = after_script(css, body, "");
+        let got = rects(&mut page, &["l1", "l2", "m2"]);
+        assert_eq!(got, [[0.0, 0.0, 50.0, 30.0], [50.0, 0.0, 70.0, 30.0], [0.0, 30.0, 1024.0, 5.0]], "a run of cells sits in one row; a cell beside a block does not");
+    }
+
+    #[test]
     fn grid_items_go_on_their_lines_in_tracks_sized_by_their_functions() {
         let css = "body{margin:0} i{height:10px} .g{display:grid;width:400px;grid-template-columns:100px 1fr 2fr;column-gap:10px}\
                    .a{display:grid;width:400px;grid-template-areas:'h h' 's m';grid-template-columns:80px 1fr;grid-template-rows:20px 30px}\

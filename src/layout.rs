@@ -998,7 +998,7 @@ impl<'a> Engine<'a> {
             (self.replaced(n, s, cx, cy, cw, inner_h, tag), 0.0)
         } else if s.grid && s.rare().subgrid == 0 {
             (self.layout_grid(n, cx, cw, cy, inner_h), 0.0)
-        } else if matches!(s.display, Display::Flex | Display::InlineFlex) {
+        } else if matches!(s.display, Display::Flex | Display::InlineFlex) || self.cell_row(n) {
             let inner_min = if min_h.is_nan() { NAN } else { (min_h - vextra).max(0.0) };
             (self.layout_flex(n, cx, cw, cy, inner_h, inner_min), 0.0)
         } else {
@@ -2110,6 +2110,32 @@ impl<'a> Engine<'a> {
 
     /// Children that take part in a flex container's layout: a
     /// `display: contents` child is replaced by its own children.
+    /// True for a block whose in-flow children are all `display: table-cell`
+    /// boxes outside a table row: CSS wraps them in an anonymous table row,
+    /// laid out here as the flex row a table row is.
+    fn cell_row(&self, n: NodeId) -> bool {
+        if self.st[n as usize].display != Display::Block {
+            return false;
+        }
+        let mut c = self.dom.nodes[n as usize].first_child;
+        let mut cells = false;
+        while c != NONE {
+            if self.dom.is_element(c) {
+                let cs = &self.st[c as usize];
+                if cs.display != Display::None && !is_abs(cs) && cs.float == 0 {
+                    if !cs.table_cell {
+                        return false;
+                    }
+                    cells = true;
+                }
+            } else if !is_ws(self.dom.text_of(c)) {
+                return false;
+            }
+            c = self.dom.nodes[c as usize].next;
+        }
+        cells
+    }
+
     fn flex_children(&self, n: NodeId, out: &mut Vec<NodeId>) {
         let mut c = self.dom.nodes[n as usize].first_child;
         while c != NONE {
@@ -2250,7 +2276,7 @@ impl<'a> Engine<'a> {
             }
         } else if s.grid && s.rare().subgrid == 0 {
             self.grid_intrinsic(n)
-        } else if matches!(s.display, Display::Flex | Display::InlineFlex) {
+        } else if matches!(s.display, Display::Flex | Display::InlineFlex) || self.cell_row(n) {
             let (mut sum, mut max, mut count) = (0.0f32, 0.0f32, 0.0f32);
             let mut kids = Vec::new();
             self.flex_children(n, &mut kids);

@@ -71,6 +71,8 @@ pub struct Style {
     pub text_align: TextAlign,
     pub white_space: WhiteSpace,
     pub webkit_box: bool,
+    /// `display: table-cell`: its parent lays a run of such cells out in a row.
+    pub table_cell: bool,
     pub transform: TextTransform,
     pub spacing: f32,
     pub list_style: ListStyle,
@@ -277,6 +279,7 @@ const INITIAL: Style = Style {
     text_align: TextAlign::Left,
     white_space: WhiteSpace::Normal,
     webkit_box: false,
+    table_cell: false,
     transform: TextTransform::None,
     spacing: 0.0,
     list_style: ListStyle::Disc,
@@ -542,7 +545,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
     let em = st.font_size;
     let r = |l: Len| resolve(l, em, c);
     match *d {
-        Decl::Display(v) => (st.display, st.flow_root, st.webkit_box) = (v, false, false),
+        Decl::Display(v) => (st.display, st.flow_root, st.webkit_box, st.table_cell) = (v, false, false, false),
         Decl::FlowRoot(v) => st.flow_root = v,
         Decl::Float(v) => st.float = v,
         Decl::Clear(v) => st.clear = v,
@@ -593,6 +596,7 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::WhiteSpace(v) => st.white_space = v,
         Decl::LineClamp(n) => put_rare(st, |r| &mut r.line_clamp, n),
         Decl::WebkitBox(b) => st.webkit_box = b,
+        Decl::TableCell(b) => st.table_cell = b,
         Decl::TextTransform(v) => st.transform = v,
         Decl::LetterSpacing(l) => st.spacing = px(l, em, c),
         Decl::ListStyle(v) => st.list_style = v,
@@ -689,7 +693,7 @@ fn copy_prop(st: &mut Style, src: &Style, name: &str) -> bool {
     let side = |s: &str| ["top", "right", "bottom", "left"].iter().position(|t| *t == s);
     let sr = src.rare();
     match name {
-        "display" => (st.display, st.flow_root, st.webkit_box) = (src.display, src.flow_root, src.webkit_box),
+        "display" => (st.display, st.flow_root, st.webkit_box, st.table_cell) = (src.display, src.flow_root, src.webkit_box, src.table_cell),
         "position" => st.position = src.position,
         "float" => st.float = src.float,
         "clear" => st.clear = src.clear,

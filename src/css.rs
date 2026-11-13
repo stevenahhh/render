@@ -353,6 +353,8 @@ pub enum Decl {
     LineClamp(u16),
     /// Whether `display` is the old `-webkit-box`, which `-webkit-line-clamp` needs.
     WebkitBox(bool),
+    /// `display: table-cell`, laid out as a block in a row of cells.
+    TableCell(bool),
     TextTransform(TextTransform),
     LetterSpacing(Len),
     ListStyle(ListStyle),
@@ -1546,6 +1548,9 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "display" if matches!(v, "flow-root" | "table" | "table-cell" | "table-caption") => {
             out.push(D::Display(Display::Block));
             out.push(D::FlowRoot(true));
+            if v == "table-cell" {
+                out.push(D::TableCell(true));
+            }
         }
         // The old flexbox, laid out as a block: `-webkit-line-clamp` counts only on one.
         "display" if matches!(v, "-webkit-box" | "-webkit-inline-box") => {
