@@ -1678,6 +1678,18 @@ mod tests {
     }
 
     #[test]
+    fn a_shrinking_flex_line_keeps_lists_and_text_areas_at_their_content_width() {
+        let css = "body{margin:0} div{display:flex;width:50px} select,textarea{font:10px/20px monospace;padding:0;border:0} i{display:block;width:100px}";
+        let body = "<div><select id=s><option>ab cd ef</option></select><i></i></div><div><textarea id=t cols=6>ab cd</textarea><i></i></div>";
+        let (mut page, mut fonts) = after_script(css, body, "$('s').title='x';");
+        let face = fonts.face(Some("monospace"), crate::css::Family::Mono, 400, false);
+        let (list, six) = (fonts.measure(face, "ab cd ef", 10.0, 0.0), (fonts.lookup(face, '0').2 * 60.0).ceil());
+        let mut width = |sel: &str| page.describe(sel).and_then(|d| d.0).unwrap()[2];
+        assert_eq!(width("#s"), list, "a list is not as narrow as its widest word");
+        assert_eq!(width("#t"), six);
+    }
+
+    #[test]
     fn a_button_taller_than_its_content_centres_it() {
         let css = "body{margin:0} button{padding:0;border:0;height:60px;width:50px} #f{display:flex}";
         let body = "<button id=b><div id=d style='height:20px'></div></button><button id=f><div id=e style='height:20px;width:5px'></div></button>";

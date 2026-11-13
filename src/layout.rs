@@ -2282,7 +2282,7 @@ impl<'a> Engine<'a> {
         }
         let s = &self.st[n as usize];
         let tag = self.dom.nodes[n as usize].tag;
-        if matches!(s.width, Len::Px(_)) || tag == atom::IMG || tag == atom::INPUT || self.natural(n).is_some() {
+        if matches!(s.width, Len::Px(_)) || tag == atom::IMG || control(self.dom, n).is_some() || self.natural(n).is_some() {
             // A fixed width or a replaced element: the same as its max-content width.
             let w = self.intrinsic(n);
             self.intr_min[n as usize] = w;
@@ -2311,7 +2311,7 @@ impl<'a> Engine<'a> {
         if let Some((iw, _)) = self.natural(n) {
             return iw;
         }
-        if matches!(dom.nodes[n as usize].tag, atom::IMG | atom::INPUT) {
+        if dom.nodes[n as usize].tag == atom::IMG || control(dom, n).is_some() {
             let sd = sides(s, 0.0);
             return (self.intrinsic(n) - sd.ml - sd.mr - hextra(s, &sd)).max(0.0);
         }
@@ -2500,7 +2500,7 @@ impl<'a> Engine<'a> {
             return rs(s.rare().min_w, cw) + extra;
         }
         // A scroll container has none; overflow only clips a replaced element.
-        let replaced = matches!(self.dom.nodes[it.node as usize].tag, atom::IMG | atom::INPUT | atom::SVG | atom::VIDEO) || self.dom.shows_image(it.node);
+        let replaced = matches!(self.dom.nodes[it.node as usize].tag, atom::IMG | atom::SVG | atom::VIDEO) || control(self.dom, it.node).is_some() || self.dom.shows_image(it.node);
         if s.overflow_hidden && !replaced {
             return 0.0;
         }
