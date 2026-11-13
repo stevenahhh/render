@@ -2,7 +2,7 @@
 //! or right of their block formatting context, beside which line boxes shorten
 //! and boxes that establish a formatting context of their own are placed.
 
-use super::{clamp_w, sides, spec_w, Engine, Inl, Res, FIT, NAN};
+use super::{clamp_w, sides, sized_by_content, spec_w, Engine, Inl, Res, FIT, NAN};
 use crate::css::{CLEAR_LEFT, CLEAR_RIGHT, FLOAT_LEFT};
 use crate::dom::NodeId;
 
@@ -195,7 +195,7 @@ impl Engine<'_> {
         let st = self.st;
         let s = &st[n as usize];
         let sd = sides(s, cw);
-        let fixed = spec_w(s, cw, &sd).or_else(|| self.dom.shows_image(n).then(|| self.intrinsic(n) - sd.ml - sd.mr));
+        let fixed = spec_w(s, cw, &sd).or_else(|| sized_by_content(self.dom, n).then(|| self.intrinsic(n) - sd.ml - sd.mr));
         let mut from = y;
         let (top, l, r) = loop {
             let (top, l, r) = self.fit(from, FIT, fixed.unwrap_or(0.0), cx, cw);

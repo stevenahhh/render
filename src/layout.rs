@@ -16,7 +16,7 @@ use std::rc::Rc;
 mod control;
 mod float;
 mod grid;
-use control::control;
+use control::{control, sized_by_content};
 use float::FloatBox;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -857,7 +857,7 @@ impl<'a> Engine<'a> {
     fn block_in_flow(&mut self, n: NodeId, cx: f32, cw: f32, y: f32, ch: f32) -> Res {
         let st = self.st;
         let s = &st[n as usize];
-        if self.floats.len() > self.bfc && (bfc_root(s) || self.dom.shows_image(n)) {
+        if self.floats.len() > self.bfc && (bfc_root(s) || sized_by_content(self.dom, n)) {
             return self.beside_floats(n, cx, cw, y, ch);
         }
         let sd = sides(s, cw);
@@ -865,7 +865,7 @@ impl<'a> Engine<'a> {
             Some(w) => (w, true),
             None => {
                 let fill = (cw - sd.ml - sd.mr).max(0.0);
-                let w = if self.dom.shows_image(n) {
+                let w = if sized_by_content(self.dom, n) {
                     (self.intrinsic(n) - sd.ml - sd.mr).min(fill)
                 } else {
                     // An intrinsic size keyword sizes the box by its content (CSS Sizing 3).

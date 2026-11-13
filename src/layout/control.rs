@@ -42,6 +42,13 @@ pub(super) fn control(dom: &Dom, n: NodeId) -> Option<Control> {
     }
 }
 
+/// True for an element sized like a replaced element: block-level with `width: auto`,
+/// it is as wide as its content, as far as its container allows, and it keeps clear
+/// of floats. WebKit treats buttons so too.
+pub(super) fn sized_by_content(dom: &Dom, n: NodeId) -> bool {
+    dom.shows_image(n) || dom.nodes[n as usize].tag == atom::BUTTON || control(dom, n).is_some()
+}
+
 /// A positive integer attribute such as `size`, or `default` without a valid one.
 fn count(dom: &Dom, n: NodeId, name: u32, default: f32) -> f32 {
     dom.attr(n, name).and_then(|v| v.trim().parse::<u32>().ok()).filter(|&v| v > 0).map_or(default, |v| v as f32)

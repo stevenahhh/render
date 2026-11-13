@@ -1661,6 +1661,23 @@ mod tests {
     }
 
     #[test]
+    fn block_level_buttons_and_fields_are_as_wide_as_their_content() {
+        let css = "body{margin:0;width:400px} button,input{display:block;font:10px/20px monospace;padding:0 5px;border:0}\
+                   #f{display:flex} #c{margin:0 auto} #w{width:100%}";
+        let body = "<button id=b>abcd</button><button id=f><i>ab</i><i>cd</i></button><button id=c>abcd</button><input id=i size=2><button id=w>x</button>";
+        let (mut page, mut fonts) = after_script(css, body, "$('b').title='x';");
+        let face = fonts.face(Some("monospace"), crate::css::Family::Mono, 400, false);
+        let four = fonts.measure(face, "abcd", 10.0, 0.0) + 10.0;
+        let zero = fonts.lookup(face, '0').2 * 10.0;
+        let mut rect = |sel: &str| page.describe(sel).and_then(|d| d.0).unwrap();
+        assert_eq!(rect("#b")[2], four);
+        assert_eq!(rect("#f")[2], four);
+        assert_eq!(rect("#c")[..3], [(400.0 - four) / 2.0, 40.0, four]);
+        assert_eq!(rect("#i")[2], (zero * 2.0).ceil() + 10.0);
+        assert_eq!(rect("#w")[2], 400.0);
+    }
+
+    #[test]
     fn generated_boxes_are_laid_out_in_their_element_and_left_out_of_the_document() {
         let css = "body{margin:0;font:16px/20px sans-serif} .m{display:inline-block;width:10px;height:10px}\
                    #b::after{content:'';display:block;height:7px} #i::before{content:'';display:inline-block;width:30px;height:5px}\
