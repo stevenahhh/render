@@ -648,9 +648,12 @@ impl Page {
             atom::ID => old.and_then(|v| atoms.get(v)).into_iter().collect(),
             _ => Vec::new(),
         };
-        // Inline style, and a poster that makes a `<video>` show an image, are read
-        // when styling the element itself.
-        let own = name == atom::STYLE || (name == atom::POSTER && self.dom.nodes[n as usize].tag == atom::VIDEO);
+        // Inline style, a poster that makes a `<video>` show an image, and the size
+        // attributes of an `<svg>` are read when styling the element itself.
+        let tag = self.dom.nodes[n as usize].tag;
+        let own = name == atom::STYLE
+            || (name == atom::POSTER && tag == atom::VIDEO)
+            || (matches!(name, atom::WIDTH | atom::HEIGHT) && tag == atom::SVG);
         self.invalidate(|inval, marks, dom| {
             if own {
                 marks.mark(dom, n, OWN);
@@ -1557,6 +1560,31 @@ mod tests {
         for (rule, css, body, script, sel, want) in cases {
             let (mut page, _) = after_script(css, body, script);
             assert_eq!(colours(&mut page, 0, sel), want, "{rule}");
+        }
+    }
+
+    #[test]
+    fn inline_svg_takes_its_size_from_attributes_viewbox_and_css_as_in_webkit() {
+        // Each <svg> in a 400px wide block, with the size WebKit gives it.
+        let cases = [
+            ("<svg id=a viewBox='0 0 24 24'></svg>", (400.0, 400.0)),
+            ("<svg id=a></svg>", (300.0, 150.0)),
+            ("<svg id=a width=7></svg>", (100.0, 150.0)),
+            ("<svg id=a width=24 viewBox='0 0 48 24'></svg>", (24.0, 12.0)),
+            ("<svg id=a width='50%' height=20></svg>", (200.0, 20.0)),
+            ("<svg id=a class=h viewBox='0 0 100 20'></svg>", (95.0, 19.0)),
+            ("<svg id=a width=30 height=30 viewBox='0 0 10 10' style='width:auto;height:auto'></svg>", (30.0, 30.0)),
+            ("<svg id=a width=16 height=16 viewBox='0 0 24 24' style='height:10px'></svg>", (16.0, 10.0)),
+            ("<span style='display:inline-block'><svg id=a viewBox='0 0 24 12'></svg></span>", (0.0, 0.0)),
+            ("<div style='display:flex'><svg id=a viewBox='0 0 2 1'></svg></div>", (400.0, 200.0)),
+        ];
+        for (svg, want) in cases {
+            // The width set by script is read as a presentation attribute, restyling the element.
+            let script = if svg.contains("width=7") { "$('a').setAttribute('width','100');" } else { "" };
+            let (mut page, mut fonts) = after_script(".h{height:19px}", &format!("<div style='width:400px'>{svg}</div>"), script);
+            let n = query(&mut page.dom, 0, "#a", true)[0];
+            let r = page.fresh_rect(&mut fonts, n);
+            assert_eq!((r[2], r[3]), want, "{svg}");
         }
     }
 

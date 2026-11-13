@@ -869,7 +869,11 @@ impl<'a> Engine<'a> {
             None => {
                 let fill = (cw - sd.ml - sd.mr).max(0.0);
                 let w = if sized_by_content(self.dom, n) {
-                    (self.intrinsic(n) - sd.ml - sd.mr).min(fill)
+                    if self.fills(n) {
+                        fill
+                    } else {
+                        (self.intrinsic(n) - sd.ml - sd.mr).min(fill)
+                    }
                 } else {
                     // An intrinsic size keyword sizes the box by its content (CSS Sizing 3).
                     match s.rare().width_kw {
@@ -967,7 +971,7 @@ impl<'a> Engine<'a> {
             if let Some(v) = definite(s.height, ch) {
                 spec_h = v + hx;
             } else if let Some((iw, ih)) = self.natural(n) {
-                spec_h = cw * ih / iw + vextra;
+                spec_h = if has_ratio(self.dom, n) { cw * ih / iw } else { ih } + vextra;
             } else if s.rare().ratio > 0.0 {
                 // `aspect-ratio` gives the height from the width, for the box its
                 // `box-sizing` names. Content may make a box that does not clip taller,
@@ -1090,19 +1094,25 @@ impl<'a> Engine<'a> {
     #[allow(clippy::too_many_arguments)]
     fn replaced(&mut self, n: NodeId, s: &Style, cx: f32, cy: f32, cw: f32, inner_h: f32, tag: u32) -> f32 {
         let dom = self.dom;
+        let h = if inner_h.is_nan() { 0.0 } else { inner_h };
+        if tag == atom::SVG {
+            if let Some(id) = self.svg_picture(n, cw, h).filter(|_| s.visible && s.opacity > 0.0) {
+                self.push_picture(n, cx, cy, cw, h, PicRef { id, alpha: s.opacity, tile: None });
+            }
+            return h;
+        }
         if let Some((id, _, _)) = self.picture(n) {
-            let h = if inner_h.is_nan() { 0.0 } else { inner_h };
             if s.visible && s.opacity > 0.0 {
                 self.push_picture(n, cx, cy, cw, h, PicRef { id, alpha: s.opacity, tile: None });
             }
             return h;
         }
-        if matches!(tag, atom::SVG | atom::VIDEO) {
+        if tag == atom::VIDEO {
             return 0.0;
         }
         if self.waiting.contains_key(&n) {
             // An empty box of the size its attributes give, until the image arrives.
-            return if inner_h.is_nan() { 0.0 } else { inner_h };
+            return h;
         }
         let face = face_of(self.fonts, s);
         let (asc, desc, gap) = self.fonts.metrics(face);
@@ -1162,7 +1172,7 @@ impl<'a> Engine<'a> {
             let t = definite(s.rare().inset[0], ph);
             let b = definite(s.rare().inset[2], ph);
             let by_ratio = |(iw, ih): (f32, f32)| {
-                let h = definite(s.height, ph)?;
+                let h = definite(s.height, ph).filter(|_| has_ratio(self.dom, c))?;
                 Some(clamp_w(s, h * iw / ih + if s.border_box { 0.0 } else { hextra(s, &sd) }, pw, &sd))
             };
             let fixed = spec_w(s, pw, &sd).or_else(|| self.natural(c).and_then(by_ratio));
@@ -1170,7 +1180,8 @@ impl<'a> Engine<'a> {
                 (Some(l), Some(r)) => clamp_w(s, (pw - l - r - sd.ml - sd.mr).max(0.0), pw, &sd),
                 _ => {
                     let avail = (pw - sd.ml - sd.mr - l.or(r).unwrap_or(0.0)).max(0.0);
-                    clamp_w(s, self.shrink_to_fit(c, avail, &sd), pw, &sd)
+                    let w = if self.fills(c) { avail } else { self.shrink_to_fit(c, avail, &sd) };
+                    clamp_w(s, w, pw, &sd)
                 }
             });
             let x = match (l, r) {
@@ -1504,6 +1515,7 @@ impl<'a> Engine<'a> {
         let avail = (il.cw - sd.ml - sd.mr).max(0.0);
         let w = match spec_w(s, il.cw, &sd) {
             Some(w) => w,
+            None if self.fills(n) => clamp_w(s, avail, il.cw, &sd),
             None => clamp_w(s, self.shrink_to_fit(n, avail, &sd), il.cw, &sd),
         };
         let outer_w = w + sd.ml + sd.mr;
@@ -1815,7 +1827,13 @@ impl<'a> Engine<'a> {
                 let transferred = it.transferred;
                 match cs.basis {
                     Len::Auto => spec_w(cs, cw, &sd).unwrap_or_else(|| {
-                        let w = if transferred.is_nan() { self.intrinsic(it.node) - sd.ml - sd.mr } else { transferred };
+                        let w = if !transferred.is_nan() {
+                            transferred
+                        } else if self.fills(it.node) {
+                            cw - sd.ml - sd.mr
+                        } else {
+                            self.intrinsic(it.node) - sd.ml - sd.mr
+                        };
                         clamp_w(cs, w, cw, &sd)
                     }),
                     l => {
@@ -1977,7 +1995,7 @@ impl<'a> Engine<'a> {
                 let fill = (cw - sd.ml - sd.mr).max(0.0);
                 let stretch = matches!(it.align, Align::Stretch | Align::Auto) && !sd.auto_l && !sd.auto_r;
                 let w = spec_w(cs, cw, &sd).unwrap_or_else(|| {
-                    let w = if stretch { fill } else { (self.intrinsic(it.node) - sd.ml - sd.mr).min(fill) };
+                    let w = if stretch || self.fills(it.node) { fill } else { (self.intrinsic(it.node) - sd.ml - sd.mr).min(fill) };
                     clamp_w(cs, w, cw, &sd)
                 });
                 let free = (fill - w).max(0.0);
@@ -2195,12 +2213,7 @@ impl<'a> Engine<'a> {
         let node = &dom.nodes[n as usize];
         let (vw, vh) = (self.vw, self.vh);
         let misses = self.images.misses();
-        let id = if node.tag == atom::SVG {
-            let mut markup = String::new();
-            dom.serialize(n, true, &mut markup);
-            let s = &self.st[n as usize];
-            self.images.svg(&svg_markup(markup, s.fill, s.color))
-        } else {
+        let id = {
             let mut found = None;
             let parent = node.parent;
             if parent != NONE && dom.nodes[parent as usize].tag == atom::PICTURE {
@@ -2232,6 +2245,9 @@ impl<'a> Engine<'a> {
         if !dom.shows_image(n) {
             return None;
         }
+        if dom.nodes[n as usize].tag == atom::SVG {
+            return Some(svg_natural(dom, n));
+        }
         let num = |a| dom.attr(n, a).and_then(|v| v.trim().trim_end_matches("px").parse::<f32>().ok()).filter(|v| *v > 0.0);
         let (aw, ah) = (num(atom::WIDTH), num(atom::HEIGHT));
         let pic = self.picture(n).map(|p| (p.1, p.2));
@@ -2242,6 +2258,31 @@ impl<'a> Engine<'a> {
             (None, None, p) => p,
             _ => None,
         }
+    }
+
+    /// True for an `<svg>` with a ratio and an auto size: like a block, it is as wide
+    /// as the space it is given, and adds nothing to the width of a shrink-to-fit box.
+    fn fills(&self, n: NodeId) -> bool {
+        let s = &self.st[n as usize];
+        let dom = self.dom;
+        dom_tag(dom, n) == atom::SVG
+            && s.width == Len::Auto
+            && !matches!(s.height, Len::Px(_))
+            && svg_ratio(dom, n).is_some()
+            && svg_len(dom, n, atom::WIDTH).is_none()
+            && svg_len(dom, n, atom::HEIGHT).is_none()
+    }
+
+    /// The picture of an inline `<svg>` drawn at `w` x `h` CSS pixels, its viewBox
+    /// fitted in as its `preserveAspectRatio` says.
+    fn svg_picture(&mut self, n: NodeId, w: f32, h: f32) -> Option<u32> {
+        let mut markup = String::new();
+        self.dom.serialize(n, true, &mut markup);
+        let s = &self.st[n as usize];
+        let mut m = svg_markup(markup, s.fill, s.color);
+        set_root_attr(&mut m, "width", &format!("{w}"));
+        set_root_attr(&mut m, "height", &format!("{h}"));
+        self.images.svg(&m)
     }
 
     /// Max-content width of a box including its margins, memoized per node.
@@ -2260,7 +2301,8 @@ impl<'a> Engine<'a> {
             if s.border_box { (v - extra).max(0.0) } else { v }
         } else if let Some((iw, ih)) = self.natural(n) {
             match s.height {
-                Len::Px(h) => h * iw / ih,
+                Len::Px(h) if has_ratio(dom, n) => h * iw / ih,
+                _ if self.fills(n) => 0.0,
                 _ => iw,
             }
         } else if let Some(c) = control(dom, n) {
@@ -2723,6 +2765,57 @@ impl<'a> Engine<'a> {
             state.content = true;
             state.cur += measure(self.fonts, &text[start..i]);
         }
+    }
+}
+
+/// The aspect ratio an `<svg>` takes from its `viewBox`, as (width, height).
+fn svg_ratio(dom: &Dom, n: NodeId) -> Option<(f32, f32)> {
+    let vb = ["viewbox", "viewBox"].iter().find_map(|a| dom.atoms.get(a).and_then(|a| dom.attr(n, a)))?;
+    let v: Vec<f32> = vb.split(|c: char| c == ',' || c.is_ascii_whitespace()).filter(|p| !p.is_empty()).map_while(|p| p.parse().ok()).collect();
+    match v[..] {
+        [_, _, w, h] if w > 0.0 && h > 0.0 => Some((w, h)),
+        _ => None,
+    }
+}
+
+/// A `width` or `height` attribute of an `<svg>` that gives a natural size: a
+/// length in px, with or without the unit.
+fn svg_len(dom: &Dom, n: NodeId, attr: u32) -> Option<f32> {
+    dom.attr(n, attr)?.trim().trim_end_matches("px").parse::<f32>().ok().filter(|v| *v >= 0.0)
+}
+
+/// Natural size of an `<svg>`: its width and height attributes, the missing one
+/// from the ratio of its viewBox, or the default 300 x 150 where neither tells.
+/// Without a natural size but with a ratio, the size is that of the viewBox and only
+/// its ratio counts (see `fills`).
+fn svg_natural(dom: &Dom, n: NodeId) -> (f32, f32) {
+    let (w, h) = (svg_len(dom, n, atom::WIDTH), svg_len(dom, n, atom::HEIGHT));
+    match (w, h, svg_ratio(dom, n)) {
+        (Some(w), Some(h), _) => (w, h),
+        (Some(w), None, Some((rw, rh))) => (w, w * rh / rw),
+        (None, Some(h), Some((rw, rh))) => (h * rw / rh, h),
+        (None, None, Some(r)) => r,
+        (w, h, None) => (w.unwrap_or(300.0), h.unwrap_or(150.0)),
+    }
+}
+
+/// True for a replaced element whose natural size has an aspect ratio: every image
+/// but an `<svg>` with neither a `viewBox` nor both size attributes.
+fn has_ratio(dom: &Dom, n: NodeId) -> bool {
+    dom_tag(dom, n) != atom::SVG || svg_ratio(dom, n).is_some() || (svg_len(dom, n, atom::WIDTH).is_some() && svg_len(dom, n, atom::HEIGHT).is_some())
+}
+
+/// Sets attribute `name` of the root element of serialized markup `m`.
+fn set_root_attr(m: &mut String, name: &str, value: &str) {
+    let end = m.find('>').unwrap_or(m.len());
+    let key = format!(" {name}=\"");
+    match m[..end].find(&key) {
+        Some(at) => {
+            let start = at + key.len();
+            let stop = m[start..].find('"').map_or(end, |i| start + i);
+            m.replace_range(start..stop, value);
+        }
+        None => m.insert_str(4.min(end), &format!("{key}{value}\"")),
     }
 }
 

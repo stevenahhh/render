@@ -1361,8 +1361,11 @@ impl<'a> Styler<'a> {
             _ => &no_inline,
         };
         let mut st = Style::inherit(parent);
-        self.cascade(&mut st, parent, &matched, inl);
         let node = &dom.nodes[i as usize];
+        if node.tag == atom::SVG {
+            svg_size_hints(dom, i, &mut st, parent, &self.ctx);
+        }
+        self.cascade(&mut st, parent, &matched, inl);
         if matches!(node.tag, atom::INPUT | atom::BUTTON | atom::SELECT | atom::TEXTAREA) {
             st.native = native_look(self.sheet, &matched, inl);
         }
@@ -1557,6 +1560,24 @@ impl<'a> Styler<'a> {
             pieces.push(Piece::Text(text.into()));
         }
         Some(Rc::new(Generated { style: gs, content: pieces.into() }))
+    }
+}
+
+/// The `width` and `height` attributes of `<svg>` are presentation attributes:
+/// CSS `width` and `height` that every author rule overrides. A bare number is in px.
+fn svg_size_hints(dom: &Dom, i: NodeId, st: &mut Style, parent: &Style, c: &Ctx) {
+    let mut hints = Vec::new();
+    for (attr, name) in [(atom::WIDTH, "width"), (atom::HEIGHT, "height")] {
+        if let Some(v) = dom.attr(i, attr).map(str::trim) {
+            if v.parse::<f32>().is_ok_and(|n| n >= 0.0) {
+                parse_decl(name, &format!("{v}px"), &mut hints);
+            } else if !v.starts_with('-') {
+                parse_decl(name, v, &mut hints);
+            }
+        }
+    }
+    for d in &hints {
+        apply(st, parent, d, c);
     }
 }
 
