@@ -1745,6 +1745,16 @@ mod tests {
     }
 
     #[test]
+    fn inline_flex_boxes_sit_on_their_first_baseline() {
+        let css = "body{margin:0;font:10px/10px sans-serif} b{display:block}";
+        let body = "<div><span id=f style='display:inline-flex;flex-direction:column;overflow:hidden'><b>a</b><b>b</b></span>\
+                    <span id=k style=display:inline-block><b>a</b><b>b</b></span></div>";
+        let (mut page, _) = after_script(css, body, "$('f').title='x';");
+        let [f, k] = rects(&mut page, &["f", "k"]).try_into().unwrap();
+        assert_eq!(f[1] - k[1], 10.0, "{f:?} {k:?}");
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";

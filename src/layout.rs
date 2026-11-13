@@ -1456,7 +1456,13 @@ impl<'a> Engine<'a> {
         let first = self.mark();
         let r = self.layout_box(n, il.cx + il.x + space_w + sd.ml, il.y + sd.mt, w, il.cw, NAN, NAN, true);
         let outer_h = r.h + sd.mt + sd.mb;
-        let base = if r.baseline.is_nan() || s.overflow_hidden { outer_h } else { sd.mt + r.baseline };
+        // An inline flex container sits on its first baseline (CSS Flexbox 8.5); an
+        // inline-block on its last, or on its bottom margin edge when it clips (CSS 2.1 10.8.1).
+        let base = match s.display {
+            Display::InlineFlex if !r.first.is_nan() => sd.mt + r.first,
+            _ if r.baseline.is_nan() || s.overflow_hidden => outer_h,
+            _ => sd.mt + r.baseline,
+        };
         let (pasc, pdesc, _) = self.fonts.metrics(face);
         let pfs = ps.font_size;
         let (above, edge) = match s.rare().valign {

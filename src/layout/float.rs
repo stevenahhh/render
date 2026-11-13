@@ -103,7 +103,10 @@ impl Engine<'_> {
             top = top.max(self.clear_y(s.clear));
         }
         let (first, abs) = (self.mark(), self.abs.len());
+        // A float is out of flow: its lines give no baseline to the boxes around it.
+        let first_bl = self.first_bl;
         let r = self.layout_box(n, cx + sd.ml, top + sd.mt, w, cw, ch, NAN, true);
+        self.first_bl = first_bl;
         let (ow, oh) = (w + sd.ml + sd.mr, r.h + sd.mt + sd.mb);
         let (fy, l, right) = self.fit(top, oh, ow, cx, cw);
         let left = s.float == FLOAT_LEFT;
