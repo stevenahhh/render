@@ -42,8 +42,9 @@ const UA_CSS: &str = "
 html, body, div, p, h1, h2, h3, h4, h5, h6, ul, ol, dl, dt, dd, blockquote, pre, form,
 fieldset, legend, table, thead, tbody, tfoot, caption, header, footer, main, nav, section,
 article, aside, figure, figcaption, address, hr, details, summary, center { display: block }
-head, script, style, title, meta, link, base, template, noscript, datalist, area, param,
+head, script, style, title, meta, link, base, template, datalist, area, param,
 source, track, [hidden] { display: none }
+noscript { display: none !important }
 dialog { display: block }
 dialog:not([open]) { display: none }
 body { margin: 8px }

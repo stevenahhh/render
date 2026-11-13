@@ -2405,6 +2405,12 @@ mod tests {
     }
 
     #[test]
+    fn noscript_stays_hidden_whatever_the_page_says_since_scripting_is_on() {
+        let html = "<style>noscript, .n{display:block}</style><p>a</p><noscript class=n><p>x</p></noscript>";
+        assert_eq!(styles_of(html, "noscript")[0].display, Display::None);
+    }
+
+    #[test]
     fn inherit_and_revert_of_the_font_keep_a_font_size_set_after_them() {
         let html = "<style>div{font-size:10px} p{font:inherit} p.big{font-size:40px} p.v{--s:50px;font-size:var(--s)} b{all:revert} b.s{font-size:30px}</style>\
                     <div><p></p><p class=big></p><p class=v></p><b class=s></b></div>";
