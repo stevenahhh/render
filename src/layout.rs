@@ -2328,7 +2328,8 @@ impl<'a> Engine<'a> {
     /// fitted in as its `preserveAspectRatio` says.
     fn svg_picture(&mut self, n: NodeId, w: f32, h: f32) -> Option<u32> {
         let mut markup = String::new();
-        self.dom.serialize(n, true, &mut markup);
+        let st = self.st;
+        self.dom.serialize_styled(n, true, &mut markup, &|e| st[e as usize].rare().svg_paint.as_deref());
         self.add_referenced(&mut markup);
         let s = &self.st[n as usize];
         let mut m = svg_markup(markup, s.fill, s.color);

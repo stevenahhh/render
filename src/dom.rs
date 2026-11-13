@@ -603,17 +603,23 @@ impl Dom {
 
     /// Serializes a node (`outer`) or only its children back to HTML.
     pub fn serialize(&self, n: NodeId, outer: bool, out: &mut String) {
+        self.serialize_styled(n, outer, out, &|_| None);
+    }
+
+    /// `serialize`, with the declarations `style` gives for an element put before
+    /// those of its `style` attribute.
+    pub fn serialize_styled<'s>(&self, n: NodeId, outer: bool, out: &mut String, style: &dyn Fn(NodeId) -> Option<&'s str>) {
         let mut p = self.nodes[n as usize].parent;
         while p != NONE && self.nodes[p as usize].tag != atom::SVG && self.atoms.name(self.nodes[p as usize].tag) != "foreignobject" {
             p = self.nodes[p as usize].parent;
         }
         let svg = p != NONE && self.nodes[p as usize].tag == atom::SVG;
-        self.serialize_in(n, outer, svg, out);
+        self.serialize_in(n, (outer, svg), out, style);
     }
 
-    /// `serialize` with `svg` true inside an `<svg>`, where the names the parser
+    /// `serialize_styled` with `svg` true inside an `<svg>`, where the names the parser
     /// lowercased take back their SVG case (`clipPath`, `viewBox`).
-    fn serialize_in(&self, n: NodeId, outer: bool, svg: bool, out: &mut String) {
+    fn serialize_in<'s>(&self, n: NodeId, (outer, svg): (bool, bool), out: &mut String, style: &dyn Fn(NodeId) -> Option<&'s str>) {
         let node = &self.nodes[n as usize];
         if let Some(&(s, l)) = self.comments.get(&n) {
             out.push_str("<!--");
@@ -641,13 +647,22 @@ impl Dom {
             out.push('<');
             out.push_str(name);
             let (s, c) = node.attrs;
+            let extra = style(n);
             for a in &self.attrs[s as usize..(s + c) as usize] {
                 out.push(' ');
                 let attr = self.atoms.name(a.name);
                 out.push_str(if svg { svg_case(attr, &SVG_ATTRS) } else { attr });
                 out.push_str("=\"");
+                if a.name == atom::STYLE {
+                    out.push_str(&extra.unwrap_or_default().replace('&', "&amp;").replace('"', "&quot;"));
+                }
                 let (vs, vl) = a.value;
                 out.push_str(&self.text[vs as usize..(vs + vl) as usize].replace('&', "&amp;").replace('"', "&quot;"));
+                out.push('"');
+            }
+            if let Some(extra) = extra.filter(|_| self.attr(n, atom::STYLE).is_none()) {
+                out.push_str(" style=\"");
+                out.push_str(&extra.replace('&', "&amp;").replace('"', "&quot;"));
                 out.push('"');
             }
             out.push('>');
@@ -662,7 +677,7 @@ impl Dom {
         // The content of a <foreignObject> is HTML again.
         let svg = svg && name != "foreignObject";
         while c != NONE {
-            self.serialize_in(c, true, svg, out);
+            self.serialize_in(c, (true, svg), out, style);
             c = self.nodes[c as usize].next;
         }
         if outer {

@@ -1547,7 +1547,7 @@ mod tests {
             ("shown again", ".h{display:none} .x{color:#f00}", "<div id=h class=h><span><p class=x></p></span></div>", "$('h').className='';", "p", &["ff0000"]),
             ("hidden", ".h{display:none} .x{color:#f00}", "<div id=h><p class=x></p></div>", "$('h').className='h';", "p", &["000000"]),
             ("moved", ".a .x{color:#f00}", "<div class=a id=a></div><div><p class=x id=p></p></div>", "$('a').appendChild($('p'));", "p", &["ff0000"]),
-            ("moved into svg", ".x{color:#f00}", "<svg id=s></svg><p class=x id=p></p>", "$('s').appendChild($('p'));", "p", &["000000"]),
+            ("moved into svg", ".x{color:#f00}", "<svg id=s></svg><p class=x id=p></p>", "$('s').appendChild($('p'));", "p", &["ff0000"]),
             (
                 "stylesheet",
                 "",
@@ -1661,6 +1661,20 @@ mod tests {
         let centre: Vec<u32> = ids.iter().map(|&id| page.images.get(id, 10, 10, [0, 0, 10, 10]).map_or(0, |(p, _, _)| p.px[55])).collect();
         assert_eq!(centre, [0xFFFF_0000, 0xFF00_00FF, 0]);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn author_rules_paint_the_elements_inside_an_inline_svg() {
+        let css = ".a path{fill:#c00} .b rect{fill:none;stroke:#00f;stroke-width:10} .c{fill:currentColor;color:#0c0}";
+        let html = format!("<style>{css}</style><body style='margin:0'>\
+                    <svg class=a width=10 height=10 style='display:block'><path d='M0 0h10v10H0z' fill='#000'/></svg>\
+                    <svg class=b width=10 height=10 style='display:block'><rect width='10' height='10'/></svg>\
+                    <svg class=c width=10 height=10 style='display:block'><rect width='10' height='10'/></svg>");
+        let mut page = Page::from_html(&html, None);
+        page.update(&mut Fonts::new(), 1024.0, 768.0);
+        let ids: Vec<u32> = page.layout.items.iter().filter(|i| i.kind == crate::layout::Kind::Image).map(|i| page.layout.pictures[i.data as usize].id).collect();
+        let corner: Vec<u32> = ids.iter().map(|&id| page.images.get(id, 10, 10, [0, 0, 10, 10]).map_or(0, |(p, _, _)| p.px[11])).collect();
+        assert_eq!(corner, [0xFFCC_0000, 0xFF00_00FF, 0xFF00_CC00]);
     }
 
     #[test]

@@ -131,6 +131,9 @@ pub struct Rare {
     /// `background-position`; percentages refer to the free space around the image.
     pub bg_pos: [Len; 2],
     pub object_fit: ObjectFit,
+    /// SVG paint declarations the element's rules set, `name:value;` each, in
+    /// cascade order; empty when none did.
+    pub svg_paint: Option<Rc<str>>,
     /// `mask-image`, its size and position in the border box.
     pub mask: Option<Rc<str>>,
     pub mask_size: BgSize,
@@ -185,6 +188,7 @@ const NO_RARE: Rare = Rare {
     bg_size: BgSize::Auto,
     bg_pos: [Len::Pct(0.0); 2],
     object_fit: ObjectFit::Fill,
+    svg_paint: None,
     mask: None,
     mask_size: BgSize::Auto,
     mask_pos: [Len::Pct(0.0); 2],
@@ -633,6 +637,10 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         }
         Decl::BgPos(x, y) => put_rare(st, |r| &mut r.bg_pos, [r(x), r(y)]),
         Decl::ObjectFit(v) => put_rare(st, |r| &mut r.object_fit, v),
+        Decl::SvgPaint(name, ref v) => {
+            let paint = format!("{}{name}:{v};", st.rare().svg_paint.as_deref().unwrap_or(""));
+            st.rare_mut().svg_paint = Some(paint.into());
+        }
         Decl::MaskImage(ref u) => put_rare(st, |r| &mut r.mask, u.clone()),
         Decl::MaskSize(v) => {
             let size = match v {
@@ -1698,7 +1706,7 @@ pub fn compute_styles(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId)
             s.ctx.root_fs = st.font_size;
         }
         s.push(i);
-        let descend = st.display != Display::None && node.tag != atom::SVG;
+        let descend = st.display != Display::None;
         styles[i as usize] = st;
         i = dfs_next(dom, i, 0, descend);
     }
@@ -1820,7 +1828,7 @@ pub fn restyle(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId, styles
             // Elements below one that stops being shown keep no style, as a full
             // pass leaves them. Below one that starts being shown they have none
             // yet, and every style a pass computes differs from that.
-            let shown = |st: &Style| st.display != Display::None && node.tag != atom::SVG;
+            let shown = |st: &Style| st.display != Display::None;
             let hidden = shown(old) && !shown(&new);
             if tree {
                 dirty.set(i, KID_TREES);
@@ -1842,11 +1850,11 @@ pub fn restyle(dom: &Dom, sheet: &Sheet, vw: f32, vh: f32, hover: NodeId, styles
         }
         s.push(i);
         let st = &styles[i as usize];
-        let descend = st.display != Display::None && node.tag != atom::SVG && dirty.get(i) & (BELOW | KIDS | KID_TREES) != 0;
+        let descend = st.display != Display::None && dirty.get(i) & (BELOW | KIDS | KID_TREES) != 0;
         i = dfs_next(dom, i, 0, descend);
     }
     // A subtree the pass did not reach went where a full pass does not reach either:
-    // out of the document, into an `<svg>` or below an element that is not shown.
+    // out of the document or below an element that is not shown.
     for k in 0..dirty.marked.len() {
         let n = dirty.marked[k];
         if dirty.get(n) & (TREE | SEEN) == TREE {

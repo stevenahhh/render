@@ -335,6 +335,9 @@ pub enum Decl {
     BgSize(BgSize),
     BgPos(Len, Len),
     ObjectFit(ObjectFit),
+    /// An SVG paint property (`fill`, `stroke` and the like) as written, for the
+    /// elements inside an inline `<svg>`, whose markup is drawn whole.
+    SvgPaint(&'static str, Rc<str>),
     /// `mask-image: url()`, the URL resolved against its stylesheet; `None` is `none`.
     MaskImage(Option<Rc<str>>),
     MaskSize(BgSize),
@@ -1990,11 +1993,20 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         }
         "clip" => out.push(D::CutAway(0, clip_is_empty(v))),
         "clip-path" | "-webkit-clip-path" => out.push(D::CutAway(1, inset_is_empty(v))),
-        "fill" => match v {
-            "none" => out.push(D::Fill(Some(Color::TRANSPARENT))),
-            "currentcolor" => out.push(D::Fill(None)),
-            _ => push(color_tok(v).map(|c| D::Fill(Some(c)))),
-        },
+        "fill" => {
+            match v {
+                "none" => out.push(D::Fill(Some(Color::TRANSPARENT))),
+                "currentcolor" => out.push(D::Fill(None)),
+                _ => push(color_tok(v).map(|c| D::Fill(Some(c)))),
+            }
+            out.push(D::SvgPaint("fill", Rc::from(v.replace("currentcolor", "currentColor"))));
+        }
+        "stroke" | "stroke-width" | "stroke-opacity" | "fill-opacity" | "fill-rule" | "stroke-linecap" | "stroke-linejoin" | "stroke-dasharray" | "stroke-dashoffset" => {
+            const NAMES: [&str; 9] = ["stroke", "stroke-width", "stroke-opacity", "fill-opacity", "fill-rule", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "stroke-dashoffset"];
+            if let Some(&known) = NAMES.iter().find(|&&k| k == name) {
+                out.push(D::SvgPaint(known, Rc::from(v.replace("currentcolor", "currentColor"))));
+            }
+        }
         _ => {
             let Some(rest) = name.strip_prefix("margin-") else {
                 if let Some(rest) = name.strip_prefix("padding-") {
