@@ -24,7 +24,25 @@
       this.ignoreBOM = !!options.ignoreBOM;
     }
     get encoding() { return this._kind; }
-    decode(input) {
+    // With `{ stream: true }` a UTF-8 sequence cut at the end of `input` waits for the next call.
+    decode(input, options) {
+      if (this._kind === 'utf-8' && (this._held || (options && options.stream))) {
+        const got = input === undefined ? new Uint8Array(0) : ArrayBuffer.isView(input) ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength) : new Uint8Array(input);
+        let bytes = got;
+        if (this._held) { bytes = new Uint8Array(this._held.length + got.length); bytes.set(this._held); bytes.set(got, this._held.length); }
+        let cut = bytes.length;
+        if (options && options.stream) {
+          for (let i = bytes.length - 1, back = 1; i >= 0 && back <= 3; i--, back++) {
+            const b = bytes[i];
+            if ((b & 0xc0) === 0x80) continue;
+            const need = b >= 0xf0 ? 4 : b >= 0xe0 ? 3 : b >= 0xc0 ? 2 : 1;
+            if (need > back) cut = i;
+            break;
+          }
+        }
+        this._held = cut < bytes.length ? bytes.slice(cut) : null;
+        return __decode(bytes.subarray(0, cut));
+      }
       if (input === undefined) return '';
       if (this._kind === 'utf-8') return __decode(input);
       const bytes = ArrayBuffer.isView(input) ? new Uint8Array(input.buffer, input.byteOffset, input.byteLength) : new Uint8Array(input);

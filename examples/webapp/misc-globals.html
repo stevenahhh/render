@@ -65,6 +65,15 @@ check('recursion', function(){
 });
 </script>
 <script>
+check('streams', function(){
+  var d=new TextDecoder(), euro=new TextEncoder().encode('\u20ac');
+  var split=d.decode(euro.subarray(0,1),{stream:true})+d.decode(euro.subarray(1),{stream:true})+d.decode();
+  var s=new ReadableStream({start:function(c){c.enqueue('h\u00e9');c.enqueue('llo');c.close();}}).pipeThrough(new TextEncoderStream()).pipeThrough(new TextDecoderStream());
+  var r=s.getReader(), out='';
+  (function pump(){ r.read().then(function(x){ if(x.done){ mark('MISC streams piped:'+(out==='h\u00e9llo')+' split:'+(split==='\u20ac')); return; } out+=x.value; pump(); }); })();
+});
+</script>
+<script>
 check('visualViewport', function(){
   var v=window.visualViewport;
   mark('MISC visualViewport scale:'+v.scale+' width:'+(v.width===innerWidth)+' height:'+(v.height===innerHeight)+' offset:'+v.offsetLeft+','+v.offsetTop+' target:'+(v instanceof EventTarget));

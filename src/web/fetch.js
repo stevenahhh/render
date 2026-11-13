@@ -191,16 +191,89 @@
     async pipeTo(dest) {
       const r = this.getReader();
       const w = dest.getWriter ? dest.getWriter() : dest;
-      for (;;) {
-        const { value, done } = await r.read();
-        if (done) break;
-        await w.write(value);
+      try {
+        for (;;) {
+          const { value, done } = await r.read();
+          if (done) break;
+          await w.write(value);
+        }
+      } catch (e) {
+        if (w.abort) await w.abort(e);
+        throw e;
       }
       if (w.close) await w.close();
+    }
+    // Chunks go through `transform` while this stream is read; its readable side is returned.
+    pipeThrough(transform) {
+      this.pipeTo(transform.writable).catch(() => {});
+      return transform.readable;
     }
     [Symbol.asyncIterator]() { const r = this.getReader(); return { next: () => r.read(), return: () => r.cancel().then(() => ({ done: true })) }; }
   }
   const streamOf = (bytes) => new ReadableStream({ start(c) { if (bytes.length) c.enqueue(bytes); c.close(); } });
+
+  // A sink written one chunk at a time; each write waits for the one before it.
+  class WritableStream {
+    constructor(sink = {}) {
+      this._sink = sink;
+      this._last = Promise.resolve(sink.start ? sink.start({ error: (e) => { this._error = e; } }) : undefined);
+      this._closed = false;
+      this.locked = false;
+    }
+    _then(f) {
+      this._last = this._last.then(() => {
+        if (this._error) throw this._error;
+        return f();
+      });
+      return this._last;
+    }
+    getWriter() {
+      if (this.locked) throw new TypeError('WritableStream is locked');
+      this.locked = true;
+      const s = this;
+      return {
+        write: (chunk) => s._then(() => s._sink.write && s._sink.write(chunk)),
+        close: () => s._then(() => { s._closed = true; return s._sink.close && s._sink.close(); }),
+        abort: (e) => { s._error = e; return Promise.resolve(s._sink.abort && s._sink.abort(e)); },
+        releaseLock: () => { s.locked = false; },
+        get ready() { return s._last; },
+        get closed() { return s._last.then(() => undefined); },
+        get desiredSize() { return s._closed ? 0 : 1; },
+      };
+    }
+    close() { return this.getWriter().close(); }
+    abort(e) { return this.getWriter().abort(e); }
+  }
+
+  // A writable side whose chunks `transformer` turns into those of a readable side.
+  class TransformStream {
+    constructor(transformer = {}) {
+      let out;
+      this.readable = new ReadableStream({ start: (c) => { out = c; } });
+      const controller = { enqueue: (c) => out.enqueue(c), error: (e) => out.error(e), terminate: () => out.close(), desiredSize: 1 };
+      if (transformer.start) transformer.start(controller);
+      this.writable = new WritableStream({
+        write: (chunk) => (transformer.transform ? transformer.transform(chunk, controller) : controller.enqueue(chunk)),
+        close: () => Promise.resolve(transformer.flush && transformer.flush(controller)).then(() => out.close()),
+        abort: (e) => out.error(e),
+      });
+    }
+  }
+  class TextEncoderStream extends TransformStream {
+    constructor() { super({ transform: (s, c) => { const b = encode(s); if (b.length) c.enqueue(b); } }); }
+    get encoding() { return 'utf-8'; }
+  }
+  class TextDecoderStream extends TransformStream {
+    constructor(label = 'utf-8', options = {}) {
+      const d = new g.TextDecoder(label, options);
+      super({
+        transform: (b, c) => { const s = d.decode(b, { stream: true }); if (s) c.enqueue(s); },
+        flush: (c) => { const s = d.decode(); if (s) c.enqueue(s); },
+      });
+      this._d = d;
+    }
+    get encoding() { return this._d.encoding; }
+  }
 
   class Headers {
     constructor(init) {
@@ -514,5 +587,5 @@
     withCredentials: (v) => !!v,
   });
 
-  def(g, { fetch, Headers, Request, Response, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload, FormData, Blob, File, FileReader, ReadableStream });
+  def(g, { fetch, Headers, Request, Response, XMLHttpRequest, XMLHttpRequestEventTarget, XMLHttpRequestUpload, FormData, Blob, File, FileReader, ReadableStream, WritableStream, TransformStream, TextEncoderStream, TextDecoderStream });
 })

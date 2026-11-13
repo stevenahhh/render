@@ -2331,7 +2331,7 @@
   lazy('observers', ['MutationObserver', 'WebKitMutationObserver', 'MutationRecord', 'IntersectionObserver', 'IntersectionObserverEntry', 'ResizeObserver', 'ResizeObserverEntry', 'ResizeObserverSize', 'PerformanceObserver', 'PerformanceEntry', 'PerformanceObserverEntryList']);
   lazy('traversal', ['NodeFilter', 'TreeWalker', 'NodeIterator', 'Range', 'StaticRange', 'AbstractRange', 'Selection', 'DOMParser', 'XMLSerializer', 'DOMImplementation']);
   lazy('messaging', ['MessageChannel', 'MessagePort', 'BroadcastChannel']);
-  lazy('fetch', ['fetch', 'Headers', 'Request', 'Response', 'XMLHttpRequest', 'XMLHttpRequestEventTarget', 'XMLHttpRequestUpload', 'FormData', 'Blob', 'File', 'FileReader', 'ReadableStream']);
+  lazy('fetch', ['fetch', 'Headers', 'Request', 'Response', 'XMLHttpRequest', 'XMLHttpRequestEventTarget', 'XMLHttpRequestUpload', 'FormData', 'Blob', 'File', 'FileReader', 'ReadableStream', 'WritableStream', 'TransformStream', 'TextEncoderStream', 'TextDecoderStream']);
   lazy('encoding', ['TextEncoder', 'TextDecoder', 'structuredClone'].concat(typeof Intl === 'undefined' ? ['Intl'] : []));
   lazy('animation', ['Animation', 'KeyframeEffect', 'AnimationEffect']);
   lazy('cssom', ['CSSStyleSheet', 'StyleSheet', 'StyleSheetList', 'CSSRule', 'CSSStyleRule', 'CSSRuleList', 'CSSStyleDeclaration']);
