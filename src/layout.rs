@@ -1105,7 +1105,7 @@ impl<'a> Engine<'a> {
                 (Some(l), Some(r)) => clamp_w(s, (pw - l - r - sd.ml - sd.mr).max(0.0), pw, &sd),
                 _ => {
                     let avail = (pw - sd.ml - sd.mr - l.or(r).unwrap_or(0.0)).max(0.0);
-                    clamp_w(s, (self.intrinsic(c) - sd.ml - sd.mr).min(avail), pw, &sd)
+                    clamp_w(s, self.shrink_to_fit(c, avail, &sd), pw, &sd)
                 }
             });
             let x = match (l, r) {
@@ -1439,7 +1439,7 @@ impl<'a> Engine<'a> {
         let avail = (il.cw - sd.ml - sd.mr).max(0.0);
         let w = match spec_w(s, il.cw, &sd) {
             Some(w) => w,
-            None => clamp_w(s, (self.intrinsic(n) - sd.ml - sd.mr).min(avail), il.cw, &sd),
+            None => clamp_w(s, self.shrink_to_fit(n, avail, &sd), il.cw, &sd),
         };
         let outer_w = w + sd.ml + sd.mr;
         let ps = &st[self.dom.nodes[n as usize].parent as usize];
@@ -2210,6 +2210,17 @@ impl<'a> Engine<'a> {
         let mut state = IState::default();
         self.intr_text(n, &mut state);
         state.max.max(state.cur)
+    }
+
+    /// Shrink-to-fit border-box width of `n` in `avail` (CSS 2.1 10.3.5): its
+    /// max-content width, or `avail` when that is narrower, but never below its
+    /// min-content width, which is only measured then.
+    fn shrink_to_fit(&mut self, n: NodeId, avail: f32, sd: &Sides) -> f32 {
+        let most = self.intrinsic(n) - sd.ml - sd.mr;
+        if most <= avail {
+            return most;
+        }
+        avail.max(self.min_content(n) - sd.ml - sd.mr)
     }
 
     /// Min-content width of a box including its margins, memoized per node:

@@ -1755,6 +1755,16 @@ mod tests {
     }
 
     #[test]
+    fn shrink_to_fit_boxes_are_no_narrower_than_their_content_allows() {
+        let css = "body{margin:0} i{display:inline-block;height:5px} .a{width:80px} .b{width:30px} #c{width:50px;height:30px;position:relative}";
+        let body = "<div id=c><div id=f style=float:left><i class=a></i> <i class=b></i></div>\
+                    <div id=g style=position:absolute;top:10px;left:0><i class=a></i> <i class=b></i></div></div>";
+        let (mut page, _) = after_script(css, body, "$('c').title='x';");
+        let [f, g] = rects(&mut page, &["f", "g"]).try_into().unwrap();
+        assert_eq!((f[2], g[2]), (80.0, 80.0));
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";

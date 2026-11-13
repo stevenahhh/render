@@ -84,8 +84,8 @@ impl Engine<'_> {
         match spec_w(s, cw, &sd) {
             Some(w) => w,
             None => {
-                let content = self.intrinsic(n) - sd.ml - sd.mr;
-                clamp_w(s, content.min((cw - sd.ml - sd.mr).max(0.0)), cw, &sd)
+                let w = self.shrink_to_fit(n, (cw - sd.ml - sd.mr).max(0.0), &sd);
+                clamp_w(s, w, cw, &sd)
             }
         }
     }
