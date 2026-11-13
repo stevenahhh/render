@@ -19,6 +19,7 @@ sh tools/corpus/run.sh --jobs 6            # score everything; writes $CORPUS/re
 sh tools/corpus/run.sh --only naver        # one site (id substring), no change to the others
 sh tools/corpus/run.sh --skip-wpt          # sites only
 bun tools/corpus/run.ts --compare <dirA> <dirB>   # per-page score differences between two runs
+sh tools/corpus/gate.sh <results dir>      # fail when a run scores under the floors in floor.json
 ```
 
 A run writes:

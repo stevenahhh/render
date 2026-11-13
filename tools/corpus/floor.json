@@ -1,0 +1,16 @@
+{
+  "note": "Regression floors for tools/corpus/gate.sh. Raise them when a run on main is better; never lower them to make a change pass. Six script-heavy sites move up to 3.3 points between identical runs, so the floors sit slightly under the measured run.",
+  "measured": {
+    "commit": "2cbcff6",
+    "sitesPass": 90,
+    "sitesMean": 69.2,
+    "wptReftests": 180,
+    "wptTestharness": 8
+  },
+  "floor": {
+    "sitesPass": 88,
+    "sitesMean": 68.5,
+    "wptReftests": 180,
+    "wptTestharness": 8
+  }
+}
