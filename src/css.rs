@@ -725,8 +725,8 @@ pub fn parse_len(s: &str) -> Option<Len> {
         "vh" | "vmax" => Vh(n),
         "ex" | "ch" => Em(n * 0.5),
         "in" => Px(n * 96.0),
-        "cm" => Px(n * 37.8),
-        "mm" => Px(n * 3.78),
+        "cm" => Px(n * 96.0 / 2.54),
+        "mm" => Px(n * 96.0 / 25.4),
         "pc" => Px(n * 16.0),
         "q" => Px(n * 3.78 / 4.0),
         // A line of normal height.
@@ -2903,6 +2903,14 @@ mod tests {
         assert_eq!(applied(1280.0), ["a", "c", "d", "f"]);
         assert_eq!(applied(800.0), ["c", "f"]);
         assert_eq!(applied(300.0), ["c", "f", "g"]);
+    }
+
+    #[test]
+    fn absolute_lengths_are_exact_multiples_of_the_inch() {
+        for (v, px) in [("1in", 96.0), ("2.54cm", 96.0), ("25.4mm", 96.0), ("72pt", 96.0), ("6pc", 96.0)] {
+            let Some(super::Len::Px(got)) = super::parse_len(v) else { panic!("{v}") };
+            assert!((got - px).abs() < 1e-3, "{v}: {got}");
+        }
     }
 
     #[test]
