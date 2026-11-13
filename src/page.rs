@@ -1645,6 +1645,25 @@ mod tests {
     }
 
     #[test]
+    fn svg_use_draws_symbols_from_the_page_and_from_sprite_files() {
+        let dir = std::env::temp_dir().join(format!("render-use-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("s.svg"), "<svg xmlns='http://www.w3.org/2000/svg'><symbol id='sq' viewBox='0 0 2 2'><rect width='2' height='2' fill='#00f'/></symbol></svg>").unwrap();
+        // The page's sprite is not shown: its symbol still draws, its gradient does not (as in WebKit).
+        let html = "<body style='margin:0'><svg style='display:none'><symbol id='dot' viewBox='0 0 2 2'><rect width='2' height='2' fill='currentColor'/></symbol>\
+                    <linearGradient id='g'><stop stop-color='#0f0'/></linearGradient></svg>\
+                    <svg width=10 height=10 style='color:#f00;display:block'><use href='#dot'/></svg>\
+                    <svg width=10 height=10 style='display:block'><use xlink:href='s.svg#sq'></use></svg>\
+                    <svg width=10 height=10 style='display:block'><rect width='10' height='10' fill='url(#g)'/></svg>";
+        let mut page = Page::from_html(html, Some(&dir));
+        page.update(&mut Fonts::new(), 1024.0, 768.0);
+        let ids: Vec<u32> = page.layout.items.iter().filter(|i| i.kind == crate::layout::Kind::Image).map(|i| page.layout.pictures[i.data as usize].id).collect();
+        let centre: Vec<u32> = ids.iter().map(|&id| page.images.get(id, 10, 10, [0, 0, 10, 10]).map_or(0, |(p, _, _)| p.px[55])).collect();
+        assert_eq!(centre, [0xFFFF_0000, 0xFF00_00FF, 0]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn colour_changes_repaint_the_laid_out_boxes() {
         let css = "div{border:1px solid #000} .on{background:#f00;color:#0f0;opacity:.5}";
         let toggle = "$('a').classList.toggle('on');";

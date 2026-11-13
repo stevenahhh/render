@@ -2329,11 +2329,77 @@ impl<'a> Engine<'a> {
     fn svg_picture(&mut self, n: NodeId, w: f32, h: f32) -> Option<u32> {
         let mut markup = String::new();
         self.dom.serialize(n, true, &mut markup);
+        self.add_referenced(&mut markup);
         let s = &self.st[n as usize];
         let mut m = svg_markup(markup, s.fill, s.color);
         set_root_attr(&mut m, "width", &format!("{w}"));
         set_root_attr(&mut m, "height", &format!("{h}"));
         self.images.svg(&m)
+    }
+
+    /// Copies into serialized `<svg>` markup, in a `<defs>` at its end, the elements
+    /// its `href="#id"` and `url(#id)` references name outside it: the symbols of
+    /// a sprite elsewhere in the page, and of an SVG file (`href="file.svg#id"`,
+    /// pointed at the copy).
+    fn add_referenced(&mut self, m: &mut String) {
+        let mut defs = String::new();
+        let mut done: Vec<String> = Vec::new();
+        // Copied elements can name others in turn; a few rounds cover real sprites.
+        for _ in 0..4 {
+            let all = format!("{m}{defs}");
+            let mut add = String::new();
+            for (at, quote) in [("href=\"", '"'), ("url(#", ')')] {
+                for (i, _) in all.match_indices(at) {
+                    let rest = &all[i + at.len()..];
+                    let Some(target) = rest.split(quote).next().map(|t| t.trim_matches(['\'', '"'])) else { continue };
+                    let (file, id) = match (at, target.split_once('#')) {
+                        ("url(#", _) => ("", target),
+                        (_, Some((file, id))) if file.is_empty() || file.split('?').next().is_some_and(|p| p.ends_with(".svg")) => (file, id),
+                        _ => continue,
+                    };
+                    let key = format!("{file}#{id}");
+                    if id.is_empty() || done.contains(&key) || all.contains(&format!(" id=\"{id}\"")) {
+                        continue;
+                    }
+                    done.push(key);
+                    let found = if file.is_empty() {
+                        let e = self.dom.by_id(0, id);
+                        // WebKit finds no paint server (`url(#id)`) under a box that is not shown.
+                        let shown = at == "href=\"" || self.shown(e);
+                        (e != NONE && shown).then(|| {
+                            let mut out = String::new();
+                            self.dom.serialize(e, true, &mut out);
+                            out
+                        })
+                    } else {
+                        self.images.svg_element(file, id)
+                    };
+                    add.extend(found);
+                }
+            }
+            if add.is_empty() {
+                break;
+            }
+            defs += &add;
+        }
+        for f in done.iter().filter(|k| !k.starts_with('#')) {
+            let id = &f[f.find('#').map_or(0, |i| i)..];
+            *m = m.replace(&format!("href=\"{f}\""), &format!("href=\"{id}\""));
+        }
+        if let Some(end) = m.rfind("</svg>").filter(|_| !defs.is_empty()) {
+            m.insert_str(end, &format!("<defs>{defs}</defs>"));
+        }
+    }
+
+    /// True when no ancestor of `n` has `display: none`.
+    fn shown(&self, mut n: NodeId) -> bool {
+        while n != NONE {
+            if self.st[n as usize].display == Display::None {
+                return false;
+            }
+            n = self.dom.nodes[n as usize].parent;
+        }
+        true
     }
 
     /// Max-content width of a box including its margins, memoized per node.

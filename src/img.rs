@@ -50,6 +50,9 @@ pub struct Images {
     missing: Vec<Box<str>>,
     /// How many lookups found their image still downloading.
     misses: usize,
+    /// SVG documents `<use>` takes elements from, by URL as written in the page;
+    /// `None` for one that did not load.
+    svg_docs: FxMap<Box<str>, Option<crate::dom::Dom>>,
 }
 
 type Decoded = (u32, Option<Picture>, [u32; 4]);
@@ -107,24 +110,8 @@ impl Images {
         if let Some(&id) = self.by_key.get(src) {
             return id;
         }
-        let local = !src.is_empty() && !src.starts_with("data:") && !src.contains("://");
-        let file = src.split(['?', '#']).next().unwrap_or(src).trim_start_matches('/');
-        let path = match &self.site {
-            Some(_) if src.is_empty() || src.starts_with("data:") => None,
-            Some((site, true)) => site.file(src),
-            Some((site, false)) => match site.file_if_ready(src) {
-                Some(path) => path,
-                None => {
-                    // Not remembered: the next lookup after it arrives finds it.
-                    self.misses += 1;
-                    if !self.missing.iter().any(|m| &**m == src) {
-                        self.missing.push(src.into());
-                    }
-                    return None;
-                }
-            },
-            None => self.base.as_ref().filter(|_| local).map(|b| b.join(file)),
-        };
+        // Not remembered while downloading: the next lookup after it arrives finds it.
+        let path = self.locate(src)?;
         let source = path.and_then(|path| {
             if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("svg")) {
                 let tree = parse_svg(&std::fs::read_to_string(&path).ok()?)?;
@@ -136,6 +123,45 @@ impl Images {
             }
         });
         self.add(src, source)
+    }
+
+    /// The markup of the element with id `id` in the SVG document at `src`, for a
+    /// `<use href="sprite.svg#id">`. `None` while the document downloads, and when
+    /// it has no such element.
+    pub fn svg_element(&mut self, src: &str, id: &str) -> Option<String> {
+        if !self.svg_docs.contains_key(src) {
+            let doc = self.locate(src)?.and_then(|p| std::fs::read_to_string(p).ok()).map(|t| crate::dom::parse_html(&t));
+            self.svg_docs.insert(src.into(), doc);
+        }
+        let dom = self.svg_docs.get(src)?.as_ref()?;
+        let n = dom.by_id(0, id);
+        (n != crate::dom::NONE).then(|| {
+            let mut out = String::new();
+            dom.serialize(n, true, &mut out);
+            out
+        })
+    }
+
+    /// Where the file of URL `src` is: `None` while it downloads, `Some(None)` when
+    /// there is none.
+    fn locate(&mut self, src: &str) -> Option<Option<PathBuf>> {
+        let local = !src.is_empty() && !src.starts_with("data:") && !src.contains("://");
+        let file = src.split(['?', '#']).next().unwrap_or(src).trim_start_matches('/');
+        Some(match &self.site {
+            Some(_) if src.is_empty() || src.starts_with("data:") => None,
+            Some((site, true)) => site.file(src),
+            Some((site, false)) => match site.file_if_ready(src) {
+                Some(path) => path,
+                None => {
+                    self.misses += 1;
+                    if !self.missing.iter().any(|m| &**m == src) {
+                        self.missing.push(src.into());
+                    }
+                    return None;
+                }
+            },
+            None => self.base.as_ref().filter(|_| local).map(|b| b.join(file)),
+        })
     }
 
     /// Registers inline SVG markup.
