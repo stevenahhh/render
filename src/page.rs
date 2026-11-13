@@ -112,6 +112,8 @@ struct Script {
     /// The code of a script in the page.
     code: String,
     module: bool,
+    /// A `<script type="importmap">`, taken in where it stands among the scripts.
+    import_map: bool,
 }
 
 /// The stylesheet `<link>`, style preload `<link>` and `<img>` elements in the
@@ -144,6 +146,8 @@ enum Run {
     Module { name: String, code: Option<String>, href: String },
     /// An external classic script that could not be had: its `error` event fires.
     Failed(NodeId),
+    /// An import map in the page, its JSON and the page's URL.
+    ImportMap { json: String, href: String },
 }
 
 fn has_attr(dom: &Dom, n: NodeId, name: &str) -> bool {
@@ -161,14 +165,19 @@ fn scripts_of(dom: &Dom) -> Vec<Script> {
             let ty = dom.attr(n, atom::TYPE).unwrap_or("").trim().to_ascii_lowercase();
             let module = ty == "module";
             let classic = ty.is_empty() || ty.contains("javascript");
-            if module || (classic && !has_attr(dom, n, "nomodule")) {
+            let import_map = ty == "importmap" && dom.attr(n, atom::SRC).is_none();
+            if import_map {
+                let mut code = String::new();
+                dom.text_content(n, &mut code);
+                now.push(Script { node: n, src: String::new(), code, module: false, import_map });
+            } else if module || (classic && !has_attr(dom, n, "nomodule")) {
                 let src = dom.attr(n, atom::SRC);
                 let mut code = String::new();
                 if src.is_none() {
                     dom.text_content(n, &mut code);
                 }
                 let deferred = module || (src.is_some() && (has_attr(dom, n, "defer") || has_attr(dom, n, "async")));
-                let script = Script { node: n, src: src.unwrap_or("").to_string(), code, module };
+                let script = Script { node: n, src: src.unwrap_or("").to_string(), code, module, import_map: false };
                 if deferred { later.push(script) } else { now.push(script) }
             }
         }
@@ -512,6 +521,10 @@ impl Page {
         let page_url = self.url.href();
         let mut runs = Vec::with_capacity(scripts.len());
         for s in scripts {
+            if s.import_map {
+                runs.push(Run::ImportMap { json: s.code, href: page_url.clone() });
+                continue;
+            }
             match (s.module, s.src.is_empty()) {
                 (true, true) => runs.push(Run::Module { name: "inline script".to_string(), code: Some(s.code), href: page_url.clone() }),
                 (true, false) => match Url::parse(&s.src, Some(&self.url)) {
@@ -539,6 +552,7 @@ impl Page {
                     }
                     Run::Module { name, code, href } => js.run_module(code.as_deref(), &name, &href),
                     Run::Failed(node) => js.fire(&[(node, "error")]),
+                    Run::ImportMap { json, href } => js.import_map(&json, &href),
                 }
             }
         });

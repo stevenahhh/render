@@ -12,6 +12,7 @@
 function mark(t){var d=document.createElement('div');d.className='m';d.setAttribute('data-m',t);d.textContent=t;document.getElementById('out').appendChild(d);}
 function check(name,fn){try{fn();}catch(e){console.log('FIXTURE '+name+' threw: '+e);}}
 </script>
+<script type="importmap">{"imports":{"lib-a":"./mod-a.js","libs/":"./"},"scopes":{"./":{"scoped":"./mod-dyn.js"}}}</script>
 <script type="module">
 import add1, { value } from './mod-a.js';
 mark('MOD static import result:' + add1(value));
@@ -24,6 +25,14 @@ const v = await new Promise(function (r) { setTimeout(function () { r(7); }, 10)
 mark('MOD top-level await value:' + v);
 </script>
 <script type="module" src="mod-meta.js"></script>
+<script type="module">
+import add1, { value } from 'lib-a';
+import { dyn } from 'libs/mod-dyn.js';
+import { dyn as scoped } from 'scoped';
+let unmapped = 'resolved';
+try { await import('not-mapped'); } catch (e) { unmapped = e instanceof TypeError ? 'TypeError' : String(e); }
+mark('MOD import map bare:' + add1(value) + ' prefix:' + dyn + ' scope:' + scoped + ' unmapped:' + unmapped + ' evaluations:' + globalThis.__modAEvals);
+</script>
 <script>
 check('dynamic', function(){
   import('./mod-dyn.js').then(function(m){

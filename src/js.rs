@@ -1018,6 +1018,87 @@ struct Modules {
     modules: RefCell<FxMap<String, Module>>,
     /// Modules whose imports a background walk has asked for (see `prefetch_graph`).
     walked: Arc<Mutex<std::collections::HashSet<String>>>,
+    /// What the page's `<script type="importmap">` maps specifiers to.
+    map: RefCell<ImportMap>,
+}
+
+/// An import map: specifiers, and prefixes of them that end in `/`, each mapped
+/// to a URL, at the top level and for the modules within a scope. Entries are
+/// sorted by key, longest first among those that share a prefix, as the HTML
+/// standard sorts them, so the first match is the most specific.
+#[derive(Default)]
+struct ImportMap {
+    imports: Vec<(String, String)>,
+    scopes: Vec<(String, Vec<(String, String)>)>,
+}
+
+impl ImportMap {
+    /// Takes in the entries of a map whose keys and addresses resolve against
+    /// `base`: `(scope, key, address)`, with no scope for the top level.
+    /// Entries whose address is no URL, or a prefix mapped to something that is
+    /// not one, are left out, as browsers leave them out.
+    fn add(&mut self, entries: Vec<(Option<String>, String, String)>, base: &Url) {
+        for (scope, key, address) in entries {
+            let key = url_like(&key, base).map_or(key, |u| u.href());
+            let Some(address) = url_like(&address, base).map(|u| u.href()) else { continue };
+            if key.is_empty() || (key.ends_with('/') && !address.ends_with('/')) {
+                continue;
+            }
+            let list = match scope.and_then(|s| Url::parse(&s, Some(base))) {
+                Some(scope) => {
+                    let scope = scope.href();
+                    match self.scopes.iter().position(|(s, _)| *s == scope) {
+                        Some(i) => &mut self.scopes[i].1,
+                        None => {
+                            self.scopes.push((scope, Vec::new()));
+                            &mut self.scopes.last_mut().expect("scope just added").1
+                        }
+                    }
+                }
+                None => &mut self.imports,
+            };
+            if !list.iter().any(|(k, _)| *k == key) {
+                list.push((key, address));
+            }
+        }
+        self.imports.sort_by(|a, b| b.0.cmp(&a.0));
+        self.scopes.sort_by(|a, b| b.0.cmp(&a.0));
+        for (_, list) in &mut self.scopes {
+            list.sort_by(|a, b| b.0.cmp(&a.0));
+        }
+    }
+
+    /// The URL `normalized` (a URL, or a bare specifier) maps to for a module at `referrer`.
+    fn resolve(&self, normalized: &str, referrer: &str) -> Option<Url> {
+        let in_scope = |s: &str| s == referrer || (s.ends_with('/') && referrer.starts_with(s));
+        let scoped = self.scopes.iter().filter(|(s, _)| in_scope(s)).find_map(|(_, list)| mapped(list, normalized));
+        scoped.or_else(|| mapped(&self.imports, normalized))
+    }
+}
+
+/// The address `normalized` maps to in `list`: its own entry, or the longest
+/// prefix entry with the rest of it resolved against that prefix's address.
+fn mapped(list: &[(String, String)], normalized: &str) -> Option<Url> {
+    for (key, address) in list {
+        if key == normalized {
+            return Url::parse(address, None);
+        }
+        if let Some(rest) = normalized.strip_prefix(key.as_str()).filter(|_| key.ends_with('/')) {
+            let base = Url::parse(address, None)?;
+            return Url::parse(rest, Some(&base)).filter(|u| u.href().starts_with(address.as_str()));
+        }
+    }
+    None
+}
+
+/// The URL a module specifier names when it is one, or starts with `/`, `./` or
+/// `../`; `None` for a bare specifier such as `react`, which only an import map resolves.
+fn url_like(specifier: &str, base: &Url) -> Option<Url> {
+    if specifier.starts_with('/') || specifier.starts_with("./") || specifier.starts_with("../") {
+        Url::parse(specifier, Some(base))
+    } else {
+        Url::parse(specifier, None)
+    }
 }
 
 impl Modules {
@@ -1094,10 +1175,17 @@ impl Modules {
         self.parse(href.to_string(), &path, &code, ctx)
     }
 
+    /// Resolves a specifier as the HTML standard does: through the import map, then
+    /// as a URL relative to the importing module; a bare specifier no map names fails.
     fn resolve(&self, referrer: &Referrer, specifier: &str) -> JsResult<String> {
         let base = referrer.path().and_then(|p| self.urls.borrow().get(p).cloned());
         let base = base.and_then(|b| Url::parse(&b, None)).unwrap_or_else(|| self.page.clone());
-        let mut url = Url::parse(specifier, Some(&base)).ok_or_else(|| js_error(format!("cannot resolve module {specifier}")))?;
+        let as_url = url_like(specifier, &base);
+        let normalized = as_url.as_ref().map_or_else(|| specifier.to_string(), Url::href);
+        let mapped = self.map.borrow().resolve(&normalized, &base.href());
+        let Some(mut url) = mapped.or(as_url) else {
+            return Err(js_error(format!("Failed to resolve module specifier \"{specifier}\". Relative references must start with either \"/\", \"./\", or \"../\".")));
+        };
         url.fragment = None;
         Ok(url.href())
     }
@@ -1236,7 +1324,7 @@ impl Js {
     /// A script engine for the page at `url`; resources on the web are
     /// downloaded through `site`.
     pub fn new(url: &Url, site: Option<Arc<Site>>) -> Js {
-        let modules = Rc::new(Modules { page: url.clone(), site, urls: RefCell::default(), modules: RefCell::default(), walked: Arc::default() });
+        let modules = Rc::new(Modules { page: url.clone(), site, urls: RefCell::default(), modules: RefCell::default(), walked: Arc::default(), map: RefCell::default() });
         let rejected = Rc::new(RefCell::new(Vec::new()));
         let builder = Context::builder().module_loader(modules.clone()).host_hooks(Rc::new(Rejections(rejected.clone())));
         let mut ctx = builder.build().expect("create script context");
@@ -1419,6 +1507,39 @@ impl Js {
         }
         self.run_jobs(name);
         call_entry(&mut self.ctx, "end", &[]).ok();
+    }
+
+    /// Takes in a `<script type="importmap">` of the page at `href`. JSON that does
+    /// not parse is reported as browsers report it, and maps nothing.
+    pub fn import_map(&mut self, json: &str, href: &str) {
+        let Some(modules) = self.ctx.get_data::<Rc<Modules>>().cloned() else { return };
+        // The entries as `scope \u{1} key \u{1} address \u{1} ...`, with `\u{2}` for the top level.
+        let flatten = "(s) => { const m = JSON.parse(s), out = []; \
+            const add = (scope, o) => { if (o && typeof o === 'object') for (const k of Object.keys(o)) out.push(scope, k, typeof o[k] === 'string' ? o[k] : '\\u0000'); }; \
+            add('\\u0002', m && m.imports); \
+            if (m && m.scopes && typeof m.scopes === 'object') for (const s of Object.keys(m.scopes)) add(s, m.scopes[s]); \
+            return out.join('\\u0001'); }";
+        let flat = self.ctx.eval(Source::from_bytes(flatten)).and_then(|f| match f.as_callable() {
+            Some(f) => f.call(&JsValue::undefined(), &[js_str(json)], &mut self.ctx),
+            None => Ok(JsValue::undefined()),
+        });
+        let flat = match flat.and_then(|v| v.to_string(&mut self.ctx)) {
+            Ok(s) => s.to_std_string_escaped(),
+            Err(e) => {
+                if let Err(e) = report(&mut self.ctx, e, "import map", Some(href)) {
+                    eprintln!("[js] import map: {e}");
+                }
+                return;
+            }
+        };
+        let parts: Vec<&str> = flat.split('\u{1}').collect();
+        let entries = parts
+            .chunks_exact(3)
+            .filter(|e| e[2] != "\u{0}")
+            .map(|e| ((e[0] != "\u{2}").then(|| e[0].to_string()), e[1].to_string(), e[2].to_string()))
+            .collect();
+        let base = Url::parse(href, None).unwrap_or_else(|| modules.page.clone());
+        modules.map.borrow_mut().add(entries, &base);
     }
 
     /// Runs a `<script type="module">`: its code from the page or from `href`.

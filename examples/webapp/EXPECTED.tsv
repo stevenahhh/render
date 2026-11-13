@@ -59,6 +59,7 @@ modules.html	MOD deferred sawLater:true
 modules.html	MOD top-level await value:7
 modules.html	MOD import.meta.url path:/webapp/mod-meta.js value:41 evaluatedOnce:true
 modules.html	MOD dynamic import value:dynamic default:dyn-default
+modules.html	MOD import map bare:42 prefix:dynamic scope:dynamic unmapped:TypeError evaluations:1
 dom-traversal.html	STATIC dom-traversal
 dom-traversal.html	DOM createComment nodeType:8 name:#comment data:made parsed:8 hi
 dom-traversal.html	DOM createTreeWalker elements:P P text:abcd root:true
