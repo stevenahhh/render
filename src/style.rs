@@ -608,6 +608,9 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::Inherit(ref name) => {
             copy_prop(st, parent, name);
         }
+        Decl::Initial(ref name) => {
+            copy_prop(st, &INITIAL, name);
+        }
         // Applied by `cascade`, which knows the built-in style.
         Decl::Revert(_) | Decl::AllRevert => {}
         Decl::Opacity(v) => st.own_opacity = v,
@@ -681,6 +684,12 @@ fn copy_prop(st: &mut Style, src: &Style, name: &str) -> bool {
         "inset" => put_rare(st, |r| &mut r.inset, sr.inset),
         "box-sizing" => st.border_box = src.border_box,
         "border-radius" => st.radius = src.radius,
+        "border-top-left-radius" => st.radius[0] = src.radius[0],
+        "border-top-right-radius" => st.radius[1] = src.radius[1],
+        "border-bottom-right-radius" => st.radius[2] = src.radius[2],
+        "border-bottom-left-radius" => st.radius[3] = src.radius[3],
+        "background-size" => put_rare(st, |r| &mut r.bg_size, sr.bg_size),
+        "background-position" => put_rare(st, |r| &mut r.bg_pos, sr.bg_pos),
         "border" | "border-width" | "border-style" | "border-color" => {
             (st.bw, st.bc, st.bc_set, st.bs) = (src.bw, src.bc, src.bc_set, src.bs);
         }
@@ -1310,6 +1319,7 @@ impl<'a> Styler<'a> {
             Decl::FontSize(fs) => apply_font_size(st, parent, *fs, ctx),
             Decl::AllUnset => st.font_size = parent.font_size,
             Decl::Inherit(n) if matches!(&**n, "font" | "font-size") => st.font_size = parent.font_size,
+            Decl::Initial(n) if matches!(&**n, "font" | "font-size") => st.font_size = INITIAL.font_size,
             Decl::Revert(n) if !matches!(&**n, "font" | "font-size") => {}
             Decl::Revert(_) | Decl::AllRevert => st.font_size = ua.get_or_insert_with(|| ua_style(sheet, matched, parent, ctx)).font_size,
             _ => {}
@@ -2308,6 +2318,16 @@ mod tests {
         assert_eq!(s.iter().map(|s| s.font_size).collect::<Vec<_>>(), [20.0, 20.0, 40.0]);
         assert_eq!(s.iter().map(|s| s.display).collect::<Vec<_>>(), [Display::Inline, Display::Inline, Display::Block]);
         assert_eq!(s.iter().map(|s| s.color.0 & 0xff_ffff).collect::<Vec<_>>(), [0x00ff00, 0xff0000, 0x00ff00]);
+    }
+
+    #[test]
+    fn initial_and_unset_reset_properties_without_a_written_initial_value() {
+        let html = "<style>p{border-radius:4px;line-height:3;font-size:30px} p.u{border-top-left-radius:unset;line-height:initial;font-size:initial}\
+                    div{color:#0f0} span{color:red} span.c{color:currentColor}</style><p class=u></p><div><span class=c></span></div>";
+        let p = &styles_of(html, "p")[0];
+        assert_eq!((p.radius[0], p.radius[1]), (Len::Px(0.0), Len::Px(4.0)));
+        assert_eq!((p.line_height, p.font_size), (crate::css::LineHeight::Normal, 16.0));
+        assert_eq!(styles_of(html, "span")[0].color.0 & 0xff_ffff, 0x00ff00);
     }
 
     #[test]

@@ -351,6 +351,9 @@ pub enum Decl {
     /// `revert` and `revert-layer`: the property, by name, takes the value the
     /// built-in style sheet gives it.
     Revert(Box<str>),
+    /// `initial` (and `unset` of a property that is not inherited) where no
+    /// initial value is written down: the property, by name, takes its initial value.
+    Initial(Box<str>),
     Opacity(f32),
     Pointer(bool),
     Translate(Len, Len),
@@ -1402,12 +1405,13 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
     // CSS-wide keywords: `inherit` and `revert` copy the property from the parent or
     // from the built-in style; `unset` inherits an inherited property; `initial`, and
     // `unset` otherwise, reset a property to its initial value.
-    if matches!(v, "inherit" | "unset" | "revert" | "revert-layer") && crate::style::copies(name) {
+    if matches!(v, "inherit" | "initial" | "unset" | "revert" | "revert-layer") && crate::style::copies(name) {
         let inherited = crate::style::inherited(name);
         match v {
             "inherit" => return out.push(D::Inherit(name.into())),
             "unset" if inherited => return out.push(D::Inherit(name.into())),
             "revert" | "revert-layer" => return out.push(D::Revert(name.into())),
+            _ if !INITIAL.iter().any(|(n, _)| *n == name) => return out.push(D::Initial(name.into())),
             _ => {}
         }
     }
@@ -1601,7 +1605,8 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "background-clip" | "-webkit-background-clip" => push(Some(D::ClipText(SplitTop::new(v, b',').any(|l| l.trim() == "text")))),
         "background-position" => push(bg_position(&tokens(v).collect::<Vec<_>>()).map(|(x, y)| D::BgPos(x, y))),
         "color" => {
-            if v == "inherit" {
+            // currentcolor in `color` is the parent's color.
+            if v == "inherit" || v == "currentcolor" {
                 out.push(D::Color(None));
             } else {
                 push(color_tok(v).map(|c| D::Color(Some(c))));
