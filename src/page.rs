@@ -1633,6 +1633,18 @@ mod tests {
     }
 
     #[test]
+    fn margins_collapse_through_empty_blocks() {
+        let css = "body{margin:0} .a{height:10px} .e{margin:20px 0}";
+        let body = "<div class=a id=a></div><div class=e></div><div class=e><div class=e></div></div><div class=a id=b></div>\
+                    <div id=p><div class=e></div><div class=a id=c></div></div>\
+                    <div id=q><div class=a></div><div style=margin-top:100px></div></div><div class=a id=d></div>";
+        let (mut page, _) = after_script(css, body, "$('a').title='x';");
+        let got = rects(&mut page, &["b", "p", "c", "q", "d"]);
+        let w = 1024.0;
+        assert_eq!(got, [[0.0, 30.0, w, 10.0], [0.0, 60.0, w, 10.0], [0.0, 60.0, w, 10.0], [0.0, 70.0, w, 10.0], [0.0, 180.0, w, 10.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";

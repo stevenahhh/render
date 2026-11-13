@@ -626,7 +626,7 @@ impl<'a> Engine<'a> {
     /// Top margin of `n` after collapsing with its first in-flow block child.
     fn collapsed_top(&self, n: NodeId) -> f32 {
         let s = &self.st[n as usize];
-        let m = rs(s.margin[0], 0.0);
+        let mut m = rs(s.margin[0], 0.0);
         let plain = matches!(s.display, Display::Block | Display::ListItem)
             && s.padding[0] == Len::Px(0.0)
             && s.bw[0] == 0.0
@@ -646,6 +646,10 @@ impl<'a> Engine<'a> {
                 match cs.display {
                     Display::None => {}
                     _ if is_abs(cs) || cs.float != 0 => {}
+                    // An empty block's margins collapse through it, with the next sibling's too.
+                    Display::Block | Display::ListItem if self.empty_through(c) => {
+                        m = collapse(m, collapse(self.collapsed_top(c), rs(cs.margin[2], 0.0)));
+                    }
                     Display::Block | Display::ListItem | Display::Flex => return collapse(m, self.collapsed_top(c)),
                     _ => break,
                 }
@@ -653,6 +657,48 @@ impl<'a> Engine<'a> {
             c = node.next;
         }
         m
+    }
+
+    /// True for a block whose top and bottom margins are adjoining when it has
+    /// no in-flow content: no border or padding between them, a zero or auto
+    /// height, no min-height, and no formatting context of its own (CSS 2.1 8.3.1).
+    fn collapses_through(&self, n: NodeId) -> bool {
+        let s = &self.st[n as usize];
+        let zero = Len::Px(0.0);
+        matches!(s.display, Display::Block | Display::ListItem)
+            && !bfc_root(s)
+            && !s.grid
+            && !self.dom.shows_image(n)
+            && s.padding[0] == zero
+            && s.padding[2] == zero
+            && s.bw[0] == 0.0
+            && s.bw[2] == 0.0
+            && (s.height == Len::Auto || s.height == zero)
+            && (s.rare().min_h == Len::Auto || s.rare().min_h == zero)
+    }
+
+    /// True for a block that `collapses_through` and holds no in-flow content:
+    /// only white space, out-of-flow boxes and blocks that are empty in turn.
+    fn empty_through(&self, n: NodeId) -> bool {
+        if !self.collapses_through(n) {
+            return false;
+        }
+        let pre = matches!(self.st[n as usize].white_space, WhiteSpace::Pre | WhiteSpace::PreWrap);
+        let mut c = self.dom.nodes[n as usize].first_child;
+        while c != NONE {
+            let node = &self.dom.nodes[c as usize];
+            let empty = if node.tag == atom::TEXT {
+                if pre { node.text.1 == 0 } else { is_ws(self.dom.text_of(c)) }
+            } else {
+                let cs = &self.st[c as usize];
+                cs.display == Display::None || is_abs(cs) || cs.float != 0 || self.empty_through(c)
+            };
+            if !empty {
+                return false;
+            }
+            c = node.next;
+        }
+        true
     }
 
     /// Lays out the children of a block container. Returns the content height
@@ -714,9 +760,13 @@ impl<'a> Engine<'a> {
                 continue;
             }
             let mt = self.collapsed_top(c);
-            let mut gap = if first && top_coll { 0.0 } else { collapse(pend, mt) };
+            // The parent's top margin already holds those of an empty first child.
+            let into_parent = first && top_coll && self.empty_through(c);
+            let adjoining = collapse(pend, mt);
+            let mut gap = if first && top_coll { 0.0 } else { adjoining };
             let clear = st[c as usize].clear;
-            if clear != 0 && self.floats.len() > self.bfc {
+            let cleared = clear != 0 && self.floats.len() > self.bfc;
+            if cleared {
                 // Clearance puts the box's top below the floats it clears.
                 gap = gap.max(self.clear_y(clear) - cur);
             }
@@ -725,10 +775,20 @@ impl<'a> Engine<'a> {
                 ord += 1;
             }
             let r = self.block_in_flow(c, cx, cw, cur + gap, ch);
+            let child = c;
+            c = node.next;
+            if into_parent {
+                continue;
+            }
+            if r.h == 0.0 && !cleared && !(first && top_coll) && self.collapses_through(child) {
+                // Its margins collapse through it with those around it.
+                pend = collapse(adjoining, r.mb);
+                first = false;
+                continue;
+            }
             cur += gap + r.h;
             pend = r.mb;
             first = false;
-            c = node.next;
         }
         if bottom_coll {
             (cur - y, pend)
