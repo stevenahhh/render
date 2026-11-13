@@ -1589,6 +1589,30 @@ mod tests {
     }
 
     #[test]
+    fn object_fit_and_position_place_the_picture_in_its_box_as_in_webkit() {
+        let dir = std::env::temp_dir().join(format!("render-fit-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        image::RgbaImage::new(40, 20).save(dir.join("a.png")).unwrap();
+        // Drawn rect and, inside it, where the whole 40x20 picture lies, in a 20x20 box at (0, 0).
+        let cases = [
+            ("", [0.0, 0.0, 20.0, 20.0], None),
+            ("object-fit:contain", [0.0, 5.0, 20.0, 10.0], Some([0.0, 0.0, 20.0, 10.0])),
+            ("object-fit:cover", [0.0, 0.0, 20.0, 20.0], Some([-10.0, 0.0, 40.0, 20.0])),
+            ("object-fit:cover;object-position:left top", [0.0, 0.0, 20.0, 20.0], Some([0.0, 0.0, 40.0, 20.0])),
+            ("object-fit:none;object-position:-5px 100%", [0.0, 0.0, 20.0, 20.0], Some([-5.0, 0.0, 40.0, 20.0])),
+            ("object-fit:scale-down;object-position:right bottom", [0.0, 10.0, 20.0, 10.0], Some([0.0, 0.0, 20.0, 10.0])),
+        ];
+        for (css, rect, tile) in cases {
+            let html = format!("<body style='margin:0'><img src=a.png style='display:block;width:20px;height:20px;{css}'>");
+            let mut page = Page::from_html(&html, Some(&dir));
+            page.update(&mut Fonts::new(), 1024.0, 768.0);
+            let it = page.layout.items.iter().find(|i| i.kind == crate::layout::Kind::Image).unwrap();
+            assert_eq!(([it.x, it.y, it.w, it.h], page.layout.pictures[it.data as usize].tile), (rect, tile), "{css}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn a_line_breaks_after_an_atomic_inline_without_a_space() {
         // WebKit puts the text on a second line, after a box that fills the first.
         for atomic in ["<span style='display:inline-block;width:95px;height:10px'></span>", "<svg width=95 height=10></svg>"] {

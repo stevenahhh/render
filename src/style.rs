@@ -130,6 +130,9 @@ pub struct Rare {
     pub bg_size: BgSize,
     /// `background-position`; percentages refer to the free space around the image.
     pub bg_pos: [Len; 2],
+    pub object_fit: ObjectFit,
+    /// `object-position`; percentages refer to the free space around the picture.
+    pub object_pos: [Len; 2],
     /// `transform: translate()`; percentages refer to the box itself.
     pub translate: [Len; 2],
     /// Row lines of a grid container, so its items can resolve `grid-row`.
@@ -177,6 +180,8 @@ const NO_RARE: Rare = Rare {
     bg_image: None,
     bg_size: BgSize::Auto,
     bg_pos: [Len::Pct(0.0); 2],
+    object_fit: ObjectFit::Fill,
+    object_pos: [Len::Pct(50.0); 2],
     translate: [Len::Px(0.0); 2],
     row_lines: None,
     grid_row: 0,
@@ -620,6 +625,8 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
             put_rare(st, |r| &mut r.bg_size, size);
         }
         Decl::BgPos(x, y) => put_rare(st, |r| &mut r.bg_pos, [r(x), r(y)]),
+        Decl::ObjectFit(v) => put_rare(st, |r| &mut r.object_fit, v),
+        Decl::ObjectPos(x, y) => put_rare(st, |r| &mut r.object_pos, [r(x), r(y)]),
         Decl::ClipText(v) => st.clip_text = v,
         Decl::Visible(v) => st.visible = v.unwrap_or(parent.visible),
         // The font size was settled in its own pass, `all` included; custom properties stay.

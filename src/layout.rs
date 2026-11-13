@@ -66,8 +66,9 @@ fn shadows(s: &Style) -> Option<Rc<[Shadow]>> {
 pub struct PicRef {
     pub id: u32,
     pub alpha: f32,
-    /// For a background image, where the whole image lies, `[x, y, w, h]` from the
-    /// item's origin: the item covers only the part inside the element's box.
+    /// For a background image or a picture placed by `object-fit`, where the whole
+    /// image lies, `[x, y, w, h]` from the item's origin: the item covers only the
+    /// part inside the element's box.
     pub tile: Option<[f32; 4]>,
 }
 
@@ -653,6 +654,28 @@ impl<'a> Engine<'a> {
         self.out.pictures[it.data as usize].tile = Some([tx - x0, ty - y0, tw, th]);
     }
 
+    /// Draws picture `id` of natural size `iw` x `ih` in the content box `[x, y, w, h]`
+    /// as `object-fit` and `object-position` say, cut to the box.
+    fn push_fitted(&mut self, n: NodeId, s: &Style, content: [f32; 4], (id, iw, ih): (u32, f32, f32)) {
+        let [x, y, w, h] = content;
+        let pic = PicRef { id, alpha: s.opacity, tile: None };
+        let contain = (w / iw).min(h / ih);
+        let scale = match s.rare().object_fit {
+            ObjectFit::Fill => return self.push_picture(n, x, y, w, h, pic),
+            ObjectFit::Contain => contain,
+            ObjectFit::Cover => (w / iw).max(h / ih),
+            ObjectFit::None => 1.0,
+            ObjectFit::ScaleDown => contain.min(1.0),
+        };
+        let (tw, th) = (iw * scale, ih * scale);
+        let [px, py] = s.rare().object_pos;
+        let (tx, ty) = (x + rs(px, w - tw), y + rs(py, h - th));
+        let (x0, y0) = (tx.max(x), ty.max(y));
+        let (x1, y1) = ((tx + tw).min(x + w), (ty + th).min(y + h));
+        let tile = Some([tx - x0, ty - y0, tw, th]);
+        self.push_picture(n, x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0), PicRef { tile, ..pic });
+    }
+
     /// Emits already-shaped text at a fixed position and returns its width.
     fn emit_text(&mut self, node: NodeId, text: &str, x: f32, baseline: f32, s: &Style, color: Color) -> f32 {
         let face = face_of(self.fonts, s);
@@ -1101,9 +1124,9 @@ impl<'a> Engine<'a> {
             }
             return h;
         }
-        if let Some((id, _, _)) = self.picture(n) {
+        if let Some((id, iw, ih)) = self.picture(n) {
             if s.visible && s.opacity > 0.0 {
-                self.push_picture(n, cx, cy, cw, h, PicRef { id, alpha: s.opacity, tile: None });
+                self.push_fitted(n, s, [cx, cy, cw, h], (id, iw, ih));
             }
             return h;
         }

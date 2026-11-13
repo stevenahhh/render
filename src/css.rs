@@ -334,6 +334,9 @@ pub enum Decl {
     BgImage(Option<Rc<str>>),
     BgSize(BgSize),
     BgPos(Len, Len),
+    ObjectFit(ObjectFit),
+    /// `object-position`; percentages refer to the free space around the image.
+    ObjectPos(Len, Len),
     /// `background-clip: text`.
     ClipText(bool),
     /// `None` is `inherit`.
@@ -483,6 +486,16 @@ pub enum BgSize {
     Contain,
     /// Width and height; `Auto` keeps the image's aspect ratio.
     Size(Len, Len),
+}
+
+/// `object-fit`: how a replaced element's picture fills its content box.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum ObjectFit {
+    Fill,
+    Contain,
+    Cover,
+    None,
+    ScaleDown,
 }
 
 pub const DECO_UNDERLINE: u8 = 1;
@@ -1425,6 +1438,8 @@ const INITIAL: &[(&str, &str)] = &[
     ("background-color", "transparent"),
     ("background-image", "none"),
     ("clip-path", "none"),
+    ("object-fit", "fill"),
+    ("object-position", "50% 50%"),
     ("vertical-align", "baseline"),
     ("grid", "none"),
     ("grid-template", "none"),
@@ -1755,6 +1770,18 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "background-size" => push(bg_size(v).map(D::BgSize)),
         "background-clip" | "-webkit-background-clip" => push(Some(D::ClipText(SplitTop::new(v, b',').any(|l| l.trim() == "text")))),
         "background-position" => push(bg_position(&tokens(v).collect::<Vec<_>>()).map(|(x, y)| D::BgPos(x, y))),
+        "object-fit" => push(
+            match v {
+                "fill" => Some(ObjectFit::Fill),
+                "contain" => Some(ObjectFit::Contain),
+                "cover" => Some(ObjectFit::Cover),
+                "none" => Some(ObjectFit::None),
+                "scale-down" => Some(ObjectFit::ScaleDown),
+                _ => None,
+            }
+            .map(D::ObjectFit),
+        ),
+        "object-position" => push(bg_position(&tokens(v).collect::<Vec<_>>()).map(|(x, y)| D::ObjectPos(x, y))),
         "color" => {
             // currentcolor in `color` is the parent's color.
             if v == "inherit" || v == "currentcolor" {
