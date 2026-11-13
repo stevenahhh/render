@@ -186,16 +186,29 @@ impl Engine<'_> {
 
     /// Lays out a box in normal flow that establishes a formatting context of its
     /// own, or is replaced: its border box goes beside the floats, as high as its
-    /// width fits.
+    /// width fits. Only the border box keeps clear of the floats (CSS 2.1 9.5); its
+    /// margins hold it off the containing block's edges and may overlap a float.
     pub(super) fn beside_floats(&mut self, n: NodeId, cx: f32, cw: f32, y: f32, ch: f32) -> Res {
         let st = self.st;
         let s = &st[n as usize];
         let sd = sides(s, cw);
         let fixed = spec_w(s, cw, &sd).or_else(|| self.dom.shows_image(n).then(|| self.intrinsic(n) - sd.ml - sd.mr));
-        let need = fixed.map_or(0.0, |w| w + sd.ml + sd.mr);
-        let (top, l, r) = self.fit(y, FIT, need, cx, cw);
-        let w = fixed.unwrap_or_else(|| clamp_w(s, (r - l - sd.ml - sd.mr).max(0.0), cw, &sd));
-        let mut res = self.layout_box(n, l + sd.ml, top, w, cw, ch, NAN, false);
+        let mut from = y;
+        let (top, l, r) = loop {
+            let (top, l, r) = self.fit(from, FIT, fixed.unwrap_or(0.0), cx, cw);
+            // At its margin's place, past the floats on the left, its border box must end
+            // before those on the right; else it goes below the float that is in the way.
+            if fixed.is_none_or(|w| (cx + sd.ml).max(l) + w <= r + FIT) {
+                break (top, l, r);
+            }
+            match self.overlapping(top, FIT).map(|f| f.y + f.h).min_by(f32::total_cmp) {
+                Some(bottom) if bottom > top => from = bottom,
+                _ => break (top, l, r),
+            }
+        };
+        let (start, end) = ((cx + sd.ml).max(l), (cx + cw - sd.mr).min(r));
+        let w = fixed.unwrap_or_else(|| clamp_w(s, (end - start).max(0.0), cw, &sd));
+        let mut res = self.layout_box(n, start, top, w, cw, ch, NAN, false);
         res.h += top - y;
         res
     }

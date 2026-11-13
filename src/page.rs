@@ -1706,6 +1706,16 @@ mod tests {
     }
 
     #[test]
+    fn margins_of_a_formatting_context_may_overlap_the_floats_beside_it() {
+        let css = "body{margin:0} .c{width:100px;display:flow-root} .fl{float:left;width:50px;height:10px} .n{overflow:hidden;height:10px}";
+        let body = "<div class=c><div class=fl></div><div class=n id=n style=margin-right:1px;width:50px></div></div>\
+                    <div class=c><div class=fl></div><div class=n id=o style=margin-left:10px></div></div>\
+                    <div class=c><div style=float:right;width:50px;height:10px></div><div class=n id=p style=width:20px;margin-left:40px></div></div>";
+        let (mut page, _) = after_script(css, body, "$('n').title='x';");
+        assert_eq!(rects(&mut page, &["n", "o", "p"]), [[50.0, 0.0, 50.0, 10.0], [50.0, 10.0, 50.0, 10.0], [40.0, 30.0, 20.0, 10.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";
