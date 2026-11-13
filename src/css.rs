@@ -1911,7 +1911,8 @@ pub fn parse_declarations(body: &str) -> (Vec<Decl>, Vec<Decl>, bool) {
         let Some(colon) = piece.find(':') else { continue };
         let name = piece[..colon].trim();
         let mut val = piece[colon + 1..].trim();
-        if name.is_empty() || val.is_empty() {
+        // A custom property may hold nothing, which `var()` substitutes as such.
+        if name.is_empty() || val.is_empty() && !name.starts_with("--") {
             continue;
         }
         let mut important = false;

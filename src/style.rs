@@ -1384,7 +1384,16 @@ impl<'a> Styler<'a> {
                     let mut own = inherited.as_deref().cloned().unwrap_or_default();
                     each(sheet, matched, inl, |d| {
                         if let Decl::Var(k, v) = d {
-                            own.insert(k.clone(), v.clone());
+                            // `initial` is the guaranteed-invalid value, which makes `var()`
+                            // take its fallback; `inherit` and `unset` take the parent's.
+                            match &*v.trim().to_ascii_lowercase() {
+                                "initial" => drop(own.remove(k)),
+                                "inherit" | "unset" => match inherited.as_deref().and_then(|p| p.get(k)) {
+                                    Some(p) => drop(own.insert(k.clone(), p.clone())),
+                                    None => drop(own.remove(k)),
+                                },
+                                _ => drop(own.insert(k.clone(), v.clone())),
+                            }
                         }
                     });
                     Rc::new(own)
@@ -2276,6 +2285,15 @@ mod tests {
 
     fn widths(styles: &[Style]) -> Vec<Len> {
         styles.iter().map(|s| s.width).collect()
+    }
+
+    #[test]
+    fn initial_and_empty_custom_properties_pick_var_fallbacks_as_light_dark_polyfills_need() {
+        let html = "<style>.l{--light:initial;--dark: ;--k:5px} .d{--light: ;--dark:initial;--k:inherit} p{color:var(--light, #ff0000) var(--dark, #00ff00);width:var(--k)}</style>\
+                    <div class=l><p></p><div class=d><p></p></div></div>";
+        let s = styles_of(html, "p");
+        assert_eq!(s.iter().map(|s| s.color.0 & 0xff_ffff).collect::<Vec<_>>(), [0xff0000, 0x00ff00]);
+        assert_eq!(widths(&s), [Len::Px(5.0), Len::Px(5.0)]);
     }
 
     #[test]
