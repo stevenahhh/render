@@ -21,7 +21,13 @@ pub fn decode_document(bytes: &[u8], content_type: Option<&str>, utf8_by_default
     if let Some(rest) = bytes.strip_prefix(b"\xEF\xBB\xBF") {
         return String::from_utf8_lossy(rest).into_owned();
     }
-    let declared = content_type.and_then(charset_param).and_then(encoding).or_else(|| prescan(&bytes[..bytes.len().min(1024)]));
+    // A `<meta>` past the first 1024 bytes still counts: the parser meets it in the
+    // head and starts again in its encoding ("changing the encoding while parsing").
+    let declared = content_type
+        .and_then(charset_param)
+        .and_then(encoding)
+        .or_else(|| prescan(&bytes[..bytes.len().min(1024)]))
+        .or_else(|| prescan(&bytes[..body_start(bytes)]));
     let fallback = if utf8_by_default { Encoding::Utf8 } else { Encoding::Windows1252 };
     match declared.unwrap_or(fallback) {
         Encoding::Utf8 => String::from_utf8_lossy(bytes).into_owned(),
@@ -70,6 +76,11 @@ fn prescan(head: &[u8]) -> Option<Encoding> {
         rest = &rest[at + 5..];
     }
     None
+}
+
+/// Where the `<body` start tag begins, or the end of the document.
+fn body_start(bytes: &[u8]) -> usize {
+    bytes.windows(5).position(|w| w.eq_ignore_ascii_case(b"<body")).unwrap_or(bytes.len())
 }
 
 /// Decodes a single-byte encoding: bytes below 0x80 are ASCII, the others
@@ -126,5 +137,9 @@ mod tests {
         assert_eq!(decode_document(http_wins, Some("text/html;charset=ISO-8859-1"), false).chars().last(), Some('é'));
         assert_eq!(decode_document(b"\xEF\xBB\xBF<p>\xc3\xa9</p>", Some("text/html; charset=windows-1251"), false), "<p>é</p>", "a BOM wins");
         assert_eq!(decode_document(b"<meta charset='shift_jis'>x", None, true), "<meta charset='shift_jis'>x");
+        let late = format!("<head><script>{}</script><meta charset=utf-8></head><body>\u{e9}", " ".repeat(2000));
+        assert_eq!(decode_document(late.as_bytes(), Some("text/html"), false), late, "a meta later in the head still sets the encoding");
+        let in_body = format!("<body><p>\u{e9}</p>{}<meta charset=utf-8>", " ".repeat(2000));
+        assert!(decode_document(in_body.as_bytes(), Some("text/html"), false).starts_with("<body><p>\u{c3}"), "the search stops at the body");
     }
 }
