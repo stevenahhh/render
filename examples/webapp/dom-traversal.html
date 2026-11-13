@@ -94,6 +94,11 @@ check('attributes-named', function(){
   mark('DOM attributes by name value:'+had+' length:'+a.length+' gone:'+el.attributes.onfocusin+' enumerable:'+(Object.keys(el.attributes).indexOf('length')>=0));
 });
 </script>
+<script id="cs-micro">
+check('currentScript-microtask', function(){
+  Promise.resolve().then(function(){ mark('DOM currentScript in microtask id:'+(document.currentScript&&document.currentScript.id)); });
+});
+</script>
 <script id="cs">
 check('currentScript', function(){
   var now=document.currentScript;

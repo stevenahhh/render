@@ -1396,7 +1396,8 @@ impl Js {
     }
 
     /// Runs one of the page's classic scripts as `document.currentScript`;
-    /// `url` is where errors in it are reported.
+    /// `url` is where errors in it are reported. As in HTML, the microtask
+    /// checkpoint after the script runs while it is still the current script.
     pub fn run_script(&mut self, node: NodeId, code: &str, name: &str, url: &str) {
         self.call("begin", &[js_id(node)]);
         if let Err(e) = self.ctx.eval(Source::from_bytes(code).with_path(Path::new(url))) {
@@ -1404,8 +1405,8 @@ impl Js {
                 eprintln!("[js] {name}: {e}");
             }
         }
-        call_entry(&mut self.ctx, "end", &[]).ok();
         self.run_jobs(name);
+        call_entry(&mut self.ctx, "end", &[]).ok();
     }
 
     /// Runs a `<script type="module">`: its code from the page or from `href`.

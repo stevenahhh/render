@@ -67,6 +67,7 @@ dom-traversal.html	DOM getElementById created:true innerHTML:true removed:null
 dom-traversal.html	DOM classList result:a c d contains:true toggle:true false length:3
 dom-traversal.html	DOM attributes length:2 named:v1 first:id item:data-k
 dom-traversal.html	DOM attributes by name value:t length:1 gone:undefined enumerable:false
+dom-traversal.html	DOM currentScript in microtask id:cs-micro
 dom-traversal.html	DOM currentScript id:cs later:null
 dom-traversal.html	DOM dynamic script inline sync:true rerun:no
 dom-traversal.html	DOM dynamic script src:loaded onload:true current:dyn-script.js
