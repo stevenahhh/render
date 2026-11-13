@@ -605,6 +605,11 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
             *st = Style::inherit(parent);
             (st.vars, st.font_size) = (vars, font_size);
         }
+        Decl::Inherit(ref name) => {
+            copy_prop(st, parent, name);
+        }
+        // Applied by `cascade`, which knows the built-in style.
+        Decl::Revert(_) | Decl::AllRevert => {}
         Decl::Opacity(v) => st.own_opacity = v,
         Decl::Pointer(v) => st.pointer = v,
         Decl::Fill(c) => st.fill = c.unwrap_or(st.color),
@@ -635,6 +640,159 @@ fn apply(st: &mut Style, parent: &Style, d: &Decl, c: &Ctx) {
         Decl::JustifyItems(v) => st.justify_items = v,
         Decl::JustifySelf(v) => st.justify_self = v,
         Decl::FontSize(_) | Decl::Var(..) | Decl::Deferred(..) => {}
+    }
+}
+
+/// Whether `inherit` and `revert` of property `name` can be applied: whether
+/// `copy_prop` knows it.
+pub fn copies(name: &str) -> bool {
+    copy_prop(&mut Style::initial(), &Style::initial(), name)
+}
+
+/// Whether property `name` is inherited, so that `unset` means `inherit`.
+pub fn inherited(name: &str) -> bool {
+    matches!(
+        name,
+        "color" | "font" | "font-size" | "font-weight" | "font-style" | "font-family" | "line-height" | "text-align"
+            | "white-space" | "text-transform" | "letter-spacing" | "list-style" | "list-style-type" | "visibility"
+            | "cursor" | "fill"
+    )
+}
+
+/// Copies the computed value of property `name`, a longhand or a shorthand,
+/// from `src`: the parent's style for `inherit`, the built-in one for `revert`.
+/// False for a property the style does not keep.
+fn copy_prop(st: &mut Style, src: &Style, name: &str) -> bool {
+    let side = |s: &str| ["top", "right", "bottom", "left"].iter().position(|t| *t == s);
+    let sr = src.rare();
+    match name {
+        "display" => (st.display, st.flow_root, st.webkit_box) = (src.display, src.flow_root, src.webkit_box),
+        "position" => st.position = src.position,
+        "float" => st.float = src.float,
+        "clear" => st.clear = src.clear,
+        "width" => st.width = src.width,
+        "height" => st.height = src.height,
+        "min-width" => put_rare(st, |r| &mut r.min_w, sr.min_w),
+        "max-width" => put_rare(st, |r| &mut r.max_w, sr.max_w),
+        "min-height" => put_rare(st, |r| &mut r.min_h, sr.min_h),
+        "max-height" => put_rare(st, |r| &mut r.max_h, sr.max_h),
+        "margin" => st.margin = src.margin,
+        "padding" => st.padding = src.padding,
+        "inset" => put_rare(st, |r| &mut r.inset, sr.inset),
+        "box-sizing" => st.border_box = src.border_box,
+        "border-radius" => st.radius = src.radius,
+        "border" | "border-width" | "border-style" | "border-color" => {
+            (st.bw, st.bc, st.bc_set, st.bs) = (src.bw, src.bc, src.bc_set, src.bs);
+        }
+        "background" => {
+            st.bg = src.bg;
+            put_rare(st, |r| &mut r.grad, sr.grad.clone());
+            put_rare(st, |r| &mut r.bg_image, sr.bg_image.clone());
+            put_rare(st, |r| &mut r.bg_size, sr.bg_size);
+            put_rare(st, |r| &mut r.bg_pos, sr.bg_pos);
+        }
+        "background-color" => st.bg = src.bg,
+        "background-image" => {
+            put_rare(st, |r| &mut r.grad, sr.grad.clone());
+            put_rare(st, |r| &mut r.bg_image, sr.bg_image.clone());
+        }
+        "box-shadow" => put_rare(st, |r| &mut r.shadow, sr.shadow.clone()),
+        "color" => st.color = src.color,
+        "font" => {
+            (st.font_size, st.weight, st.italic, st.family) = (src.font_size, src.weight, src.italic, src.family);
+            (st.families, st.line_height) = (src.families.clone(), src.line_height);
+        }
+        "font-size" => st.font_size = src.font_size,
+        "font-weight" => st.weight = src.weight,
+        "font-style" => st.italic = src.italic,
+        "font-family" => (st.family, st.families) = (src.family, src.families.clone()),
+        "line-height" => st.line_height = src.line_height,
+        "text-align" => st.text_align = src.text_align,
+        "white-space" => st.white_space = src.white_space,
+        "text-transform" => st.transform = src.transform,
+        "letter-spacing" => st.spacing = src.spacing,
+        "list-style" | "list-style-type" => st.list_style = src.list_style,
+        "visibility" => st.visible = src.visible,
+        "cursor" => st.pointer = src.pointer,
+        "text-decoration" | "text-decoration-line" => st.deco = src.deco,
+        "fill" => st.fill = src.fill,
+        "opacity" => st.own_opacity = src.own_opacity,
+        "z-index" => (st.z, st.z_set) = (src.z, src.z_set),
+        "overflow" | "overflow-x" | "overflow-y" => st.overflow_hidden = src.overflow_hidden,
+        "flex" => (st.grow, st.shrink, st.basis) = (src.grow, src.shrink, src.basis),
+        "flex-grow" => st.grow = src.grow,
+        "flex-shrink" => st.shrink = src.shrink,
+        "flex-basis" => st.basis = src.basis,
+        "flex-flow" => (st.flex_col, st.flex_wrap) = (src.flex_col, src.flex_wrap),
+        "flex-direction" => st.flex_col = src.flex_col,
+        "flex-wrap" => st.flex_wrap = src.flex_wrap,
+        "justify-content" => st.justify = src.justify,
+        "align-items" => st.align_items = src.align_items,
+        "align-self" => st.align_self = src.align_self,
+        "justify-items" => st.justify_items = src.justify_items,
+        "justify-self" => st.justify_self = src.justify_self,
+        "gap" => (st.gap_row, st.gap_col) = (src.gap_row, src.gap_col),
+        "row-gap" => st.gap_row = src.gap_row,
+        "column-gap" => st.gap_col = src.gap_col,
+        "order" => put_rare(st, |r| &mut r.order, sr.order),
+        n => {
+            let (prop, rest) = n.split_once('-').unwrap_or((n, ""));
+            let (s, tail) = rest.split_once('-').unwrap_or((rest, ""));
+            match (prop, side(if prop == "border" { s } else { rest }), tail) {
+                ("margin", Some(i), _) => st.margin[i] = src.margin[i],
+                ("padding", Some(i), _) => st.padding[i] = src.padding[i],
+                ("top" | "right" | "bottom" | "left", _, _) => {
+                    let i = side(n).unwrap_or(0);
+                    put_rare(st, |r| &mut r.inset[i], sr.inset[i]);
+                }
+                ("border", Some(i), "" | "width" | "style" | "color") => {
+                    let bit = 1 << i;
+                    if matches!(tail, "" | "width") {
+                        st.bw[i] = src.bw[i];
+                    }
+                    if matches!(tail, "" | "style") {
+                        st.bs = st.bs & !bit | src.bs & bit;
+                    }
+                    if matches!(tail, "" | "color") {
+                        st.bc[i] = src.bc[i];
+                        st.bc_set = st.bc_set & !bit | src.bc_set & bit;
+                    }
+                }
+                _ => return false,
+            }
+        }
+    }
+    true
+}
+
+/// The style the built-in style sheet alone gives an element, whose parent's
+/// style is `parent`: what `revert` goes back to.
+fn ua_style(sheet: &Sheet, matched: &[(u64, u32)], parent: &Style, c: &Ctx) -> Style {
+    let mut st = Style::inherit(parent);
+    let ua = || matched.iter().filter(|&&(key, _)| key >> 60 == 0).map(|&(_, r)| &sheet.rules[r as usize]);
+    let decls = || ua().flat_map(|r| r.decls.iter()).chain(ua().flat_map(|r| r.important.iter()));
+    for d in decls() {
+        if let Decl::FontSize(fs) = d {
+            apply_font_size(&mut st, parent, *fs, c);
+        }
+    }
+    for d in decls() {
+        apply(&mut st, parent, d, c);
+    }
+    st
+}
+
+/// Applies `revert` or `all: revert` from `ua`, the element's built-in style.
+fn revert(st: &mut Style, d: &Decl, ua: &Style) {
+    match d {
+        Decl::Revert(name) => {
+            copy_prop(st, ua, name);
+        }
+        _ => {
+            let vars = st.vars.take();
+            *st = ua.clone();
+            st.vars = vars;
+        }
     }
 }
 
@@ -1146,6 +1304,16 @@ impl<'a> Styler<'a> {
     fn cascade(&mut self, st: &mut Style, parent: &Style, matched: &[(u64, u32)], inl: &Inline) {
         let Styler { sheet, expanded, deferred, own_vars, var_decls, ctx, .. } = self;
         let (sheet, ctx) = (*sheet, &*ctx);
+        // The element's built-in style, made for the first `revert`.
+        let mut ua: Option<Style> = None;
+        let font_pass = |st: &mut Style, d: &Decl, ua: &mut Option<Style>| match d {
+            Decl::FontSize(fs) => apply_font_size(st, parent, *fs, ctx),
+            Decl::AllUnset => st.font_size = parent.font_size,
+            Decl::Inherit(n) if matches!(&**n, "font" | "font-size") => st.font_size = parent.font_size,
+            Decl::Revert(n) if !matches!(&**n, "font" | "font-size") => {}
+            Decl::Revert(_) | Decl::AllRevert => st.font_size = ua.get_or_insert_with(|| ua_style(sheet, matched, parent, ctx)).font_size,
+            _ => {}
+        };
         if inl.2 || matched.iter().any(|&(_, r)| sheet.rules[r as usize].dynamic) {
             var_decls.clear();
             let mut inline_var = false;
@@ -1211,22 +1379,20 @@ impl<'a> Styler<'a> {
                 d => expanded.push(d.clone()),
             });
             for d in expanded.iter() {
-                match d {
-                    Decl::FontSize(fs) => apply_font_size(st, parent, *fs, ctx),
-                    Decl::AllUnset => st.font_size = parent.font_size,
-                    _ => {}
-                }
+                font_pass(st, d, &mut ua);
             }
             for d in expanded.iter() {
-                apply(st, parent, d, ctx);
+                match d {
+                    Decl::Revert(_) | Decl::AllRevert => revert(st, d, ua.get_or_insert_with(|| ua_style(sheet, matched, parent, ctx))),
+                    d => apply(st, parent, d, ctx),
+                }
             }
         } else {
+            each(sheet, matched, inl, |d| font_pass(st, d, &mut ua));
             each(sheet, matched, inl, |d| match d {
-                Decl::FontSize(fs) => apply_font_size(st, parent, *fs, ctx),
-                Decl::AllUnset => st.font_size = parent.font_size,
-                _ => {}
+                Decl::Revert(_) | Decl::AllRevert => revert(st, d, ua.get_or_insert_with(|| ua_style(sheet, matched, parent, ctx))),
+                d => apply(st, parent, d, ctx),
             });
-            each(sheet, matched, inl, |d| apply(st, parent, d, ctx));
         }
     }
 
@@ -2142,6 +2308,20 @@ mod tests {
         assert_eq!(s.iter().map(|s| s.font_size).collect::<Vec<_>>(), [20.0, 20.0, 40.0]);
         assert_eq!(s.iter().map(|s| s.display).collect::<Vec<_>>(), [Display::Inline, Display::Inline, Display::Block]);
         assert_eq!(s.iter().map(|s| s.color.0 & 0xff_ffff).collect::<Vec<_>>(), [0x00ff00, 0xff0000, 0x00ff00]);
+    }
+
+    #[test]
+    fn revert_takes_the_built_in_value_and_inherit_and_unset_the_parents() {
+        let html = "<style>.r{all:unset;display:revert} p{margin:9px} p.m{margin:revert} h2{font-size:30px} h2.k{font-size:revert}\
+                    .i{display:inherit} .w{font-weight:unset}</style>\
+                    <div style=\"font-weight:300\"><h1 class=r></h1><script class=r></script><p class=m></p><h2 class=k></h2><span class=i></span><b class=w></b></div>";
+        let h1 = &styles_of(html, "h1")[0];
+        assert_eq!((h1.display, h1.font_size, h1.weight), (Display::Block, 16.0, 300));
+        assert_eq!(styles_of(html, "script")[0].display, Display::None);
+        assert_eq!(styles_of(html, "p")[0].margin, [Len::Px(16.0), Len::Px(0.0), Len::Px(16.0), Len::Px(0.0)]);
+        assert_eq!(styles_of(html, "h2")[0].font_size, 24.0);
+        assert_eq!(styles_of(html, "span")[0].display, Display::Block);
+        assert_eq!(styles_of(html, "b")[0].weight, 300);
     }
 
     #[test]

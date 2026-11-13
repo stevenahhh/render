@@ -342,6 +342,15 @@ pub enum Decl {
     /// `all: unset`: every property but the custom ones takes its inherited or
     /// initial value again, as if no earlier declaration had set it.
     AllUnset,
+    /// `all: revert`: every property but the custom ones takes the value the
+    /// built-in style sheet gives it.
+    AllRevert,
+    /// `inherit` (and `unset` of an inherited property): the property, by name,
+    /// takes its parent's value.
+    Inherit(Box<str>),
+    /// `revert` and `revert-layer`: the property, by name, takes the value the
+    /// built-in style sheet gives it.
+    Revert(Box<str>),
     Opacity(f32),
     Pointer(bool),
     Translate(Len, Len),
@@ -1374,9 +1383,20 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "border-block-end" => "border-bottom",
         n => n,
     };
-    // A CSS-wide keyword resets a property that is not inherited to its initial value.
+    // CSS-wide keywords: `inherit` and `revert` copy the property from the parent or
+    // from the built-in style; `unset` inherits an inherited property; `initial`, and
+    // `unset` otherwise, reset a property to its initial value.
+    if matches!(v, "inherit" | "unset" | "revert" | "revert-layer") && crate::style::copies(name) {
+        let inherited = crate::style::inherited(name);
+        match v {
+            "inherit" => return out.push(D::Inherit(name.into())),
+            "unset" if inherited => return out.push(D::Inherit(name.into())),
+            "revert" | "revert-layer" => return out.push(D::Revert(name.into())),
+            _ => {}
+        }
+    }
     if matches!(v, "initial" | "unset" | "revert" | "revert-layer") {
-        if v.starts_with("revert") {
+        if v.starts_with("revert") && name != "all" {
             drops::note("keyword-as-initial", v);
         }
         if let Some(&(_, initial)) = INITIAL.iter().find(|(n, _)| *n == name) {
@@ -1712,7 +1732,11 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
         "overflow" | "overflow-x" | "overflow-y" => {
             push(Some(D::Overflow(tokens(v).any(|t| t != "visible"))))
         }
-        "all" => push((v == "unset").then_some(D::AllUnset)),
+        "all" => push(match v {
+            "unset" => Some(D::AllUnset),
+            "revert" | "revert-layer" => Some(D::AllRevert),
+            _ => None,
+        }),
         "visibility" => push(match v {
             "visible" | "initial" => Some(D::Visible(Some(true))),
             "hidden" | "collapse" => Some(D::Visible(Some(false))),
