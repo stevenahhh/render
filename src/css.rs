@@ -756,15 +756,17 @@ pub fn parse_len(s: &str) -> Option<Len> {
     })
 }
 
-/// The viewport unit a dynamic, small, large or container-relative unit
-/// measures here: the window does not resize its viewport as a phone's toolbars
-/// do, and a container query unit outside any container measures the viewport.
+/// The viewport unit a dynamic, small or large unit measures here: the window
+/// does not resize its viewport as a phone's toolbars do. Container query units
+/// (`cqw`, ...) are left unknown, so their declaration is dropped: they measure
+/// the nearest query container, which is not sized here, and the viewport is
+/// far wider than the cards and carousels that use them.
 pub fn viewport_unit(unit: &str) -> &str {
     match unit {
-        "dvw" | "svw" | "lvw" | "cqw" | "cqi" => "vw",
-        "dvh" | "svh" | "lvh" | "cqh" | "cqb" => "vh",
-        "dvmin" | "svmin" | "lvmin" | "cqmin" => "vmin",
-        "dvmax" | "svmax" | "lvmax" | "cqmax" => "vmax",
+        "dvw" | "svw" | "lvw" => "vw",
+        "dvh" | "svh" | "lvh" => "vh",
+        "dvmin" | "svmin" | "lvmin" => "vmin",
+        "dvmax" | "svmax" | "lvmax" => "vmax",
         u => u,
     }
 }

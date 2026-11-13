@@ -2553,11 +2553,11 @@ mod tests {
     }
 
     #[test]
-    fn dynamic_small_large_and_container_units_measure_the_viewport() {
-        let html = "<style>.a{height:50dvh;width:10cqw} .b{min-height:calc(100svh - 100px)} .c{height:2lh;max-width:50lvh}</style>\
+    fn dynamic_small_and_large_units_measure_the_viewport_and_container_units_are_dropped() {
+        let html = "<style>.a{height:50dvh;width:80px;width:10cqw} .b{min-height:calc(100svh - 100px)} .c{height:2lh;max-width:50lvh}</style>\
                     <p class=a></p><p class=b></p><p class=c></p>";
         let s = styles_of(html, "p");
-        assert_eq!((s[0].height, s[0].width), (Len::Px(300.0), Len::Px(80.0)));
+        assert_eq!((s[0].height, s[0].width), (Len::Px(300.0), Len::Px(80.0)), "10cqw is dropped, 80px stays");
         assert_eq!(s[1].rare().min_h, Len::Px(500.0));
         assert_eq!(s[2].height, Len::Px(38.4));
         assert_eq!(s[2].rare().max_w, Len::Px(300.0));
