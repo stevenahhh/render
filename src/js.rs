@@ -687,7 +687,7 @@ fn url_parts(input: &str, base: Option<&str>) -> Option<[String; 11]> {
 
 const BASE64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-fn base64_encode(bytes: &[u8]) -> String {
+pub(crate) fn base64_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for c in bytes.chunks(3) {
         let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
@@ -699,7 +699,7 @@ fn base64_encode(bytes: &[u8]) -> String {
 }
 
 /// Decodes base64 as `atob` does: whitespace is skipped and padding is optional.
-fn base64_decode(s: &str) -> Option<Vec<u8>> {
+pub(crate) fn base64_decode(s: &str) -> Option<Vec<u8>> {
     let mut digits: Vec<u8> = s.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
     if digits.len() % 4 == 0 {
         while digits.last() == Some(&b'=') {

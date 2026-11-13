@@ -64,6 +64,21 @@ type Wake = Arc<dyn Fn() + Send + Sync>;
 /// Most worker threads decoding at once; further images wait for the next frame.
 const MAX_DECODERS: usize = 8;
 
+/// The markup of an SVG `data:` URL, given without `data:`: percent-encoded or base64.
+fn data_svg(data: &str) -> Option<String> {
+    let (head, body) = data.split_once(',')?;
+    let mut parts = head.split(';');
+    if !parts.next()?.trim().eq_ignore_ascii_case("image/svg+xml") {
+        return None;
+    }
+    let text = crate::url::percent_decode(body);
+    if parts.any(|p| p.trim().eq_ignore_ascii_case("base64")) {
+        String::from_utf8(crate::js::base64_decode(&text)?).ok()
+    } else {
+        Some(text)
+    }
+}
+
 fn parse_svg(markup: &str) -> Option<usvg::Tree> {
     usvg::Tree::from_str(markup, &usvg::Options::default()).ok()
 }
@@ -109,6 +124,13 @@ impl Images {
     pub fn file(&mut self, src: &str) -> Option<u32> {
         if let Some(&id) = self.by_key.get(src) {
             return id;
+        }
+        if let Some(data) = src.strip_prefix("data:") {
+            let source = data_svg(data).and_then(|m| parse_svg(&m)).map(|tree| {
+                let size = tree.size();
+                (Source::Svg(tree), size.width(), size.height())
+            });
+            return self.add(src, source);
         }
         // Not remembered while downloading: the next lookup after it arrives finds it.
         let path = self.locate(src)?;
@@ -506,6 +528,20 @@ fn rasterize(tree: &usvg::Tree, w: u32, h: u32) -> Option<Picture> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn svg_data_urls_load_percent_encoded_or_in_base64() {
+        let mut images = Images::new(None);
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 2'><rect width='4' height='2' fill='#f00'/></svg>";
+        let percent = format!("data:image/svg+xml,{}", svg.replace('<', "%3C").replace('>', "%3E").replace('#', "%23"));
+        let base64 = format!("data:image/svg+xml;base64,{}", crate::js::base64_encode(svg.as_bytes()));
+        for url in [percent, base64] {
+            let id = images.file(&url).unwrap_or_else(|| panic!("{url}"));
+            assert_eq!(images.size(id), (4.0, 2.0));
+            assert_eq!(images.get(id, 4, 2, [0, 0, 4, 2]).map(|(p, _, _)| p.px[0]), Some(0xFFFF_0000));
+        }
+        assert_eq!(images.file("data:image/png;base64,AAAA"), None);
+    }
 
     #[test]
     fn webp_and_the_first_frame_of_a_gif_are_decoded() {
