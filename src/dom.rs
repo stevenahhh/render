@@ -7,6 +7,8 @@
 use crate::FxMap;
 use memchr::{memchr, memmem};
 
+mod entities;
+
 pub type Atom = u32;
 pub type NodeId = u32;
 pub const NONE: u32 = u32::MAX;
@@ -949,7 +951,7 @@ impl<'a> Parser<'a> {
             self.ensure_body_open();
         }
         let start = self.dom.text.len() as u32;
-        push_decoded(&mut self.dom.text, t);
+        push_decoded(&mut self.dom.text, t, false);
         let n = self.dom.new_node(atom::TEXT);
         self.dom.nodes[n as usize].text = (start, self.dom.text.len() as u32 - start);
         let foster = !ws && is_table_box(self.current());
@@ -1027,7 +1029,7 @@ impl<'a> Parser<'a> {
                 }
             }
             let start = self.dom.text.len();
-            push_decoded(&mut self.dom.text, val);
+            push_decoded(&mut self.dom.text, val, true);
             let vl = (self.dom.text.len() - start) as u32;
             self.dom.attrs.push(Attr { name, value: (start as u32, vl) });
             if name == atom::ID {
@@ -1118,7 +1120,7 @@ impl<'a> Parser<'a> {
                 if raw {
                     self.dom.text.push_str(&src[self.pos..end]);
                 } else {
-                    push_decoded(&mut self.dom.text, &src[self.pos..end]);
+                    push_decoded(&mut self.dom.text, &src[self.pos..end], false);
                 }
                 let t = self.dom.new_node(atom::TEXT);
                 self.dom.nodes[t as usize].text = (start, self.dom.text.len() as u32 - start);
@@ -1243,76 +1245,85 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// Appends `s` to `out`, decoding character references.
-pub fn push_decoded(out: &mut String, s: &str) {
+/// Appends `s` to `out`, decoding character references as the HTML tokenizer
+/// does. In an attribute value (`attr`) a legacy reference written without its
+/// `;` stays as written when a letter, digit or `=` follows it.
+pub fn push_decoded(out: &mut String, s: &str, attr: bool) {
     let b = s.as_bytes();
     let mut i = 0;
     while let Some(off) = memchr(b'&', &b[i..]) {
         let amp = i + off;
         out.push_str(&s[i..amp]);
-        let end = (amp + 12).min(b.len());
-        let mut done = false;
-        if let Some(semi) = b[amp + 1..end].iter().position(|&c| c == b';') {
-            if let Some(c) = entity(&b[amp + 1..amp + 1 + semi]) {
+        i = match reference(&b[amp + 1..], attr) {
+            Some((len, Ref::Char(c))) => {
                 out.push(c);
-                i = amp + semi + 2;
-                done = true;
+                amp + 1 + len
             }
-        }
-        if !done {
-            out.push('&');
-            i = amp + 1;
-        }
+            Some((len, Ref::Str(v))) => {
+                out.push_str(v);
+                amp + 1 + len
+            }
+            None => {
+                out.push('&');
+                amp + 1
+            }
+        };
     }
     out.push_str(&s[i..]);
 }
 
-fn entity(name: &[u8]) -> Option<char> {
-    if let Some(num) = name.strip_prefix(b"#") {
-        let s = std::str::from_utf8(num).ok()?;
-        let code = match s.strip_prefix(['x', 'X']) {
-            Some(h) => u32::from_str_radix(h, 16).ok()?,
-            None => s.parse().ok()?,
-        };
-        return char::from_u32(code);
+enum Ref {
+    Char(char),
+    Str(&'static str),
+}
+
+/// The reference at the start of `b`, just after its `&`: its length and what it stands for.
+fn reference(b: &[u8], attr: bool) -> Option<(usize, Ref)> {
+    if let Some(num) = b.strip_prefix(b"#") {
+        let hex = matches!(num.first(), Some(b'x' | b'X'));
+        let digits = &num[hex as usize..];
+        let n = digits.iter().take_while(|c| if hex { c.is_ascii_hexdigit() } else { c.is_ascii_digit() }).count();
+        if n == 0 {
+            return None;
+        }
+        let code = digits[..n].iter().fold(0u32, |v, &c| v.saturating_mul(if hex { 16 } else { 10 }).saturating_add((c as char).to_digit(16).unwrap_or(0)));
+        let semi = digits.get(n) == Some(&b';');
+        return Some((1 + hex as usize + n + semi as usize, Ref::Char(numeric(code))));
     }
-    Some(match name {
-        b"amp" => '&',
-        b"lt" => '<',
-        b"gt" => '>',
-        b"quot" => '"',
-        b"apos" => '\'',
-        b"nbsp" => '\u{a0}',
-        b"copy" => '\u{a9}',
-        b"reg" => '\u{ae}',
-        b"trade" => '\u{2122}',
-        b"hellip" => '\u{2026}',
-        b"mdash" => '\u{2014}',
-        b"ndash" => '\u{2013}',
-        b"lsquo" => '\u{2018}',
-        b"rsquo" => '\u{2019}',
-        b"ldquo" => '\u{201c}',
-        b"rdquo" => '\u{201d}',
-        b"laquo" => '\u{ab}',
-        b"raquo" => '\u{bb}',
-        b"middot" => '\u{b7}',
-        b"bull" => '\u{2022}',
-        b"times" => '\u{d7}',
-        b"divide" => '\u{f7}',
-        b"deg" => '\u{b0}',
-        b"larr" => '\u{2190}',
-        b"uarr" => '\u{2191}',
-        b"rarr" => '\u{2192}',
-        b"darr" => '\u{2193}',
-        b"check" => '\u{2713}',
-        b"euro" => '\u{20ac}',
-        b"pound" => '\u{a3}',
-        b"yen" => '\u{a5}',
-        b"cent" => '\u{a2}',
-        b"sect" => '\u{a7}',
-        b"para" => '\u{b6}',
-        _ => return None,
+    let run = b.iter().take(32).take_while(|c| c.is_ascii_alphanumeric()).count();
+    if run == 0 {
+        return None;
+    }
+    let find = |name: &[u8]| entities::ENTITIES.binary_search_by(|(k, _)| k.as_bytes().cmp(name)).ok().map(|i| entities::ENTITIES[i].1);
+    if b.get(run) == Some(&b';') {
+        if let Some(v) = find(&b[..=run]) {
+            return Some((run + 1, Ref::Str(v)));
+        }
+    }
+    // The longest legacy name the run starts with, which needs no `;`.
+    (2..=run.min(6)).rev().find_map(|len| {
+        let v = find(&b[..len])?;
+        let next = b.get(len).copied().unwrap_or(0);
+        if attr && (next.is_ascii_alphanumeric() || next == b'=') {
+            return None;
+        }
+        Some((len, Ref::Str(v)))
     })
+}
+
+/// The character a numeric reference stands for: code points that cannot be
+/// characters become U+FFFD, and C1 controls the Windows-1252 characters
+/// pages meant by them.
+fn numeric(code: u32) -> char {
+    const C1: [u16; 32] = [
+        0x20AC, 0x81, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x8D, 0x017D, 0x8F,
+        0x90, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x9D, 0x017E, 0x0178,
+    ];
+    match code {
+        0 => '\u{fffd}',
+        0x80..=0x9F => char::from_u32(C1[(code - 0x80) as usize] as u32).unwrap_or('\u{fffd}'),
+        c => char::from_u32(c).unwrap_or('\u{fffd}'),
+    }
 }
 
 #[cfg(test)]
@@ -1337,6 +1348,15 @@ mod tests {
         dom.serialize(div, false, &mut html);
         assert_eq!(html, "<!--hi-->a<!---->b");
         assert!(!dom.is_comment(dom.nodes[0].first_child), "a comment before <html> is left out");
+    }
+
+    #[test]
+    fn character_references_decode_as_the_tokenizer_does() {
+        let dom = parse_html("<body><p>a&rsaquo;b&emsp;&amp c&notit; &#150;&#x1F600;&#0;&#39 &lrm;&NotEqualTilde;&nosuch;</p><a href='?a=1&copy=2&amp;b&copy'>x</a></body>");
+        let mut text = String::new();
+        dom.text_content(first(&dom, atom::P), &mut text);
+        assert_eq!(text, "a\u{203a}b\u{2003}& c\u{ac}it; \u{2013}\u{1f600}\u{fffd}' \u{200e}\u{2242}\u{338}&nosuch;");
+        assert_eq!(dom.attr(first(&dom, atom::A), atom::HREF), Some("?a=1&copy=2&b\u{a9}"));
     }
 
     #[test]
