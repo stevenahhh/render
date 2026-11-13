@@ -1728,6 +1728,16 @@ mod tests {
     }
 
     #[test]
+    fn intrinsic_width_keywords_size_blocks_by_their_content() {
+        let css = "body{margin:0} b{display:block;height:5px}";
+        let body = "<div id=a style=width:max-content><b style=width:40px></b></div>\
+                    <div id=c style='width:fit-content;margin:0 auto'><b style=width:30px></b></div>\
+                    <div id=d style=width:min-content><b style=width:20px></b><b style=width:25px></b></div>";
+        let (mut page, _) = after_script(css, body, "$('a').title='x';");
+        assert_eq!(rects(&mut page, &["a", "c", "d"]), [[0.0, 0.0, 40.0, 5.0], [497.0, 5.0, 30.0, 5.0], [0.0, 10.0, 25.0, 10.0]]);
+    }
+
+    #[test]
     fn floats_shorten_lines_and_formatting_contexts_keep_clear_of_them() {
         let css = "body{margin:0;font:0/0 sans-serif} .c{width:400px} .fl{float:left;width:100px;height:50px} .fr{float:right;width:120px;height:40px}\
                    .m{display:inline-block;width:10px;height:10px}";

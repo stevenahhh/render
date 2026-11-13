@@ -162,6 +162,15 @@ pub enum LineHeight {
     Len(Len),
 }
 
+/// A `width` given as an intrinsic size keyword, which `Len` cannot hold.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum WidthKeyword {
+    None,
+    MinContent,
+    MaxContent,
+    FitContent,
+}
+
 /// `vertical-align`: where an inline-level box sits on its line.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum VAlign {
@@ -301,6 +310,8 @@ pub enum Decl {
     Display(Display),
     Position(Position),
     Width(Len),
+    /// Sent with every `width`: the intrinsic size keyword it names, if any.
+    WidthKeyword(WidthKeyword),
     Height(Len),
     MinWidth(Len),
     MaxWidth(Len),
@@ -1580,7 +1591,17 @@ pub fn parse_decl(name: &str, value: &str, out: &mut Vec<Decl>) {
             "fixed" => Position::Fixed,
             _ => Position::Static,
         }))),
-        "width" => push(size(v).map(D::Width)),
+        "width" => {
+            if let Some(l) = size(v) {
+                out.push(D::Width(l));
+                out.push(D::WidthKeyword(match v {
+                    "min-content" => WidthKeyword::MinContent,
+                    "max-content" => WidthKeyword::MaxContent,
+                    "fit-content" => WidthKeyword::FitContent,
+                    _ => WidthKeyword::None,
+                }));
+            }
+        }
         "height" => push(size(v).map(D::Height)),
         "min-width" => push(size(v).map(D::MinWidth)),
         "max-width" => push(size(v).map(D::MaxWidth)),

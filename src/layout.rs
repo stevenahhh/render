@@ -841,7 +841,20 @@ impl<'a> Engine<'a> {
             Some(w) => (w, true),
             None => {
                 let fill = (cw - sd.ml - sd.mr).max(0.0);
-                let w = if self.dom.shows_image(n) { (self.intrinsic(n) - sd.ml - sd.mr).min(fill) } else { fill };
+                let w = if self.dom.shows_image(n) {
+                    (self.intrinsic(n) - sd.ml - sd.mr).min(fill)
+                } else {
+                    // An intrinsic size keyword sizes the box by its content (CSS Sizing 3).
+                    match s.rare().width_kw {
+                        WidthKeyword::None => fill,
+                        WidthKeyword::MinContent => self.min_content(n) - sd.ml - sd.mr,
+                        WidthKeyword::MaxContent => self.intrinsic(n) - sd.ml - sd.mr,
+                        WidthKeyword::FitContent => {
+                            let least = self.min_content(n) - sd.ml - sd.mr;
+                            (self.intrinsic(n) - sd.ml - sd.mr).min(fill).max(least)
+                        }
+                    }
+                };
                 let c = clamp_w(s, w, cw, &sd);
                 (c, c != fill)
             }
