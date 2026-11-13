@@ -312,8 +312,6 @@ struct Res {
     item: u32,
     /// Last line's baseline from the border-box top, NaN without lines.
     baseline: f32,
-    /// First line's baseline from the border-box top, NaN without lines.
-    first: f32,
 }
 
 const F_TEXT: u8 = 0;
@@ -490,6 +488,9 @@ struct Engine<'a> {
     last_bl: f32,
     /// The first line's baseline in the box being laid out, NaN before it.
     first_bl: f32,
+    /// The first line's baseline of the box `layout_box` laid out last, from its
+    /// border-box top; NaN without lines.
+    box_first: f32,
     next_ord: u32,
     /// Floats placed so far, in the block formatting contexts being laid out.
     floats: Vec<FloatBox>,
@@ -524,6 +525,7 @@ pub fn layout(dom: &Dom, st: &[Style], fonts: &mut Fonts, images: &mut Images, v
         pool: Vec::new(),
         last_bl: NAN,
         first_bl: NAN,
+        box_first: NAN,
         next_ord: 1,
         floats: Vec::new(),
         bfc: 0,
@@ -1031,7 +1033,9 @@ impl<'a> Engine<'a> {
             let end = self.mark();
             self.zranges.push((first_item, end, s.z, seq));
         }
-        Res { h, mb: if bfc { sd.mb } else { collapse(sd.mb, mb_out) }, item, baseline, first }
+        // Kept beside `Res`, which stays small enough to return in registers.
+        self.box_first = first;
+        Res { h, mb: if bfc { sd.mb } else { collapse(sd.mb, mb_out) }, item, baseline }
     }
 
     /// Content of `<img>` (alt text placeholder) and `<input>` (its value).
@@ -1486,7 +1490,7 @@ impl<'a> Engine<'a> {
         // An inline flex container sits on its first baseline (CSS Flexbox 8.5); an
         // inline-block on its last, or on its bottom margin edge when it clips (CSS 2.1 10.8.1).
         let base = match s.display {
-            Display::InlineFlex if !r.first.is_nan() => sd.mt + r.first,
+            Display::InlineFlex if !self.box_first.is_nan() => sd.mt + self.box_first,
             _ if r.baseline.is_nan() || s.overflow_hidden => outer_h,
             _ => sd.mt + r.baseline,
         };
@@ -1862,7 +1866,7 @@ impl<'a> Engine<'a> {
                         it.h = r.h;
                         it.item = r.item;
                         // Without lines, the bottom of the border box stands for the baseline.
-                        it.bl = it.sd.mt + if r.first.is_nan() { r.h } else { r.first };
+                        it.bl = it.sd.mt + if self.box_first.is_nan() { r.h } else { self.box_first };
                     }
                     it.end = self.mark();
                     line_h = line_h.max(it.h + it.sd.mt + it.sd.mb);
